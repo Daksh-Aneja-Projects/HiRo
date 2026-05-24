@@ -1,0 +1,31 @@
+# /backend/.dockerignore
+
+# --- Block Python Cache & Local Environments (CRITICAL) ---
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+
+# --- Block Logs & Local Configs ---
+pip-log.txt
+*.log
+.env
+.env.*
+!.env.example
+
+# --- Block IDE & Git ---
+.git
+.gitignore
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- Block Docker Artifacts ---
+Dockerfile*
+docker-compose.yml
+.dockerignore

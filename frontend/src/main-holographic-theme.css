@@ -1,0 +1,65 @@
+/* --- main-holographic-theme.css --- */
+/* This file enforces the core layout structure and responsive behavior. */
+
+/* 1. PORTAL STRUCTURE (Compatible with new layout) */
+.portal-container {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  min-height: 100vh;
+  background: linear-gradient(135deg, var(--bg-deep) 0%, var(--bg-void) 100%);
+  overflow: hidden;
+}
+
+/* 2. Sidebar compatibility */
+.portal-sidebar {
+  width: 280px;
+  background: rgba(15, 20, 33, 0.95);
+  backdrop-filter: blur(12px);
+  border-right: 1px solid rgba(var(--accent-dynamic-rgb), 0.15);
+  padding: 24px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  position: relative;
+  z-index: 10;
+}
+
+/* 3. Main content area */
+.portal-main {
+  padding: 32px 40px;
+  overflow-y: auto;
+  position: relative;
+}
+
+/* 4. Content wrapper */
+.portal-content {
+  max-width: 1400px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* 5. Adaptive UI (Mobile/Tablet) */
+@media (max-width: 1024px) {
+  .portal-container {
+    grid-template-columns: 1fr;
+  }
+  .portal-sidebar {
+    width: 100%;
+    height: auto;
+    position: relative;
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0.5rem 1rem;
+    gap: 1rem;
+    /* Hide non-essential elements for horizontal strip */
+    .sidebar-header, .sidebar-footer { display: none; }
+    .sidebar-menu { display: flex; flex-direction: row; gap: 0.5rem; }
+    .nav-item { flex-shrink: 0; padding: 0.5rem 0.75rem; }
+    .nav-item span:nth-child(2) { display: none; } 
+    .nav-item svg { display: block; } 
+  }
+  .portal-main {
+    padding: 1rem;
+  }
+}

@@ -1,0 +1,83 @@
+// /frontend/src/components/AgentStatusMonitor.jsx - FINAL PRODUCTION-READY REPLACEMENT
+import React, { useMemo, memo } from 'react';
+import { theme as tokens } from '../theme';
+import { useAgentWebsocket } from '../hooks/useAgentWebsocket'; // CRITICAL FIX: Import WebSocket hook
+
+// UI COMPONENTS
+import DataCard from './DataCard';
+import ChartPlaceholder from './ChartPlaceholder';
+import { Cpu, Server, CheckCircle, Loader2, AlertTriangle, MessageSquare } from 'lucide-react';
+
+const AgentStatusMonitor = memo(() => {
+    
+    // CRITICAL API INTEGRATION: Use the WebSocket hook for live data
+    const { 
+        isConnected, 
+        telemetryMetrics 
+    } = useAgentWebsocket();
+
+    // Calculate derived status and values
+    const primaryStatus = isConnected ? 'ONLINE' : 'OFFLINE';
+    const statusColor = isConnected ? tokens.color?.success : tokens.color?.danger;
+    
+    // Default to zero or N/A when metrics are not yet received
+    const cpuLoad = telemetryMetrics?.cpu_load?.toFixed(1) || 'N/A';
+    const activeAgents = telemetryMetrics?.active_nodes || 0;
+    const messagesPerSecond = telemetryMetrics?.events_per_second?.toFixed(0) || 0;
+
+
+    const styles = useMemo(() => ({
+        grid: { display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: tokens.spacing?.lg, marginBottom: tokens.spacing?.lg },
+        card: { gridColumn: 'span 3' },
+        chart: { gridColumn: 'span 6', minHeight: '300px' },
+        statusHeader: { gridColumn: 'span 12', padding: tokens.spacing?.sm, borderRadius: tokens.border?.radius?.input, background: tokens.color?.['panel-700'], borderLeft: `4px solid ${statusColor}` }
+    }), [statusColor]);
+
+
+    return (
+        <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+            <div style={styles.statusHeader}>
+                <h3 style={{ margin: 0, color: tokens.color?.['text-100'], display: 'flex', alignItems: 'center', gap: tokens.spacing?.xs }}>
+                    <Server size={20} color={statusColor} /> 
+                    Orchestrator Kernel Status: {primaryStatus} 
+                    {!isConnected && <span style={{ color: tokens.color?.warning, marginLeft: tokens.spacing?.sm }}>(Attempting Reconnect...)</span>}
+                </h3>
+            </div>
+            
+            <div style={{...styles.grid, marginTop: tokens.spacing?.lg}}>
+                {/* Metrics Cards */}
+                <div style={styles.card}>
+                    <DataCard title="CPU Load" value={cpuLoad} unit="%" color={tokens.color?.warning}>
+                        <Cpu size={24} color={tokens.color?.warning} />
+                    </DataCard>
+                </div>
+                <div style={styles.card}>
+                    <DataCard title="Active Agents" value={activeAgents} unit="Nodes" color={tokens.color?.['accent-primary']}>
+                        <CheckCircle size={24} color={tokens.color?.['accent-primary']} />
+                    </DataCard>
+                </div>
+                <div style={styles.card}>
+                    <DataCard title="Event Bus TPS" value={messagesPerSecond} unit="Msg/s" color={tokens.color?.success}>
+                        <MessageCircle size={24} color={tokens.color?.success} />
+                    </DataCard>
+                </div>
+                <div style={styles.card}>
+                    <DataCard title="WS Latency" value={telemetryMetrics?.latency?.toFixed(0) || 'N/A'} unit="ms" color={tokens.color?.danger}>
+                        <AlertTriangle size={24} color={tokens.color?.danger} />
+                    </DataCard>
+                </div>
+                
+                {/* Charts */}
+                <div style={styles.chart}>
+                    <ChartPlaceholder label="Event Throughput History" minHeight="100%" />
+                </div>
+                <div style={styles.chart}>
+                    <ChartPlaceholder label="Agent Success/Failure Ratio" minHeight="100%" />
+                </div>
+            </div>
+        </div>
+    );
+});
+
+AgentStatusMonitor.displayName = 'AgentStatusMonitor';
+export default AgentStatusMonitor;

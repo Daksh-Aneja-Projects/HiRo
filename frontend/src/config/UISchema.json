@@ -1,0 +1,38 @@
+{
+  "title": "UIConfiguration",
+  "type": "object",
+  "properties": {
+    "themeHSL": {
+      "type": "object",
+      "description": "Custom color settings for the portal, including holographic depth (Dimensionality).",
+      "properties": {
+        "hue": { "type": "integer", "description": "Primary color hue (0-360)." },
+        "saturation": { "type": "integer", "description": "Saturation percentage (0-100)." },
+        "lightness": { "type": "integer", "description": "Lightness percentage (0-100)." },
+        "dimensionalityScore": { "type": "number", "minimum": 0, "maximum": 1, "description": "Controls holographic intensity (Extreme Idea #4)." }
+      },
+      "required": ["hue", "saturation", "lightness", "dimensionalityScore"]
+    },
+    "uiDensity": {
+      "type": "string",
+      "description": "Overall UI spacing and element size.",
+      "enum": ["compact", "standard", "spacious"]
+    },
+    "layoutChanges": {
+      "type": "array",
+      "description": "List of widget layout changes for the current portal (Canvas layout).",
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": { "type": "string", "description": "The unique ID of the widget (e.g., 'ess-dashboard')." },
+          "x": { "type": "integer", "description": "X position on the grid." },
+          "y": { "type": "integer", "description": "Y position on the grid." },
+          "w": { "type": "integer", "description": "Widget width in grid columns (1-12)." },
+          "h": { "type": "integer", "description": "Widget height in grid rows." }
+        },
+        "required": ["key", "x", "y", "w", "h"]
+      }
+    }
+  },
+  "required": ["themeHSL", "uiDensity", "layoutChanges"]
+}

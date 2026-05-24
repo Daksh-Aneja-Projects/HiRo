@@ -1,0 +1,27 @@
+# ============================================
+# Backend Development/Testing Requirements
+# ============================================
+# Install: pip install -r requirements-dev.txt
+
+# --- Linting/Formatting ---
+black==24.1.1
+isort==5.13.2
+mypy==1.8.0
+pylint==3.0.3
+bandit==1.7.7  # Security lint
+safety==3.0.1  # Vuln scan
+
+# --- Testing ---
+pytest==8.0.0
+pytest-asyncio==0.23.5
+pytest-cov==4.1.0
+pytest-httpx==0.30.0
+factory-boy==3.3.0
+faker==22.5.1
+freezegun==1.4.0
+responses==0.24.1
+mock==5.1.0
+httpx==0.26.0  # Mock HTTP
+
+# --- Docs/Other ---
+mkdocs==1.5.3

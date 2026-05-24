@@ -1,0 +1,46 @@
+/**
+ * Enterprise SAAS Theme - NEUTRALIZED
+ * Only provides variables, no concrete styles
+ */
+
+:root {
+  /* Primary Colors - Modern Blue Palette */
+  --color-primary: #2563EB;
+  --color-primary-dark: #1E40AF;
+  --color-primary-light: #3B82F6;
+  
+  /* Background Colors - Variables only, no enforcement */
+  --color-bg-primary: #FFFFFF;
+  --color-bg-secondary: #F8FAFC;
+  --color-bg-tertiary: #F1F5F9;
+  --color-bg-elevated: #FFFFFF;
+  
+  /* Text Colors */
+  --color-text-primary: #0F172A;
+  --color-text-secondary: #475569;
+  --color-text-tertiary: #64748B;
+  
+  /* Status Colors */
+  --color-success: #10B981;
+  --color-warning: #F59E0B;
+  --color-error: #EF4444;
+  --color-info: #3B82F6;
+  
+  /* Spacing */
+  --spacing-xs: 0.25rem;
+  --spacing-sm: 0.5rem;
+  --spacing-md: 1rem;
+  --spacing-lg: 1.5rem;
+  --spacing-xl: 2rem;
+}
+
+/* CRITICAL FIX: Ensure no background enforcement, allowing the main theme to control it */
+body, #root {
+  background: transparent !important;
+  color: inherit !important;
+}
+
+/* Remove transition side-effects */
+* {
+  transition: all 0.2s ease !important;
+}

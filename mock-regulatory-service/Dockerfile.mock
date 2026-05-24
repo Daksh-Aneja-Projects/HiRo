@@ -1,0 +1,34 @@
+# Dockerfile.mock
+# Use a lightweight Python base image
+FROM python:3.11-slim
+
+# Set the working directory inside the container
+WORKDIR /app
+
+# Create a directory for mock data and copy the app files
+RUN mkdir -p data
+
+# Copy the requirements file and install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# --- Mock Data Creation ---
+# NOTE: The data must be valid JSON for the Python app.py to load it.
+# Create the DE mock data file (MUST be valid JSON format)
+RUN echo '[{"jurisdiction_code": "DE", "text": "DE regulation update.", "policy_type": "COMPLIANCE", "date": "2025-01-01"}]' > data/DE
+
+# Create the US-CA mock data file (MUST be valid JSON format)
+RUN echo '[{"jurisdiction_code": "US-CA", "text": "California labor law change.", "policy_type": "COMPLIANCE", "date": "2025-01-01"}]' > data/US-CA
+
+# CRITICAL FIX: Add mock data for EU and APAC to prevent the 404 error
+RUN echo '[{"jurisdiction_code": "EU", "text": "New EU AI Act published.", "policy_type": "DATA_GOVERNANCE", "date": "2025-11-29"}]' > data/EU
+RUN echo '[{"jurisdiction_code": "APAC", "text": "APAC data residency requirements updated.", "policy_type": "DATA_GOVERNANCE", "date": "2025-11-29"}]' > data/APAC
+# -------------------------
+
+# Copy the main Flask application
+COPY app.py .
+# Expose the port
+EXPOSE 8080
+
+# CRITICAL: Run the Flask server in the foreground.
+CMD ["python", "app.py"]

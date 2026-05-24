@@ -1,0 +1,24 @@
+# backend/pac_engine_rs/Cargo.toml
+# Rust Crate configuration for the high-speed Policy-as-Code engine
+
+[package]
+name = "pac-engine-rs"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "pac_engine_rs" # The name Python will use to import the module: import pac_engine_rs
+crate-type = ["cdylib"] # Critical: Creates a C-compatible dynamic library (.so file)
+
+[dependencies]
+# PyO3 is the essential library for Rust-Python FFI
+pyo3 = { version = "0.20.0", features = ["extension-module"] }
+
+# Add other core libraries required for Policy-as-Code (PaC) enforcement:
+# Example for advanced string manipulation or serialization:
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+regex = "1.10.3" 
+
+# Consider adding cryptographic libraries here for PII tokenization/detokenization
+# e.g., 'ring' or 'pqc-rust' (for future quantum safety)

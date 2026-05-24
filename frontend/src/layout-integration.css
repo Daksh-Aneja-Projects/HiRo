@@ -1,0 +1,89 @@
+/* ============================================ */
+/* holographic-theme.css - HOLOGRAPHIC VARIABLES */
+/* This file provides the core variables referenced by ALL components. */
+/* ============================================ */
+
+/* 1. CORE VARIABLES */
+:root {
+  --holo-primary: #00f3ff;
+  --holo-secondary: #7a5bff;
+  --holo-accent-1: #00ff9e;
+  --holo-accent-2: #ffd24a;
+  
+  /* Status Colors */
+  --holo-success: var(--holo-accent-1);
+  --holo-warning: var(--holo-accent-2);
+  --holo-error: #ff345e;
+  
+  /* Backgrounds & Contrast */
+  --bg-void: #06090d;
+  --bg-deep: #030611;
+  --bg-panel: #0c1218;
+  --bg-input: #04070a;
+  --glass-bg: rgba(12, 18, 24, 0.88);
+  --glass-backdrop: blur(12px);
+
+  /* Text */
+  --text-primary: #e6f7ff;
+  --text-secondary: #a0b0c0;
+  --text-muted: #7d96a6;
+  
+  /* Borders & Shadows */
+  --glass-border: rgba(0, 243, 255, 0.2);
+  --border-subtle: 1px solid rgba(255, 255, 255, 0.1);
+  --shadow-panel: 0 4px 15px rgba(0, 0, 0, 0.5);
+
+  /* Spacing & Radius */
+  --space-md: 0.75rem;
+  --space-lg: 1rem;
+  --space-xl: 1.5rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+  
+  /* Dynamic Accent RGB (for shadows/transparency) */
+  --accent-dynamic-rgb: 0, 243, 255; 
+}
+
+/* 2. COMPATIBILITY LAYER FOR NEW LAYOUT (Ensures all elements inherit holographic design) */
+
+.org360-container {
+  background: var(--bg-void) !important;
+}
+
+.sidebar {
+  background: var(--bg-dark) !important;
+  border-right: 1px solid rgba(var(--accent-dynamic-rgb), 0.15) !important;
+}
+
+.logo {
+  color: var(--holo-primary) !important;
+}
+
+.nav-item {
+  color: var(--text-secondary) !important;
+}
+
+.nav-item.active {
+  background: linear-gradient(90deg, 
+    rgba(var(--accent-dynamic-rgb), 0.3), 
+    rgba(var(--accent-dynamic-rgb), 0.1)) !important;
+  color: var(--text-primary) !important;
+}
+
+.card, .glass-card {
+  background: var(--glass-bg) !important;
+  border: 1px solid var(--glass-border) !important;
+}
+
+.btn-primary {
+  background: linear-gradient(90deg, 
+    var(--holo-primary), 
+    var(--holo-secondary)) !important;
+  color: var(--bg-deep) !important;
+}
+
+.table th {
+  color: var(--text-secondary) !important;
+  border-bottom: 1px solid rgba(var(--accent-dynamic-rgb), 0.2) !important;
+}

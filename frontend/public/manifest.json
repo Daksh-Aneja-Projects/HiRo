@@ -1,0 +1,43 @@
+{
+  "name": "HiRo - Agentic AI Powered People Management",
+  "short_name": "HiRo",
+  "description": "AI-Powered Complete HR Management Platform",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#030611",
+  "theme_color": "#00f3ff",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/logo.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/logo192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/logo512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/screenshot1.png",
+      "sizes": "1920x1080",
+      "type": "image/png"
+    }
+  ],
+  "categories": ["business", "productivity", "hr"],
+  "prefer_related_applications": false,
+  "related_applications": [],
+  "scope": "/",
+  "lang": "en-US",
+  "dir": "ltr"
+}

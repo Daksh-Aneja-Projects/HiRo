@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#00f3ff">
+    <meta name="description" content="AI-Powered Complete HR Management Platform">
+    <title>HiRo Enterprise Platform</title>
+    
+    <link rel="manifest" href="/manifest.json">
+    <link rel="icon" type="image/svg+xml" href="/logo.svg">
+    <link rel="apple-touch-icon" href="/logo192.png">
+    
+    <style>
+        :root {
+            /* CORE HOLOGRAPHIC VARIABLES */
+            --holo-primary: #00f3ff;
+            --holo-secondary: #7a5bff;
+            --bg-main: #06090d;
+            --bg-deep: #030611;
+            --text-primary: #e6f7ff;
+            --text-muted: #7d96a6;
+            --bg-panel: #0c1218;
+            --bg-input: #04070a;
+            --radius-xl: 0.75rem;
+            --vh: 1vh;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, var(--bg-deep), var(--bg-main));
+            color: var(--text-primary);
+            min-height: 100vh;
+            min-height: calc(var(--vh, 1vh) * 100); /* CRITICAL FIX: Adaptive viewport height */
+            overflow-x: hidden;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        
+        #root {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        /* Loading Screen Styles (Holographic Pre-loader) */
+        .loading-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: var(--bg-deep);
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            opacity: 1;
+            transition: opacity 0.5s ease-out;
+        }
+        
+        .loading-screen.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        
+        .holo-spinner {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            border: 5px solid rgba(0, 243, 255, 0.2);
+            border-top-color: var(--holo-primary);
+            animation: holo-spin 1s linear infinite;
+            margin-bottom: 1rem;
+            box-shadow: 0 0 10px rgba(0, 243, 255, 0.4);
+        }
+        
+        @keyframes holo-spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .loading-text {
+            color: var(--text-muted);
+            font-size: 1rem;
+        }
+        
+        /* Style for the install button (PWA) */
+        .install-prompt {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 10px 20px;
+            background-color: var(--holo-primary);
+            color: var(--bg-deep);
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            z-index: 999;
+            box-shadow: 0 4px 15px rgba(0, 243, 255, 0.5);
+            transition: opacity 0.3s ease-in-out;
+        }
+        
+        .install-prompt.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <noscript>You need to enable JavaScript to run this app.</noscript>
+    
+    <div class="loading-screen" id="loadingScreen">
+        <div class="holo-spinner"></div>
+        <div class="loading-text">Loading HiRo...</div>
+    </div>
+    
+    <div id="root"></div>
+    
+    <button class="install-prompt hidden" id="installBtn">
+        Install HiRo PWA
+    </button>
+    
+    <script>
+        let deferredPrompt;
+        const installButton = document.getElementById('installBtn');
+        const loadingScreen = document.getElementById('loadingScreen');
+        
+        // Hide loading screen after DOM content is loaded (React will take over)
+        document.addEventListener('DOMContentLoaded', () => {
+            if (loadingScreen) {
+                // Ensure a minimum display time for aesthetics
+                setTimeout(() => {
+                    loadingScreen.classList.add('hidden');
+                }, 500);
+            }
+        });
+        
+        // Mobile viewport height fix (Required for adaptive UI consistency)
+        const updateVh = () => {
+            const vh = window.innerHeight * 0.01;
+            document.documentElement.style.setProperty('--vh', `${vh}px`);
+        };
+        window.addEventListener('resize', updateVh);
+        updateVh();
+        
+        // CRITICAL FIX: PWA Installation Prompt Logic
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            installButton.classList.remove('hidden');
+            console.log("PWA: Installation prompt deferred.");
+        });
+
+        installButton.addEventListener('click', async () => {
+            if (deferredPrompt) {
+                deferredPrompt.prompt();
+                const { outcome } = await deferredPrompt.userChoice;
+                console.log(`PWA: User response to prompt: ${outcome}`);
+                deferredPrompt = null;
+                installButton.classList.add('hidden'); // Hide button regardless of outcome
+            }
+        });
+        
+        // Optional: Hide button if the app is already installed
+        window.addEventListener('appinstalled', () => {
+            installButton.classList.add('hidden');
+            console.log('PWA: App successfully installed.');
+        });
+    </script>
+</body>
+</html>

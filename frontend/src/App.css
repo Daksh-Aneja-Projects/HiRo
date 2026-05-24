@@ -1,0 +1,177 @@
+/* src/App.css - GOOGLE LEVEL PREMIUM UI (Material 3 Inspired, Anti-Distortion Stabilized) */
+.App {
+    min-height: 100vh;
+    /* CRITICAL FIX: Prevent all overflow distortions from sidebar/portal layers */
+    overflow: hidden; 
+    /* Premium background: Dynamic holographic gradient for Google-level immersion */
+    background: linear-gradient(135deg, var(--bg-main, #0a192f) 0%, var(--bg-secondary, #001e3c) 100%);
+    display: flex;
+    flex-direction: column;
+    transition: background 0.5s ease-in-out;
+}
+
+/* Fix for nested portal content: Ensure full fill, no distortion, with smooth scroll */
+.social-feed-container, .org360-hr-shell, .portal-container, .hr-content-wrapper, .collaboration-portal {
+     /* New: For collaboration portal stability */
+    flex-grow: 1;
+    max-height: 100vh;
+    overflow-y: auto; /* CRITICAL FIX: Handles vertical scroll within the content area */
+    position: relative;
+    z-index: 5; /* Above all background layers to prevent overlap distortion */
+    animation: fadeIn 0.6s ease-out forwards;
+}
+
+/* Premium Custom Scrollbar (Material 3 themed) */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+/* ... rest of the scrollbar styles ... */
+::-webkit-scrollbar-track {
+    background: rgba(0,0,0,0.15);
+    border-radius: 10px;
+}
+::-webkit-scrollbar-thumb {
+    background: var(--holo-primary, rgba(0, 243, 255, 0.5));
+    border-radius: 10px;
+    box-shadow: 0 0 6px rgba(0, 243, 255, 0.3);
+}
+::-webkit-scrollbar-thumb:hover {
+    background: var(--holo-primary, rgba(0, 243, 255, 0.8));
+}
+
+/* Enhanced Focus States (Holographic Glow with Material Ripple) */
+*:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--holo-primary, #00f3ff);
+    transition: box-shadow 0.2s ease;
+}
+
+/* Utility Classes (Expanded for Flex Stability) */
+.flex { display: flex; }
+.justify-center { justify-content: center; }
+.items-center { align-items: center; }
+.min-h-screen { min-height: 100vh; }
+.glassmorphic {
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.37);
+}
+
+/* Holographic Inputs (Premium Glow on Hover/Focus) */
+.holo-input-label {
+    font-size: 0.875rem;
+    color: var(--muted-500, #8f9fb2);
+    margin-bottom: 6px;
+    display: block;
+    font-weight: 500;
+    transition: color 0.2s ease;
+}
+
+.holo-input, .holo-select, .holo-textarea {
+    width: 100%;
+    padding: 12px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border-600, #324a74);
+    border-radius: 8px;
+    color: var(--text-100, #e0f7fa);
+    font-size: 1rem;
+    outline: none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.holo-input:hover, .holo-select:hover, .holo-textarea:hover {
+    border-color: var(--holo-primary, #00f3ff);
+}
+
+.holo-input:focus, .holo-select:focus, .holo-textarea:focus {
+    box-shadow: 0 0 0 3px rgba(0, 243, 255, 0.2);
+}
+
+/* Buttons (Material Ripple Effect Integrated) */
+.primary-button, .secondary-button {
+    cursor: pointer;
+    border: none;
+    padding: 12px 16px;
+    border-radius: 8px;
+    font-weight: 500;
+    transition: background 0.2s ease, transform 0.1s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    position: relative;
+    overflow: hidden;
+}
+
+.primary-button::after {
+    content: '';
+    position: absolute;
+    width: 0;
+    height: 0;
+    background: rgba(255,255,255,0.2);
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    transition: width 0.6s ease, height 0.6s ease;
+}
+
+.primary-button:active::after {
+    width: 200%;
+    height: 200%;
+}
+
+/* HR Card (Enhanced Glassmorphism, No Distortion) */
+.hr-card {
+    background: var(--panel-800, #132c4e);
+    border: 1px solid var(--border-600, #324a74);
+    border-radius: 16px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+    padding: 24px;
+    transition: transform 0.3s ease;
+}
+
+.hr-card:hover {
+    transform: translateY(-4px);
+}
+
+/* Tabs (Premium Hover Effects) */
+.module-tabs .tab-btn {
+    background: var(--panel-700, #1a375f);
+    border: 1px solid var(--border-600, #324a74);
+    color: var(--text-100, #e0f7fa);
+    padding: 10px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.2s ease, color 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 1rem;
+    font-weight: 500;
+}
+
+.module-tabs .tab-btn.active {
+    background: var(--accent-2, rgba(0, 200, 255, 0.15));
+    color: var(--accent-primary, #00c8ff);
+    border-color: var(--accent-primary, #00c8ff);
+}
+
+.module-tabs .tab-btn:hover:not(.active) {
+    background: var(--panel-600, #254471);
+    box-shadow: 0 0 8px rgba(0, 200, 255, 0.2);
+}
+
+/* New: Animations for Seamless UI */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* New: Collaboration Portal Specific (To Fix Distortion) */
+.collaboration-portal {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden; /* Prevent layer distortion */
+}

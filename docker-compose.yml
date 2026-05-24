@@ -1,0 +1,381 @@
+services:
+  mongo:
+    image: mongo:6.0
+    container_name: hiro-mongo
+    restart: always
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-supersecurepassword}
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    command: mongod --wiredTigerCacheSizeGB 0.5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1280M
+        reservations:
+          cpus: '0.2'
+          memory: 640M
+
+  redis:
+    image: redis:7-alpine
+    container_name: hiro-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  postgres_db:
+    image: postgres:16-alpine
+    container_name: hiro-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: hiro_user
+      POSTGRES_PASSWORD: hiro_postgres_dev_2026
+      POSTGRES_DB: hiro_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hiro_user -d hiro_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1280M
+        reservations:
+          cpus: '0.2'
+          memory: 640M
+
+  nats:
+    image: nats:2.10-alpine
+    container_name: hiro-nats
+    restart: always
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    volumes:
+      - nats_data:/data/jetstream
+    command: 
+      - -js
+      - -sd=/data/jetstream
+      - -m=8222
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "4222"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.3'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  dgraph-zero:
+    image: dgraph/dgraph:latest
+    container_name: hiro-dgraph-zero
+    restart: on-failure
+    volumes:
+      - dgraph_zero:/dgraph
+      - ./dgraph_init:/dgraph_init
+    ports:
+      - "5080:5080"
+      - "6080:6080"
+    command: dgraph zero --my=dgraph-zero:5080
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1536M
+        reservations:
+          cpus: '0.1'
+          memory: 768M
+
+  dgraph-alpha:
+    image: dgraph/dgraph:latest
+    container_name: hiro-dgraph-alpha
+    restart: on-failure
+    volumes:
+      - dgraph_alpha:/dgraph
+      - ./dgraph_init:/dgraph_init
+    ports:
+      - "7080:7080"
+      - "8080:8080"
+      - "9080:9080"
+    environment:
+      DGRAPH_HOST: dgraph-alpha
+    command: dgraph alpha --my=dgraph-alpha:7080 --zero=dgraph-zero:5080 --security whitelist=0.0.0.0/0
+    depends_on:
+      dgraph-zero:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 3072M
+        reservations:
+          cpus: '0.2'
+          memory: 1536M
+
+  dgraph-init:
+    image: curlimages/curl:latest
+    container_name: hiro-dgraph-init
+    volumes:
+      - ./dgraph_init:/dgraph_init
+    environment:
+      DGRAPH_URL: http://dgraph-alpha:8080
+    depends_on:
+      dgraph-alpha:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "/dgraph_init/init_schema.sh"]
+    restart: "no"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 128M
+
+  ollama:
+    build:
+      context: .
+      # NOTE: This Dockerfile will be updated to use the simple 'llama3' tag.
+      dockerfile: Dockerfile.ollama
+    image: custom-ollama-llama3
+    container_name: hiro-ollama
+    restart: always
+    volumes:
+      - ollama_storage:/root/.ollama
+    ports:
+      - "11434:11434"
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+      - OLLAMA_ORIGINS=*
+    healthcheck:
+      # Test checks if the server is running and API tags are accessible
+      test: ["CMD-SHELL", "curl -f http://localhost:11434/api/tags || exit 1"] 
+      interval: 20s
+      timeout: 10s
+      retries: 30 
+      start_period: 240s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4096M
+        reservations:
+          cpus: '1.0'
+          memory: 2048M
+
+  mock-regulatory-service:
+    build:
+      context: ./mock-regulatory-service 
+      dockerfile: Dockerfile.mock
+    image: hiro-regulatory-mock
+    container_name: hiro-regulatory-mock
+    restart: always
+    ports:
+      - "8081:8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/feed')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 256M
+        reservations:
+          cpus: '0.05'
+          memory: 128M
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.backend 
+    container_name: hiro-backend
+    restart: always
+    env_file: .env
+    environment:
+      HOST: ${HOST:-0.0.0.0}
+      PORT: ${PORT:-8001}
+      ENV: ${ENV:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      MONGO_URL: ${MONGO_URL:-mongodb://admin:hiro_mongo_dev_2026@mongo:27017/hiro_db?authSource=admin}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      POSTGRES_URL: ${POSTGRES_URL:-postgresql://hiro_user:hiro_postgres_dev_2026@postgres_db:5432/hiro_db}
+      DGRAPH_URL: ${DGRAPH_URL:-http://dgraph-alpha:8080}
+      NATS_URL: ${NATS_URL:-nats://nats:4222}
+      MONGO_USER: ${MONGO_USER:-admin}
+      MONGO_PASSWORD: ${MONGO_PASSWORD:-hiro_mongo_dev_2026}
+      MONGO_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-hiro_mongo_dev_2026}
+      MONGO_HOST: ${MONGO_HOST:-mongo}
+      MONGO_PORT: ${MONGO_PORT:-27017}
+      MONGO_DB_NAME: ${MONGO_DB_NAME:-hiro_db}
+      POSTGRES_USER: ${POSTGRES_USER:-hiro_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hiro_postgres_dev_2026}
+      POSTGRES_HOST: ${POSTGRES_HOST:-postgres_db}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_DB: ${POSTGRES_DB:-hiro_db}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_DB: ${REDIS_DB:-0}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      JWT_ACCESS_TOKEN_EXPIRE_MINUTES: ${JWT_ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+      PII_SALT: ${PII_SALT}
+      DEFAULT_TEST_PASSWORD: ${DEFAULT_TEST_PASSWORD:-demo123}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-secure_admin_password}
+      AGENT_SIGNING_SECRET: ${AGENT_SIGNING_SECRET:-org360_zero_trust_shared_key_993478}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      LLM_OLLAMA_URL: ${LLM_OLLAMA_URL:-http://ollama:11434}
+      # 🚨 FIX 1: Explicitly pass the model name for Ollama to match the installed model/API
+      LLM_OLLAMA_MODEL_NAME: ${LLM_OLLAMA_MODEL_NAME:-llama3}
+      NATS_JETSTREAM_DOMAIN: ${NATS_JETSTREAM_DOMAIN:-HIRO_STREAM}
+      NATS_MAX_RETRIES: ${NATS_MAX_RETRIES:-5}
+      NATS_RETRY_SLEEP_SECONDS: ${NATS_RETRY_SLEEP_SECONDS:-2.0}
+      NATS_CONNECT_TIMEOUT_SECONDS: ${NATS_CONNECT_TIMEOUT_SECONDS:-5.0}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000,http://127.0.0.1:3000}
+      RATE_LIMIT_RPM: ${RATE_LIMIT_RPM:-1000}
+      MAX_BODY_SIZE_MB: ${MAX_BODY_SIZE_MB:-100}
+      POLICY_SCRAPING_INTERVAL_SECONDS: ${POLICY_SCRAPING_INTERVAL_SECONDS:-21600}
+      DTLA_SCENARIO_INTERVAL_SECONDS: ${DTLA_SCENARIO_INTERVAL_SECONDS:-43200}
+      DTLA_RISK_THRESHOLD: ${DTLA_RISK_THRESHOLD:-0.8}
+      EXTERNAL_API_TIMEOUT_SECONDS: ${EXTERNAL_API_TIMEOUT_SECONDS:-30.0}
+      HRIT_MANAGER_APPROVERS: ${HRIT_MANAGER_APPROVERS:-Alice_HRIT,Bob_Comp_VP}
+      SNOW_API_URL: ${SNOW_API_URL:-https://mock.servicenow.com/api}
+      REGULATORY_FEED_URL: ${REGULATORY_FEED_URL:-http://mock-regulatory-service:8080/feed}
+      DB_WAIT_TIMEOUT: ${DB_WAIT_TIMEOUT:-120}
+      DB_WAIT_INTERVAL: ${DB_WAIT_INTERVAL:-3.0}
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      postgres_db:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      dgraph-alpha:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+      mock-regulatory-service:
+        condition: service_healthy
+    ports:
+      - "8001:8001"
+    # Removed unsafe source code volume mount:
+    # volumes:
+    #   - ./backend:/app
+    healthcheck:
+      # CHANGED: Added /api/health to match server.py
+      test: ["CMD", "curl", "-f", "http://localhost:8001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2560M
+        reservations:
+          cpus: '0.5'
+          memory: 1280M
+
+  nginx_proxy:
+    build:
+      # =========================================================
+      # CRITICAL FIX: CONTEXT IS NOW ROOT (.) 
+      # This allows access to nginx-wait.sh in the root directory.
+      # =========================================================
+      context: .
+      dockerfile: frontend/Dockerfile.frontend
+      args:
+        - REACT_APP_BACKEND_URL=/api
+        - REACT_APP_ENABLE_VISUAL_EDITS=true
+        - REACT_APP_ORCHESTRATOR_API_URL=${REACT_APP_ORCHESTRATOR_API_URL:-http://localhost:8001}
+        - REACT_APP_GEMINI_API_KEY=${REACT_APP_GEMINI_API_KEY}
+        - REACT_APP_JWT_SECRET=${REACT_APP_JWT_SECRET}
+    image: hiro-frontend-gateway
+    container_name: hiro-gateway
+    restart: always
+    ports:
+      # >>>>>>>>>>>>>>>>>>>>>> THE ONLY CHANGE <<<<<<<<<<<<<<<<<<<<<<<<
+      # Allows access from other devices on the local network (Wi-Fi)
+      - "0.0.0.0:80:80"
+      # >>>>>>>>>>>>>>>>>>>>>> THE ONLY CHANGE <<<<<<<<<<<<<<<<<<<<<<<<
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.3'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 256M
+
+volumes:
+  mongo_data:
+    driver: local
+  redis_data:
+    driver: local
+  postgres_data:
+    driver: local
+  nats_data:
+    driver: local
+  dgraph_zero:
+    driver: local
+  dgraph_alpha:
+    driver: local
+  ollama_storage:
+    driver: local

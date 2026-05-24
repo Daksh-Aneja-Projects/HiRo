@@ -1,0 +1,51 @@
+# .dockerignore (ROOT)
+
+# --- Version Control ---
+.git
+.gitignore
+.gitattributes
+
+# --- Dependencies & Environments (CRITICAL) ---
+**/node_modules
+**/bower_components
+**/.venv
+**/venv
+**/env
+**/.env
+**/.env.*
+!.env.example
+
+# --- Python Artifacts (THE NATS KILLERS) ---
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/.Python
+**/pip-log.txt
+
+# --- Logs & OS Files ---
+**/*.log
+**/.DS_Store
+**/Thumbs.db
+
+# --- Docker & Compose ---
+docker-compose.yml
+docker-compose*.yml
+.dockerignore
+**/Dockerfile*
+
+# --- Local Volume Data (Prevent recursive copying) ---
+mongo_data/
+redis_data/
+postgres_data/
+nats_data/
+dgraph_zero/
+dgraph_alpha/
+ollama_storage/
+dgraph_init/
+
+# --- IDE Settings ---
+.vscode/
+.idea/
+*.swp
+*.swo

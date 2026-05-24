@@ -1,0 +1,25 @@
+{
+  "title": "SynthesizedDashboard",
+  "type": "object",
+  "properties": {
+    "widgets": {
+      "type": "array",
+      "description": "List of dynamically generated and arranged widgets/charts.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": { "type": "string", "description": "Unique ID for the widget (UUID)."},
+          "title": { "type": "string", "description": "A descriptive title derived from the prompt."},
+          "metricKey": { "type": "string", "description": "The specific metric ID required for data fetching."},
+          "vizType": { "type": "string", "enum": ["BarChart", "LineChart", "PieChart", "GeoMap", "StatCard", "SynthesizedCard"], "description": "The best visualization type for this data and context."},
+          "w": { "type": "integer", "enum": [4, 6, 8, 12], "description": "Width in grid columns."},
+          "h": { "type": "integer", "description": "Height in grid rows."},
+          "filters": { "type": "object", "description": "All necessary filters extracted from the prompt (e.g., { location: 'NY', timeframe: 'Q3' })."},
+          "dataEndpoint": { "type": "string", "description": "URL endpoint where the widget can fetch its data post-synthesis."}
+        },
+        "required": ["key", "title", "metricKey", "vizType", "w", "h", "filters", "dataEndpoint"]
+      }
+    }
+  },
+  "required": ["widgets"]
+}

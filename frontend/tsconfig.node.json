@@ -1,0 +1,45 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "skipLibCheck": true,
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowSyntheticDefaultImports": true,
+    "strict": true,
+    "noEmit": false,
+    "outDir": "./dist",
+    "rootDir": "./",
+    "types": ["node"],
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": [
+    "craco.config.js",
+    "tailwind.config.js",
+    "vite.config.*",
+    "vitest.config.*",
+    "jest.config.*",
+    "webpack.config.*",
+    "rollup.config.*",
+    "postcss.config.*",
+    "eslint.config.*",
+    "scripts/**/*",
+    "bin/**/*",
+    "tools/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "build",
+    "coverage",
+    "**/__tests__/**",
+    "**/__mocks__/**"
+  ]
+}
