@@ -368,7 +368,10 @@ async def resolve_ticket(req: Request, ticket_id: str, resolution_summary: str =
 
 @hrsd_router.get("/monitoring/overview")
 async def get_hrsd_overview(req: Request, payload: Dict=Depends(manager_role_required)):
-    return {"active_tickets": 12, "sla_breaches": 0, "agent_status": "Online"}
+    hrsd_system: MultiAgentHRSDSystem = getattr(req.app.state, "hrsd_system", None)
+    if not hrsd_system:
+        raise HTTPException(status_code=503, detail="HRSD System unavailable.")
+    return await hrsd_system.get_overview()
 
 @hrsd_router.post("/integrations/snow/sync")
 async def sync_servicenow(req: Request, payload: Dict=Depends(hrit_admin_role_required)):
