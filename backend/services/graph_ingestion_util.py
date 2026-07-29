@@ -31,8 +31,7 @@ class GraphIngestionUtil:
         for i in range(MAX_RETRIES):
             try:
                 resp = self.session.post(self.mutate_url, json=payload, timeout=5)
-                if 
-                resp.status_code == 200:
+                if resp.status_code == 200:
                     return {"success": True, "data": resp.json()}
             except Exception as e:
                 logger.warning(f"Dgraph attempt {i+1} failed: {e}")

@@ -38,19 +38,19 @@ const NAVBAR_HEIGHT = '60px';
 
 // --- Main Authenticated Layout Container (Nested Router Element) ---
 /**
- * Renders the Sidebar and the main content Outlet.
+ * Renders the Floating Dock and the main content Outlet.
  */
-const MainLayoutContainer = memo(({ isSidebarExpanded, toggleSidebar }) => (
+const MainLayoutContainer = memo(() => (
     <>
-        {/* CRITICAL FIX: Ensure the stabilized Sidebar is used */}
-        <Sidebar isExpanded={isSidebarExpanded} toggleSidebar={toggleSidebar} />
-        
-        <div style={styles.contentView(isSidebarExpanded)}>
+        <div style={styles.contentView}>
             {/* The actual page component renders here */}
             <Suspense fallback={<LoadingScreen />}> 
                  <Outlet />
             </Suspense>
         </div>
+        
+        {/* Floating Dock overrides traditional Sidebar */}
+        <Sidebar />
         
         {/* CRITICAL: Styles moved to AppWrapper or Global CSS (keeping them here for reference stability) */}
         <style>{`
@@ -74,12 +74,12 @@ const AppWrapper = memo(() => {
     return (
         <div className="App" style={styles.appContainer}>
             {/* CRITICAL FIX: Navbar is rendered outside the main content area, always visible */}
-            <Navbar onSidebarToggle={toggleSidebar} /> 
+            <Navbar /> 
 
             <div style={styles.mainContentArea}>
-                {/* If authenticated, render the full layout (Sidebar + Outlet) */}
+                {/* If authenticated, render the full layout (Dock + Outlet) */}
                 {isAuthenticated ? (
-                    <MainLayoutContainer isSidebarExpanded={isSidebarExpanded} toggleSidebar={toggleSidebar} />
+                    <MainLayoutContainer />
                 ) : (
                     /* If NOT authenticated, render only the content outlet (Login Page) */
                     <div style={{ flexGrow: 1, minWidth: '100vw' }}>
@@ -113,16 +113,14 @@ const styles = {
         height: `calc(100vh - ${NAVBAR_HEIGHT})`, 
         overflow: 'hidden', 
     },
-    contentView: (isExpanded) => ({
+    contentView: {
         flexGrow: 1,
-        padding: tokens.spacing?.lg,
+        padding: '24px 24px 100px 24px', // Extra bottom padding so dock doesn't obscure content
         minWidth: 0,
-        // CRITICAL FIX: Ensure main content is scrollable and fills the remaining height
         height: '100%', 
         overflowY: 'auto', 
         overflowX: 'hidden',
-        transition: 'margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-    }),
+    },
 };
 
 

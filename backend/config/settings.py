@@ -100,15 +100,10 @@ class Settings:
     AGENT_SIGNING_SECRET: SecretStr = SecretStr(get_env_variable("AGENT_SIGNING_SECRET", "hiro_zero_trust_production_key_1001001"))
     HRIT_MANAGER_APPROVERS: List[str] = get_env_variable("HRIT_MANAGER_APPROVERS", "Alice_HRIT,Bob_Comp_VP").split(',')
     
-    # --- Federated AI Service Keys ---
-    GEMINI_API_KEY: SecretStr = SecretStr(get_env_variable("GEMINI_API_KEY", ""))
-    GROQ_API_KEY: SecretStr = SecretStr(get_env_variable("GROQ_API_KEY", ""))
+    # --- Local AI Service (Ollama only) ---
     OLLAMA_BASE_URL: str = get_env_variable("OLLAMA_BASE_URL", "http://ollama:11434")
-    
-    # --- CRITICAL FIX: AI Model Names ---
-    GEMINI_MODEL_NAME: str = get_env_variable("GEMINI_MODEL_NAME", "gemini-2.5-flash")
-    GROQ_MODEL_NAME: str = get_env_variable("GROQ_MODEL_NAME", "llama-3.1-8b-instant")
-    LLM_MODEL_NAME: str = get_env_variable("LLM_MODEL_NAME", "gemini-2.5-flash") # Reverting to flash model for consistency/speed
+    # Default local model: qwen2.5 7B — lightweight, tool-calling capable, CPU-friendly.
+    LLM_MODEL_NAME: str = get_env_variable("LLM_MODEL_NAME", "qwen2.5:7b")
     
     # --- Agent Configuration Defaults ---
     POLICY_SCRAPING_INTERVAL_SECONDS: int = int(get_env_variable("POLICY_SCRAPING_INTERVAL_SECONDS", str(3600 * 24)))
@@ -208,7 +203,7 @@ class Settings:
     # --- SI INTEGRATION: REMEDIATION CONFIGURATION (Retained from the latest user submission) ---
     REMEDIATION_MAX_ATTEMPTS: int = int(get_env_variable("REMEDIATION_MAX_ATTEMPTS", "3"))
     REMEDIATION_AUTO_APPLY: bool = get_env_variable("REMEDIATION_AUTO_APPLY", "false").lower() == "true"
-    REMEDIATION_AI_MODEL: str = get_env_variable("REMEDIATION_AI_MODEL", "gemini-2.5-flash")
+    REMEDIATION_AI_MODEL: str = get_env_variable("REMEDIATION_AI_MODEL", "qwen2.5:7b")
     REMEDIATION_TIMEOUT_SECONDS: int = int(get_env_variable("REMEDIATION_TIMEOUT_SECONDS", "60"))
     
     # --- SI INTEGRATION: REAL-TIME MONITORING (Retained from the latest user submission) ---

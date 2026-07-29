@@ -175,9 +175,8 @@ services:
   ollama:
     build:
       context: .
-      # NOTE: This Dockerfile will be updated to use the simple 'llama3' tag.
       dockerfile: Dockerfile.ollama
-    image: custom-ollama-llama3
+    image: hiro-ollama
     container_name: hiro-ollama
     restart: always
     volumes:
@@ -265,13 +264,11 @@ services:
       DEFAULT_TEST_PASSWORD: ${DEFAULT_TEST_PASSWORD:-demo123}
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-secure_admin_password}
-      AGENT_SIGNING_SECRET: ${AGENT_SIGNING_SECRET:-org360_zero_trust_shared_key_993478}
-      GEMINI_API_KEY: ${GEMINI_API_KEY}
-      GROQ_API_KEY: ${GROQ_API_KEY}
+      AGENT_SIGNING_SECRET: ${AGENT_SIGNING_SECRET:-hiro_zero_trust_shared_key_993478}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
-      LLM_OLLAMA_URL: ${LLM_OLLAMA_URL:-http://ollama:11434}
-      # 🚨 FIX 1: Explicitly pass the model name for Ollama to match the installed model/API
-      LLM_OLLAMA_MODEL_NAME: ${LLM_OLLAMA_MODEL_NAME:-llama3}
+      LLM_MODEL_NAME: ${LLM_MODEL_NAME:-qwen2.5:7b}
+      # Explicit Ollama model override (matches the model baked into the ollama image)
+      LLM_OLLAMA_MODEL_NAME: ${LLM_OLLAMA_MODEL_NAME:-qwen2.5:7b}
       NATS_JETSTREAM_DOMAIN: ${NATS_JETSTREAM_DOMAIN:-HIRO_STREAM}
       NATS_MAX_RETRIES: ${NATS_MAX_RETRIES:-5}
       NATS_RETRY_SLEEP_SECONDS: ${NATS_RETRY_SLEEP_SECONDS:-2.0}
@@ -336,8 +333,6 @@ services:
         - REACT_APP_BACKEND_URL=/api
         - REACT_APP_ENABLE_VISUAL_EDITS=true
         - REACT_APP_ORCHESTRATOR_API_URL=${REACT_APP_ORCHESTRATOR_API_URL:-http://localhost:8001}
-        - REACT_APP_GEMINI_API_KEY=${REACT_APP_GEMINI_API_KEY}
-        - REACT_APP_JWT_SECRET=${REACT_APP_JWT_SECRET}
     image: hiro-frontend-gateway
     container_name: hiro-gateway
     restart: always

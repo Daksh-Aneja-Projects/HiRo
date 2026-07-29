@@ -27,28 +27,6 @@ const requiredEnvVars = {
       return null;
     },
   },
-  REACT_APP_GEMINI_API_KEY: {
-    required: false,
-    description: 'Google Gemini API Key',
-    validation: (value) => {
-      if (!value) return 'Warning: Gemini features will be disabled';
-      if (value.length < 20) return 'Invalid API key format';
-      return null;
-    },
-  },
-  REACT_APP_JWT_SECRET: {
-    required: process.env.NODE_ENV === 'production',
-    description: 'JWT signing secret',
-    validation: (value) => {
-      if (!value && process.env.NODE_ENV === 'production') {
-        return 'Required in production';
-      }
-      if (value && value.length < 32) {
-        return 'Should be at least 32 characters for security';
-      }
-      return null;
-    },
-  },
   REACT_APP_ENABLE_VISUAL_EDITS: {
     required: false,
     description: 'Enable visual editing features',
@@ -176,12 +154,9 @@ function generateEnvExample() {
 # Required Variables
 REACT_APP_BACKEND_URL=http://localhost:8001
 REACT_APP_ORCHESTRATOR_API_URL=http://localhost:8002
-REACT_APP_GEMINI_API_KEY=your_gemini_api_key_here
-REACT_APP_JWT_SECRET=your_secure_jwt_secret_min_32_chars
 REACT_APP_ENABLE_VISUAL_EDITS=true
 
 # Optional Variables
-REACT_APP_OLLAMA_URL=http://localhost:11434
 REACT_APP_WS_URL=ws://localhost:8001
 REACT_APP_LOG_LEVEL=debug
 REACT_APP_VERSION=2.0.0

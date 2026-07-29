@@ -22,7 +22,7 @@ until curl -f -s ${HEALTH_CHECK_URL} > /dev/null; do
   
   if [ $elapsed_time -ge $TIMEOUT ]; then
     echo "❌ Timeout (${TIMEOUT}s) reached. Backend service not ready."
-    echo "   FATAL ERROR: Org360 UI will not start without a healthy backend API."
+    echo "   FATAL ERROR: HiRo UI will not start without a healthy backend API."
     exit 1
   fi
   

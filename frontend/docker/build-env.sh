@@ -10,8 +10,6 @@ echo "🔍 Validating required environment variables..."
 REQUIRED_VARS=(
   "REACT_APP_BACKEND_URL"
   "REACT_APP_ORCHESTRATOR_API_URL"
-  "REACT_APP_GEMINI_API_KEY"   # Critical AI Secret
-  "REACT_APP_JWT_SECRET"       # Critical Auth Secret
 )
 
 for var in "${REQUIRED_VARS[@]}"; do

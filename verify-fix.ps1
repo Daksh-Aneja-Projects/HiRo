@@ -1,6 +1,6 @@
 # verify-fix.ps1
 Write-Host "=========================================="
-Write-Host "🔍 VERIFYING ORG360 FIXES (PowerShell)"
+Write-Host "🔍 VERIFYING HiRo FIXES (PowerShell)"
 Write-Host "=========================================="
 
 $ErrorActionPreference = "Stop"

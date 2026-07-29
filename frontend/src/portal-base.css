@@ -1,113 +1,23 @@
-/* ============================================ */
-/* portal-base.css - PORTAL LAYOUT STYLES       */
-/* Standardized to rely on core theme variables */
-/* ============================================ */
-
-/* 1. Global Layout Structure */
-.portal-container {
-  display: flex;
-  min-height: 100vh;
-  position: relative;
-  z-index: 1; 
-  background: var(--bg-deep, #030611);
-}
-
-/* 2. Sidebar Base */
-.portal-sidebar {
-  width: 250px; /* Default desktop width */
-  background: var(--bg-dark); /* Solid background for focus */
-  backdrop-filter: var(--glass-backdrop);
-  -webkit-backdrop-filter: var(--glass-backdrop);
-  border-right: var(--border-subtle);
-  padding: var(--space-lg) var(--space-md);
-  display: flex;
-  flex-direction: column;
-  position: sticky; 
-  top: 0;
-  height: 100vh;
-  z-index: 10;
-  overflow-y: auto;
-}
-
-.sidebar-header {
-  margin-bottom: var(--space-xl); 
-  padding-bottom: var(--space-md); 
-  border-bottom: var(--border-subtle);
-}
-
-.sidebar-header h2 {
-  font-size: 1.5rem; 
-  font-weight: 700;
-  margin: 0 0 var(--space-xs) 0;
-  color: var(--holo-primary, #00f3ff);
-}
-
-/* 3. Main Content Area */
-.portal-main {
-  margin-left: 250px; /* Matches default sidebar width */
-  flex: 1;
-  min-height: 100vh;
-  position: relative;
-  z-index: 5;
-}
-
-.portal-content {
-  padding: var(--space-lg);
-  max-width: 1600px;
-  margin: 0 auto;
-}
-
-/* 4. Header/Card Base Styles (for components to inherit) */
-.glass-card {
-  background: var(--glass-bg, rgba(12, 18, 24, 0.88));
-  border: 1px solid var(--glass-border, rgba(0, 243, 255, 0.2));
-  backdrop-filter: var(--glass-backdrop);
-  -webkit-backdrop-filter: var(--glass-backdrop);
-  box-shadow: var(--shadow-panel, 0 4px 15px rgba(0, 0, 0, 0.4));
-  border-radius: var(--radius-xl, 0.75rem);
-  color: var(--text-primary, #e6f7ff);
-  margin-bottom: var(--space-lg, 1rem);
-  padding: var(--space-lg, 1rem);
-}
-
-.portal-header {
-  background: var(--glass-bg, rgba(12, 18, 24, 0.88));
-  border: 1px solid var(--glass-border, rgba(0, 243, 255, 0.2));
-  backdrop-filter: var(--glass-backdrop);
-  border-radius: var(--radius-xl, 0.75rem);
-  padding: var(--space-lg, 1rem);
-  margin-bottom: var(--space-lg, 1rem);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.portal-header h1 {
-  color: var(--text-primary, #e6f7ff);
-  font-size: 1.5rem;
-  font-weight: 600;
-  margin: 0;
-}
-
-.portal-header p {
-  color: var(--text-secondary, #a0b0c0);
-  font-size: 0.875rem;
-  margin: 0;
-}
-
-/* Module wrapper animation */
-.module-container {
-  animation: fadeIn var(--transition-base) forwards;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-/* Responsive Design (Simplified - relies on main-holographic-theme for mobile structure) */
-@media (max-width: 1024px) {
-  .portal-main {
-    margin-left: 0; /* Remove fixed margin for tablet/mobile */
-  }
+/* Portal Base Neon Styles */
+:root[data-theme="neon"] {
+  --bg-main: #101010;
+  --bg-surface: #1a1a1a;
+  --bg-surface-elevated: rgba(26, 26, 26, 0.8);
+  
+  --text-primary: #f0f0f0;
+  --text-secondary: #909090;
+  
+  --accent-primary: #00ff00; /* Neon Green */
+  --accent-success: #00ffaa;
+  --accent-warning: #ffaa00;
+  --accent-danger: #ff0055;
+  
+  --border-subtle: rgba(0, 255, 0, 0.2);
+  --border-focus: rgba(0, 255, 0, 0.8);
+  
+  --shadow-sm: 0 0 10px rgba(0, 255, 0, 0.1);
+  --shadow-md: 0 0 20px rgba(0, 255, 0, 0.2);
+  --shadow-float: 0 0 40px rgba(0, 255, 0, 0.3);
+  
+  --glass-blur: blur(10px) saturate(200%);
 }

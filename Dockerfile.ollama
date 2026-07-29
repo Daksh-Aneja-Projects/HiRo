@@ -1,28 +1,25 @@
-# Dockerfile.ollama - Pre-loads the Mistral model into the Ollama image
+# Dockerfile.ollama — pre-loads the qwen2.5 model into the Ollama image.
+# qwen2.5:7b is lightweight (~4.7GB), CPU-friendly, and supports tool-calling.
 FROM docker.io/ollama/ollama:latest AS builder
-LABEL name="custom-ollama-llama3-builder"
-# [UPDATE] Use the simplest stable Llama 3 tag
-ENV OLLAMA_MODEL_TAG=llama3 
-# CRITICAL: Run the server in the background, wait, and pull the model.
+LABEL name="hiro-ollama-builder"
+ENV OLLAMA_MODEL_TAG=qwen2.5:7b
+# Run the server in the background, wait, then pull the model.
 RUN (ollama serve &) \
     && echo "Waiting for Ollama server to start (5 seconds)..." \
     && sleep 5 \
     && ollama pull $OLLAMA_MODEL_TAG \
     && echo "Model download complete."
 # ====================================================================
-# STAGE 2: Production (Uses the downloaded model)
+# STAGE 2: Production (serves the pre-downloaded model)
 # ====================================================================
 FROM ollama/ollama:latest
-LABEL name="custom-ollama-llama3"
-# [FIX] Match the tag used above so the model is ready to serve
-ENV OLLAMA_MODEL_TAG=llama3 
-# CRITICAL FIX: Install curl for Docker health checks
+LABEL name="hiro-ollama"
+ENV OLLAMA_MODEL_TAG=qwen2.5:7b
+# curl is needed for the Docker health check.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends curl && \
     rm -rf /var/lib/apt/lists/*
-# CRITICAL: Copy the downloaded model binaries from the builder stage
-# The model files are located in /root/.ollama/models
+# Copy the pre-downloaded model binaries from the builder stage.
 COPY --from=builder /root/.ollama/ /root/.ollama/
-# Set default entrypoint and command to serve the model
 ENTRYPOINT ["/usr/bin/ollama", "serve"]
 CMD []

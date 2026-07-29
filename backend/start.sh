@@ -1,12 +1,12 @@
 #!/bin/bash
 # ============================================================================
-# ORG360 BACKEND CONTAINER STARTUP SCRIPT
-# Executes inside the 'org360-backend' container.
+# HiRo BACKEND CONTAINER STARTUP SCRIPT
+# Executes inside the 'hiro-backend' container.
 # ============================================================================
 set -e
 
 echo "================================================="
-echo "   Org360 Backend Container Startup"
+echo "   HiRo Backend Container Startup"
 echo "================================================="
 
 # --- Wait for Infrastructure to be TRULY Ready using Python's DB Waiter ---
@@ -22,8 +22,8 @@ if [ $? -ne 0 ]; then
 fi
 echo "✅ All network infrastructure (Mongo, Redis, Postgres, NATS) is READY."
 
-# --- AI Model Check and Pull (DEPRECATED - Moved to API calls) ---
-echo "✅ AI services are now using Groq/Gemini APIs; skipping local model checks."
+# --- AI Model ---
+echo "✅ AI services use the local Ollama server (qwen2.5); model is baked into the ollama image."
 
 # --- Database Initialization / Seeding ---
 echo "⚙️ Initializing/seeding database..."

@@ -183,9 +183,6 @@ afterEach(() => {
 process.env.REACT_APP_ENV = 'test';
 process.env.REACT_APP_API_URL = 'http://localhost:8001';
 process.env.REACT_APP_WS_URL = 'ws://localhost:8001';
-process.env.REACT_APP_OLLAMA_URL = 'http://localhost:11434';
-process.env.REACT_APP_GEMINI_API_KEY = 'test-key';
-process.env.REACT_APP_JWT_SECRET = 'test-secret';
 
 // Silence console errors for known issues
 const originalError = console.error;

@@ -5,8 +5,9 @@ import { useAgentWebsocket } from '../hooks/useAgentWebsocket'; // CRITICAL FIX:
 
 // UI COMPONENTS
 import DataCard from './DataCard';
-import ChartPlaceholder from './ChartPlaceholder';
-import { Cpu, Server, CheckCircle, Loader2, AlertTriangle, MessageSquare } from 'lucide-react';
+import AreaChartWidget from './charts/AreaChartWidget';
+import BarChartWidget from './charts/BarChartWidget';
+import { Cpu, Server, CheckCircle, Loader2, AlertTriangle, MessageCircle } from 'lucide-react';
 
 const AgentStatusMonitor = memo(() => {
     
@@ -69,10 +70,10 @@ const AgentStatusMonitor = memo(() => {
                 
                 {/* Charts */}
                 <div style={styles.chart}>
-                    <ChartPlaceholder label="Event Throughput History" minHeight="100%" />
+                    <AreaChartWidget label="Event Throughput History" minHeight="100%" />
                 </div>
                 <div style={styles.chart}>
-                    <ChartPlaceholder label="Agent Success/Failure Ratio" minHeight="100%" />
+                    <BarChartWidget label="Agent Success/Failure Ratio" minHeight="100%" />
                 </div>
             </div>
         </div>

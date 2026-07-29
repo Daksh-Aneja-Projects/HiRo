@@ -1,177 +1,159 @@
-/* src/App.css - GOOGLE LEVEL PREMIUM UI (Material 3 Inspired, Anti-Distortion Stabilized) */
+/* src/App.css - PREMIUM APPLE/GOOGLE MINIMAL UI */
 .App {
     min-height: 100vh;
-    /* CRITICAL FIX: Prevent all overflow distortions from sidebar/portal layers */
     overflow: hidden; 
-    /* Premium background: Dynamic holographic gradient for Google-level immersion */
-    background: linear-gradient(135deg, var(--bg-main, #0a192f) 0%, var(--bg-secondary, #001e3c) 100%);
+    background-color: var(--bg-main);
     display: flex;
     flex-direction: column;
-    transition: background 0.5s ease-in-out;
+    transition: background-color 0.3s ease;
 }
 
-/* Fix for nested portal content: Ensure full fill, no distortion, with smooth scroll */
-.social-feed-container, .org360-hr-shell, .portal-container, .hr-content-wrapper, .collaboration-portal {
-     /* New: For collaboration portal stability */
+/* Fix for nested portal content */
+.social-feed-container, .hiro-hr-shell, .portal-container, .hr-content-wrapper, .collaboration-portal {
     flex-grow: 1;
     max-height: 100vh;
-    overflow-y: auto; /* CRITICAL FIX: Handles vertical scroll within the content area */
+    overflow-y: auto; 
     position: relative;
-    z-index: 5; /* Above all background layers to prevent overlap distortion */
-    animation: fadeIn 0.6s ease-out forwards;
+    z-index: 5;
+    animation: fadeIn 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
 }
 
-/* Premium Custom Scrollbar (Material 3 themed) */
+/* Premium Minimal Scrollbar */
 ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 6px;
+    height: 6px;
 }
-/* ... rest of the scrollbar styles ... */
 ::-webkit-scrollbar-track {
-    background: rgba(0,0,0,0.15);
-    border-radius: 10px;
+    background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-    background: var(--holo-primary, rgba(0, 243, 255, 0.5));
+    background: var(--border-subtle);
     border-radius: 10px;
-    box-shadow: 0 0 6px rgba(0, 243, 255, 0.3);
 }
 ::-webkit-scrollbar-thumb:hover {
-    background: var(--holo-primary, rgba(0, 243, 255, 0.8));
+    background: var(--text-tertiary);
 }
 
-/* Enhanced Focus States (Holographic Glow with Material Ripple) */
+/* Focus States */
 *:focus-visible {
     outline: none;
-    box-shadow: 0 0 0 3px var(--holo-primary, #00f3ff);
-    transition: box-shadow 0.2s ease;
+    box-shadow: 0 0 0 3px var(--border-focus);
+    border-radius: 4px;
 }
 
-/* Utility Classes (Expanded for Flex Stability) */
+/* Utility Classes */
 .flex { display: flex; }
 .justify-center { justify-content: center; }
 .items-center { align-items: center; }
 .min-h-screen { min-height: 100vh; }
-.glassmorphic {
-    background: rgba(255, 255, 255, 0.05);
-    backdrop-filter: blur(10px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.37);
-}
 
-/* Holographic Inputs (Premium Glow on Hover/Focus) */
-.holo-input-label {
+/* Input Fields */
+.holo-input-label, .premium-label {
     font-size: 0.875rem;
-    color: var(--muted-500, #8f9fb2);
+    color: var(--text-secondary);
     margin-bottom: 6px;
     display: block;
     font-weight: 500;
-    transition: color 0.2s ease;
 }
 
-.holo-input, .holo-select, .holo-textarea {
+.holo-input, .holo-select, .holo-textarea, .premium-input {
     width: 100%;
-    padding: 12px;
-    background: rgba(255,255,255,0.03);
-    border: 1px solid var(--border-600, #324a74);
-    border-radius: 8px;
-    color: var(--text-100, #e0f7fa);
+    padding: 12px 16px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+    color: var(--text-primary);
     font-size: 1rem;
     outline: none;
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.holo-input:hover, .holo-select:hover, .holo-textarea:hover {
-    border-color: var(--holo-primary, #00f3ff);
+.holo-input:hover, .holo-select:hover, .holo-textarea:hover, .premium-input:hover {
+    border-color: var(--text-tertiary);
 }
 
-.holo-input:focus, .holo-select:focus, .holo-textarea:focus {
-    box-shadow: 0 0 0 3px rgba(0, 243, 255, 0.2);
+.holo-input:focus, .holo-select:focus, .holo-textarea:focus, .premium-input:focus {
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 3px var(--border-focus);
 }
 
-/* Buttons (Material Ripple Effect Integrated) */
-.primary-button, .secondary-button {
+/* Buttons */
+.primary-button {
+    background: var(--accent-primary);
+    color: #fff;
     cursor: pointer;
     border: none;
-    padding: 12px 16px;
-    border-radius: 8px;
+    padding: 12px 24px;
+    border-radius: 999px;
     font-weight: 500;
-    transition: background 0.2s ease, transform 0.1s ease;
+    transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 8px;
-    position: relative;
-    overflow: hidden;
 }
 
-.primary-button::after {
-    content: '';
-    position: absolute;
-    width: 0;
-    height: 0;
-    background: rgba(255,255,255,0.2);
-    border-radius: 50%;
-    transform: translate(-50%, -50%);
-    transition: width 0.6s ease, height 0.6s ease;
+.primary-button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(var(--accent-primary-rgb), 0.3);
 }
 
-.primary-button:active::after {
-    width: 200%;
-    height: 200%;
+.secondary-button {
+    background: var(--bg-surface-elevated);
+    color: var(--text-primary);
+    border: 1px solid var(--border-subtle);
+    cursor: pointer;
+    padding: 12px 24px;
+    border-radius: 999px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+.secondary-button:hover {
+    background: var(--border-subtle);
 }
 
-/* HR Card (Enhanced Glassmorphism, No Distortion) */
-.hr-card {
-    background: var(--panel-800, #132c4e);
-    border: 1px solid var(--border-600, #324a74);
-    border-radius: 16px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+/* Cards */
+.hr-card, .premium-card-container {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: 20px;
+    box-shadow: var(--shadow-sm);
     padding: 24px;
-    transition: transform 0.3s ease;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .hr-card:hover {
-    transform: translateY(-4px);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
 }
 
-/* Tabs (Premium Hover Effects) */
+/* Tabs */
 .module-tabs .tab-btn {
-    background: var(--panel-700, #1a375f);
-    border: 1px solid var(--border-600, #324a74);
-    color: var(--text-100, #e0f7fa);
-    padding: 10px 16px;
-    border-radius: 8px;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    padding: 8px 16px;
+    border-radius: 999px;
     cursor: pointer;
-    transition: background 0.2s ease, color 0.2s ease;
+    transition: all 0.2s ease;
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 1rem;
+    font-size: 0.95rem;
     font-weight: 500;
 }
 
 .module-tabs .tab-btn.active {
-    background: var(--accent-2, rgba(0, 200, 255, 0.15));
-    color: var(--accent-primary, #00c8ff);
-    border-color: var(--accent-primary, #00c8ff);
+    background: var(--text-primary);
+    color: var(--bg-surface);
 }
 
 .module-tabs .tab-btn:hover:not(.active) {
-    background: var(--panel-600, #254471);
-    box-shadow: 0 0 8px rgba(0, 200, 255, 0.2);
+    background: var(--border-subtle);
+    color: var(--text-primary);
 }
 
-/* New: Animations for Seamless UI */
 @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(20px); }
+    from { opacity: 0; transform: translateY(10px); }
     to { opacity: 1; transform: translateY(0); }
-}
-
-/* New: Collaboration Portal Specific (To Fix Distortion) */
-.collaboration-portal {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-    overflow: hidden; /* Prevent layer distortion */
 }

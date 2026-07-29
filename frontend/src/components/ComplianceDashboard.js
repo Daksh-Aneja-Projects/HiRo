@@ -6,7 +6,8 @@ import { getGovernanceDashboardData, getComplianceDashboardData } from '../confi
 
 // UI COMPONENTS
 import DataCard from './DataCard';
-import ChartPlaceholder from './ChartPlaceholder';
+import AreaChartWidget from './charts/AreaChartWidget';
+import PieChartWidget from './charts/PieChartWidget';
 import { Shield, Users, Zap, Loader2, AlertTriangle, MessageCircle } from 'lucide-react';
 
 const ComplianceDashboard = memo(() => {
@@ -88,10 +89,10 @@ const ComplianceDashboard = memo(() => {
 
             {/* Charts */}
             <div style={styles.chartHalf}>
-                <ChartPlaceholder label="Governance Voting Activity Trend" minHeight="100%" />
+                <AreaChartWidget label="Governance Voting Activity Trend" minHeight="100%" />
             </div>
             <div style={styles.chartHalf}>
-                <ChartPlaceholder label="Policy Violation Distribution by Type" minHeight="100%" />
+                <PieChartWidget label="Policy Violation Distribution by Type" minHeight="100%" />
             </div>
         </div>
     );

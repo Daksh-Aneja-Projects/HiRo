@@ -23,7 +23,7 @@ RUN npm run build
 # CRITICAL FIX: Removed ALL citation tags that were corrupting the shell script.
 RUN /bin/sh -c ' \
     echo "🎬 Starting environment variable injection inline..."; \
-    VARS_TO_REPLACE="REACT_APP_BACKEND_URL REACT_APP_ENABLE_VISUAL_EDITS REACT_APP_ORCHESTRATOR_API_URL REACT_APP_GEMINI_API_KEY REACT_APP_JWT_SECRET"; \
+    VARS_TO_REPLACE="REACT_APP_BACKEND_URL REACT_APP_ENABLE_VISUAL_EDITS REACT_APP_ORCHESTRATOR_API_URL"; \
     for file in $(find ./build -type f -f -name "*.js" -o -name "*.css"); \
     do \
         echo "Processing $file..."; \

@@ -4,19 +4,22 @@ import { theme as tokens } from '../theme';
 import { useApi } from '../hooks/useApi'; // For dynamic data fetching
 import { get } from '../config/api'; // The generic GET utility from the stabilized api.js
 
-// Dynamic Visualization Components (MOCK IMPLEMENTATIONS for now, assuming they exist)
-import ChartPlaceholder from './ChartPlaceholder'; 
+// Dynamic Visualization Components
+import AreaChartWidget from './charts/AreaChartWidget';
+import BarChartWidget from './charts/BarChartWidget';
+import PieChartWidget from './charts/PieChartWidget';
+import ChartPlaceholder from './ChartPlaceholder'; // Fallback
 import DataCard from './DataCard';
-import { Loader2, Zap, BarChart, TrendingUp, Cpu, Compass, AlertTriangle } from 'lucide-react'; // Ensure AlertTriangle is imported
+import { Loader2, Zap, BarChart, TrendingUp, Cpu, Compass, AlertTriangle } from 'lucide-react';
 
 // --- WIDGET MAPPER ---
 const ComponentMap = {
     StatCard: DataCard,
-    BarChart: ChartPlaceholder, // Using Placeholder for complex charts
-    LineChart: ChartPlaceholder, 
-    PieChart: ChartPlaceholder,
-    GeoMap: ChartPlaceholder,
-    SynthesizedCard: DataCard, // Using DataCard for general synthesized text/stats
+    BarChart: BarChartWidget,
+    LineChart: AreaChartWidget, 
+    PieChart: PieChartWidget,
+    GeoMap: ChartPlaceholder, // Still no Map widget, use fallback
+    SynthesizedCard: DataCard,
 };
 
 const IconMap = {
@@ -109,8 +112,8 @@ const DynamicWidget = memo(({ widgetConfig }) => {
             For placeholders, we pass the title/label.
             */}
             
-            {VizComponent === ChartPlaceholder ? (
-                 <VizComponent label={`${title} (${vizType})`} minHeight="100%" data={data} />
+            {VizComponent === AreaChartWidget || VizComponent === BarChartWidget || VizComponent === PieChartWidget || VizComponent === ChartPlaceholder ? (
+                 <VizComponent label={`${title} (${vizType})`} minHeight="100%" data={data?.time_series || data?.distribution || undefined} />
             ) : (
                 // Assuming StatCard/DataCard structure requires value, unit, etc.
                  <DataCard 

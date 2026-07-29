@@ -1,7 +1,7 @@
 // /frontend/src/components/DigitalTwinRiskChart.js - STABILIZED (Fixes fontSize TypeErrors)
 import React, { useMemo, memo } from 'react';
 import { theme as tokens } from '../theme';
-import ChartPlaceholder from './ChartPlaceholder'; 
+import BarChartWidget from './charts/BarChartWidget'; 
 import { AlertTriangle, TrendingDown, CheckCircle } from 'lucide-react'; 
 
 /** * DigitalTwinRiskChart: Visualizes the impact of a 'What-If' simulation. 
@@ -73,8 +73,8 @@ const DigitalTwinRiskChart = memo(({ originalRisk, simulatedRisk, mitigationFact
             </div>
                         
             <div style={{ flexGrow: 1 }}>
-                {/* The Bar Chart Placeholder is assumed to be a separate component displaying factors */}
-                <ChartPlaceholder label="Bar Chart: Risk Mitigation by Factor" minHeight="200px" />
+                {/* The Bar Chart displays mitigation factors */}
+                <BarChartWidget label="Bar Chart: Risk Mitigation by Factor" minHeight="200px" />
             </div>
 
             <h4 style={{ ...styles.riskHeader, borderBottom: 'none' }}>Top Mitigation Drivers</h4>

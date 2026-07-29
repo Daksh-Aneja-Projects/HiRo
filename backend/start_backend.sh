@@ -1,13 +1,13 @@
 #!/bin/bash
 #============================================================================
-# ORG360 BACKEND CONTAINER STARTUP SCRIPT - PRODUCTION READY
+# HiRo BACKEND CONTAINER STARTUP SCRIPT - PRODUCTION READY
 # Replaced Uvicorn direct exec with Gunicorn for worker management.
 #============================================================================
 
 set -euo pipefail
 
 echo "================================================="
-echo " 🚀 Org360 Backend Container Startup (Production)"
+echo " 🚀 HiRo Backend Container Startup (Production)"
 echo "================================================="
 
 # CRITICAL FIX 1: Explicitly export the correct URL derived from .env or docker-compose

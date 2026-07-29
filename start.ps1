@@ -1,12 +1,12 @@
 #!/bin/bash
 # ============================================================================
-# ORG360 FINAL PRODUCTION STARTUP (Host Machine Script)
+# HiRo FINAL PRODUCTION STARTUP (Host Machine Script)
 # Manages the entire multi-container Docker stack.
 # ============================================================================
 set -e
 
 echo "========================================"
-echo "   Org360 System Startup Sequence"
+echo "   HiRo System Startup Sequence"
 echo "========================================"
 
 # 1. Environment Check

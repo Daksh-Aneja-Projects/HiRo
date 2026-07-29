@@ -8,10 +8,7 @@ declare namespace NodeJS {
     // Application Environment Variables
     readonly REACT_APP_BACKEND_URL: string;
     readonly REACT_APP_ORCHESTRATOR_API_URL: string;
-    readonly REACT_APP_GEMINI_API_KEY?: string;
-    readonly REACT_APP_JWT_SECRET?: string;
     readonly REACT_APP_ENABLE_VISUAL_EDITS?: string;
-    readonly REACT_APP_OLLAMA_URL?: string;
     readonly REACT_APP_WS_URL?: string;
     readonly REACT_APP_LOG_LEVEL?: 'debug' | 'info' | 'warn' | 'error';
     readonly REACT_APP_VERSION?: string;

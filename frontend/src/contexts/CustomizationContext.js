@@ -20,9 +20,21 @@ export const CustomizationProvider = ({ children }) => {
     const [orchestratorPrompt, setOrchestratorPrompt] = useState(''); 
 
     // 1. COMMITTED STATE (Saved and permanent)
-    const [committedThemeHSL, setCommittedThemeHSL] = useState(DEFAULT_HSL);
-    const [committedLayout, setCommittedLayout] = useState(DEFAULT_LAYOUT);
-    const [committedDensity, setCommittedDensity] = useState('standard');
+    const [committedThemeHSL, setCommittedThemeHSL] = useState(() => {
+        try {
+            const saved = localStorage.getItem('hiro_committed_hsl');
+            return saved ? JSON.parse(saved) : DEFAULT_HSL;
+        } catch { return DEFAULT_HSL; }
+    });
+    const [committedLayout, setCommittedLayout] = useState(() => {
+        try {
+            const saved = localStorage.getItem('hiro_committed_layout');
+            return saved ? JSON.parse(saved) : DEFAULT_LAYOUT;
+        } catch { return DEFAULT_LAYOUT; }
+    });
+    const [committedDensity, setCommittedDensity] = useState(() => {
+        return localStorage.getItem('hiro_committed_density') || 'standard';
+    });
 
     // 2. TEMPORARY/DYNAMIC STATES
     const [pendingConfig, setPendingConfig] = useState(null); // AI Preview (Theme/Layout)
@@ -46,9 +58,17 @@ export const CustomizationProvider = ({ children }) => {
         setCommittedThemeHSL(pendingConfig.themeHSL);
         setCommittedLayout(pendingConfig.layoutChanges);
         setCommittedDensity(pendingConfig.uiDensity);
+        
+        try {
+            localStorage.setItem('hiro_committed_hsl', JSON.stringify(pendingConfig.themeHSL));
+            localStorage.setItem('hiro_committed_layout', JSON.stringify(pendingConfig.layoutChanges));
+            localStorage.setItem('hiro_committed_density', pendingConfig.uiDensity);
+        } catch (e) {
+            console.error("Failed to persist theme configuration", e);
+        }
+
         setPendingConfig(null); 
-        // TODO: Persistence Logic Here (Save state via API)
-        console.log("Config Committed!");
+        console.log("Config Committed and Persisted to localStorage!");
     }, [pendingConfig]);
 
     // CRITICAL FIX 4: useCallback explicitly used for reverting config

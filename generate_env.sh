@@ -1,6 +1,6 @@
 #!/bin/bash
 # ===================================================================
-# ORG360 ENVIRONMENT GENERATOR - MOTHER OF ALL TRUTH
+# HiRo ENVIRONMENT GENERATOR - MOTHER OF ALL TRUTH
 # Generates backend/.env and frontend/.env from root .env
 # ===================================================================
 
@@ -55,7 +55,7 @@ echo "" >> "$BACKEND_ENV"
 echo "# =====================================================" >> "$BACKEND_ENV"
 echo "# AI SERVICES CONFIGURATION" >> "$BACKEND_ENV"
 echo "# =====================================================" >> "$BACKEND_ENV"
-grep -E '^(GEMINI_|GROQ_|OLLAMA_)' "$ROOT_ENV" >> "$BACKEND_ENV"
+grep -E '^(OLLAMA_|LLM_)' "$ROOT_ENV" >> "$BACKEND_ENV"
 
 echo "" >> "$BACKEND_ENV"
 echo "# =====================================================" >> "$BACKEND_ENV"
@@ -90,7 +90,7 @@ grep -v '^REACT_APP_' "$ROOT_ENV" | grep -v '^#' | grep -v '^$' | grep -v '^TEST
     grep -v '^HOST=' | grep -v '^PORT=' | grep -v '^ENV=' | grep -v '^LOG_LEVEL=' | \
     grep -v '^APP_NAME=' | grep -v '^APP_VERSION=' | \
     grep -v '^MONGO_' | grep -v '^POSTGRES_' | grep -v '^DGRAPH_' | grep -v '^REDIS_' | \
-    grep -v '^NATS_' | grep -v '^GEMINI_' | grep -v '^GROQ_' | grep -v '^OLLAMA_' | \
+    grep -v '^NATS_' | grep -v '^OLLAMA_' | grep -v '^LLM_' | \
     grep -v '^JWT_' | grep -v '^ADMIN_' | grep -v '^DEFAULT_TEST_PASSWORD=' | \
     grep -v '^PII_SALT=' | grep -v '^AGENT_SIGNING_SECRET=' | grep -v '^HRIT_MANAGER_APPROVERS=' | \
     grep -v '^FRONTEND_' | grep -v '^ENABLE_CORS=' | grep -v '^CORS_ALLOWED_ORIGINS=' | \
@@ -123,11 +123,8 @@ echo "# FEATURE FLAGS" >> "$FRONTEND_ENV"
 echo "# =====================================================" >> "$FRONTEND_ENV"
 grep -E '^REACT_APP_ENABLE_' "$ROOT_ENV" >> "$FRONTEND_ENV"
 
-echo "" >> "$FRONTEND_ENV"
-echo "# =====================================================" >> "$FRONTEND_ENV"
-echo "# SECURITY KEYS (Embedded at build time)" >> "$FRONTEND_ENV"
-echo "# =====================================================" >> "$FRONTEND_ENV"
-grep -E '^REACT_APP_(JWT_SECRET|GEMINI_API_KEY)=' "$ROOT_ENV" >> "$FRONTEND_ENV"
+# No secrets are embedded in the frontend build: LLM inference is server-side (Ollama)
+# and JWT signing/verification stays entirely on the backend.
 
 echo "" >> "$FRONTEND_ENV"
 echo "# =====================================================" >> "$FRONTEND_ENV"
@@ -151,7 +148,7 @@ echo "# =====================================================" >> "$FRONTEND_ENV
 echo "# APPLICATION METADATA" >> "$FRONTEND_ENV"
 echo "# =====================================================" >> "$FRONTEND_ENV"
 cat >> "$FRONTEND_ENV" << EOF
-REACT_APP_NAME=Org360
+REACT_APP_NAME=HiRo
 REACT_APP_VERSION=4.0.0
 REACT_APP_ENV=production
 REACT_APP_BUILD_TIMESTAMP=$(date +%s)

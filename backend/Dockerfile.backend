@@ -43,7 +43,7 @@ WORKDIR /app
 # =========================================================================
 FROM python:3.11-slim
 
-LABEL maintainer="org360"
+LABEL maintainer="hiro"
 
 WORKDIR /app
 ENV PYTHONPATH /app

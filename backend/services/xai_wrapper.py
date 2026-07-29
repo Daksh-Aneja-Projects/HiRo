@@ -31,7 +31,7 @@ class XAIWrapper:
         else:
             logger.info("✓ XAI Wrapper Initialized (Heuristic Explainer, no predictor context).")
             
-    async def get_feature_contributions(self, employee_data: Dict[str, Any]) -> Dict[str, Any]:
+    def _calculate_feature_contributions(self, employee_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Calculates deterministic feature contributions based on WFP heuristic logic.
         """
@@ -95,10 +95,11 @@ class XAIWrapper:
             "reason": reason
         }
     
+    async def get_feature_contributions(self, employee_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Async wrapper for feature calculation."""
+        return self._calculate_feature_contributions(employee_data)
+        
     # CRITICAL FIX: Adding synchronous method placeholder as required by Orchestrator
     def explain_prediction(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Synchronous placeholder for the orchestration map."""
-        # NOTE: This should technically call an async method via asyncio.run(), but since the orchestration 
-        # is fully async, this is used as the target for methods that don't need wrapping.
-        import asyncio
-        return asyncio.run(self.get_feature_contributions(data))
+        """Synchronous method for the orchestration map, avoiding unsafe asyncio.run."""
+        return self._calculate_feature_contributions(data)

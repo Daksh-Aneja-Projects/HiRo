@@ -1,6 +1,6 @@
 // /frontend/src/service-worker.js
 
-const CACHE_NAME = 'org360-cache-v6'; // Increment version for fresh install
+const CACHE_NAME = 'hiro-cache-v6'; // Increment version for fresh install
 const CORE_ASSETS = [
   // The app shell: index.html is the core fallback
   '/',

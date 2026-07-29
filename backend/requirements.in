@@ -1,5 +1,5 @@
 # ============================================
-# Org360 Backend - Final Production Requirements
+# HiRo Backend - Final Production Requirements
 # ============================================
 
 # --- Core Web/Async Frameworks ---
@@ -67,14 +67,10 @@ sympy==1.13.3
 duckdb==0.10.3
 
 # --- NLP / Generative Agents ---
-# CRITICAL FIX: grpcio added to resolve ModuleNotFoundError in google-generativeai
-google-generativeai==0.8.5
-grpcio==1.64.1
-grpcio-status==1.64.1
+# LLM inference is local via Ollama (httpx calls); no cloud SDKs required.
 spacy==3.8.0
 marisa-trie==1.1.0
 tokenizers==0.19.1
 
 # --- CRITICAL FIXES FOR SI INTEGRATION ---
 psutil==5.9.8  # CRITICAL: For system telemetry in server.py
-groq==0.8.0    # CRITICAL: For AIService initialization (required by ai_services.py)

@@ -47,7 +47,7 @@
 
 /* 2. COMPATIBILITY LAYER FOR NEW LAYOUT (Ensures all elements inherit holographic design) */
 
-.org360-container {
+.hiro-container {
   background: var(--bg-void) !important;
 }
 

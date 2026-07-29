@@ -7,7 +7,7 @@ ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PORT="${PORT:-3000}"
 NODE_ENV="${NODE_ENV:-development}"
 
-echo "=== Org360 Frontend DEV Mode Startup ==="
+echo "=== HiRo Frontend DEV Mode Startup ==="
 echo "[INFO] Container running in development mode for hot-reloading."
 echo "[INFO] NODE_ENV: $NODE_ENV"
 echo "[INFO] PORT: $PORT"

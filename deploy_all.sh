@@ -1,12 +1,12 @@
 #!/bin/bash
 # ===================================================================
-# ORG360 FINAL DEPLOYMENT SCRIPT - MOTHER OF ALL TRUTH
+# HiRo FINAL DEPLOYMENT SCRIPT - MOTHER OF ALL TRUTH
 # One command to rule them all
 # ===================================================================
 
 set -e
 
-echo "🚀 ORG360 FINAL DEPLOYMENT"
+echo "🚀 HiRo FINAL DEPLOYMENT"
 echo "=========================="
 
 # Colors for output
@@ -92,7 +92,7 @@ else
     fi
     
     echo "Checking frontend..."
-    if curl -s http://localhost:3000 | grep -q "Org360"; then
+    if curl -s http://localhost:3000 | grep -q "HiRo"; then
         print_success "Frontend is healthy"
     else
         print_warning "Frontend might still be starting"
@@ -136,7 +136,7 @@ echo "   • Reset users: ${BLUE}cd backend && python reset_test_users.py${NC}"
 echo "   • Rebuild: ${BLUE}docker-compose up -d --build${NC}"
 
 # Step 8: Open browser (optional)
-read -p "Open browser to Org360? (y/n): " -n 1 -r
+read -p "Open browser to HiRo? (y/n): " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
     if command -v xdg-open &> /dev/null; then
@@ -148,4 +148,4 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     fi
 fi
 
-echo -e "\n${GREEN}🎉 ORG360 IS READY!${NC}"
+echo -e "\n${GREEN}🎉 HiRo IS READY!${NC}"
