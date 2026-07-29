@@ -72,3 +72,6 @@ backend/pac_engine_rs/target/
 *.key
 *.crt
 *.p12
+
+# Internal working docs (not part of the public repo)
+HANDOFF.md
