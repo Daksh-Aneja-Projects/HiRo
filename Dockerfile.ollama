@@ -3,11 +3,13 @@
 FROM docker.io/ollama/ollama:latest AS builder
 LABEL name="hiro-ollama-builder"
 ENV OLLAMA_MODEL_TAG=qwen2.5:7b
-# Run the server in the background, wait, then pull the model.
+ENV OLLAMA_EMBED_TAG=nomic-embed-text
+# Run the server in the background, wait, then pull the chat + embedding models.
 RUN (ollama serve &) \
     && echo "Waiting for Ollama server to start (5 seconds)..." \
     && sleep 5 \
     && ollama pull $OLLAMA_MODEL_TAG \
+    && ollama pull $OLLAMA_EMBED_TAG \
     && echo "Model download complete."
 # ====================================================================
 # STAGE 2: Production (serves the pre-downloaded model)

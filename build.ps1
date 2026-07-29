@@ -23,8 +23,9 @@ Write-Host "Waiting for system initialization (approx 15s)..." -ForegroundColor 
 Start-Sleep -Seconds 15
 
 # 6. Initialize Local AI (Ollama)
-Write-Host "Initializing Local AI Model (qwen2.5:7b)..." -ForegroundColor Cyan
+Write-Host "Initializing Local AI Models (qwen2.5:7b + nomic-embed-text)..." -ForegroundColor Cyan
 docker exec hiro-ollama ollama pull qwen2.5:7b
+docker exec hiro-ollama ollama pull nomic-embed-text
 
 # 7. Final Status Report
 Write-Host "`n========================================" -ForegroundColor Green

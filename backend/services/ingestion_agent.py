@@ -7,10 +7,11 @@ import csv
 import tempfile
 import shutil
 import json
-import io 
+import io
 import sys
-from typing import BinaryIO, Dict, Any, List, Tuple, Union, Optional 
+from typing import BinaryIO, Dict, Any, List, Tuple, Union, Optional
 import asyncio
+import requests  # sync HTTP for in-thread embedding calls to Ollama
 from datetime import datetime, timezone 
 
 # CRITICAL: Real Infrastructure Imports
@@ -52,9 +53,32 @@ class ExternalIngestionProcessor:
         return True, "OK"
 
     def _generate_embedding_sync(self, text: str) -> str:
-        """Sync wrapper for embedding generation (mocked for speed in thread)."""
-        # CRITICAL FIX: Return a Postgres array string format for pgvector compatibility.
-        return f"{{{', '.join(['0.0'] * 768)}}}" 
+        """Generate a real embedding via the local Ollama server (nomic-embed-text).
+
+        Runs in a worker thread, so a synchronous HTTP call is fine. Returns a
+        Postgres array string for the pgvector column; falls back to a zero
+        vector (logged) if the embedding service is unavailable so ingestion
+        never hard-fails on a single record.
+        """
+        dim = getattr(settings, "EMBEDDING_DIM", 768)
+        model = getattr(settings, "EMBEDDING_MODEL", "nomic-embed-text")
+        base_url = getattr(settings, "OLLAMA_BASE_URL", "http://ollama:11434").rstrip("/")
+        vector = None
+        snippet = (text or "").strip()
+        if snippet:
+            try:
+                resp = requests.post(
+                    f"{base_url}/api/embeddings",
+                    json={"model": model, "prompt": snippet[:8000]},
+                    timeout=30,
+                )
+                resp.raise_for_status()
+                vector = resp.json().get("embedding")
+            except Exception as e:
+                logger.warning(f"Embedding generation failed ({model}); using zero vector. Error: {e}")
+        if not vector:
+            vector = [0.0] * dim
+        return "{" + ", ".join(f"{float(x):.6f}" for x in vector) + "}"
 
     def _process_file_sync(self, path: str, user_id: str, filename: str) -> List[Dict]:
         """CPU-bound parsing, encryption, and embedding logic (runs in thread)."""
