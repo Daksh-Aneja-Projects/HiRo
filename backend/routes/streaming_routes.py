@@ -54,12 +54,13 @@ class ConnectionManager:
 
     async def broadcast_telemetry(self, telemetry_data: Dict[str, Any]):
         """Broadcasts telemetry data only to subscribed clients."""
-        payload = json.dumps({"type": "telemetry_update", "data": telemetry_data}, default=str)
-        
+        # Frontend clients match on message.type === 'telemetry_metrics' and read message.data.
+        message = {"type": "telemetry_metrics", "data": telemetry_data}
+
         for client_id in list(self.telemetry_subscribers):
             if client_id in self.active_connections:
                 try:
-                    await self.active_connections[client_id].send_json(telemetry_data)
+                    await self.active_connections[client_id].send_json(message)
                 except WebSocketDisconnect:
                     self.disconnect(client_id)
                 except Exception as e:

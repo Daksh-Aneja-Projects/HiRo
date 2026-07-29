@@ -156,23 +156,27 @@ async def generate_telemetry_background(publisher: EventPublisherService):
             if not publisher or not getattr(getattr(publisher, "nc", None), "is_connected", False):
                 continue
                         
+            # Measure real system metrics (and the time it takes to collect them).
+            loop = asyncio.get_event_loop()
+            _t0 = loop.time()
+            cpu_load = psutil.cpu_percent(interval=None)
+            memory_load = psutil.virtual_memory().percent
+            disk_usage = psutil.disk_usage('/').percent
+            active_conns = len(getattr(websocket_manager, 'active_connections', {}) or {})
+            subscribers = len(getattr(websocket_manager, 'telemetry_subscribers', set()) or set())
+            collect_latency_ms = (loop.time() - _t0) * 1000.0
+            interval = max(settings.TELEMETRY_UPDATE_INTERVAL_SECONDS, 0.001)
+            # Real fan-out rate: telemetry messages pushed to subscribers per second.
+            events_per_second = subscribers / interval
+
             telemetry_data = {
-                "cpu_percent": psutil.cpu_percent(interval=None),
-                "memory_percent": psutil.virtual_memory().percent,
-                "disk_usage": psutil.disk_usage('/').percent,
-                "active_connections": len(websocket_manager.active_connections) if hasattr(websocket_manager, 'active_connections') else 0,
-                "agent_status": {
-                    "policy_agent": random.choice(["active", "idle"]),     
-                    "hrsd_agent": random.choice(["active", "idle"]),
-                    "compliance_agent": "active", 
-                    "self_correcting_agent": "active",
-                    "synthetic_twin_engine": "active"
-                },    
-                "queue_sizes": {
-                    "simulation_queue": random.randint(0, 10),
-                    "remediation_queue": random.randint(0, 5),
-                    "streaming_queue": random.randint(0, 20)
-                },    
+                # Field names the frontend telemetry consumers expect (real values).
+                "cpu_load": round(cpu_load, 1),
+                "memory_load": round(memory_load, 1),
+                "disk_usage": round(disk_usage, 1),
+                "active_nodes": active_conns,
+                "events_per_second": round(events_per_second, 2),
+                "latency": round(collect_latency_ms, 2),
                 "timestamp": datetime.now(timezone.utc).isoformat()
             }
                         

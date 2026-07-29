@@ -33,6 +33,13 @@ const DigitalTwinRiskChart = memo(({ originalRisk, simulatedRisk, mitigationFact
         factorRow: { display: 'flex', justifyContent: 'space-between', padding: `${tokens.spacing?.xs} 0`, borderBottom: `1px dotted ${tokens.color?.['border-700']}` }
     }), []);
 
+    // Build the mitigation bar chart from the real factors passed in (impact as magnitude %).
+    const mitigationChartData = useMemo(() => (
+        (mitigationFactors || [])
+            .map((f) => ({ name: f.feature, value: Math.abs(Number(f.impact ?? 0) * 100) }))
+            .sort((a, b) => b.value - a.value)
+    ), [mitigationFactors]);
+
     const DifferenceIcon = isSuccess ? TrendingDown : (isNeutral ? AlertTriangle : AlertTriangle);
     const differenceColor = isSuccess ? tokens.color?.success : (isNeutral ? tokens.color?.warning : tokens.color?.danger);
     const impactColor = isSuccess ? tokens.color?.success : tokens.color?.danger;
@@ -73,8 +80,8 @@ const DigitalTwinRiskChart = memo(({ originalRisk, simulatedRisk, mitigationFact
             </div>
                         
             <div style={{ flexGrow: 1 }}>
-                {/* The Bar Chart displays mitigation factors */}
-                <BarChartWidget label="Bar Chart: Risk Mitigation by Factor" minHeight="200px" />
+                {/* The Bar Chart displays the real mitigation factors driving the simulation. */}
+                <BarChartWidget label="Risk Mitigation by Factor (impact %)" minHeight="200px" data={mitigationChartData} />
             </div>
 
             <h4 style={{ ...styles.riskHeader, borderBottom: 'none' }}>Top Mitigation Drivers</h4>

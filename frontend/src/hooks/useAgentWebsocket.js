@@ -4,11 +4,14 @@ import { WS_URL } from '../config/api'; // CRITICAL FIX: Import the hardened WS_
 
 const RECONNECT_INTERVAL = 5000; // 5 seconds
 const PING_INTERVAL = 30000; // 30 seconds
+const HISTORY_LIMIT = 20; // rolling telemetry points kept for live charts
 
 export const useAgentWebsocket = () => {
     // CRITICAL FIX 1: Explicitly define all state and refs
     const [isConnected, setIsConnected] = useState(false);
     const [telemetryMetrics, setTelemetryMetrics] = useState(null);
+    // Rolling window of recent telemetry for live time-series charts.
+    const [telemetryHistory, setTelemetryHistory] = useState([]);
     const wsRef = useRef(null);
     const reconnectTimerRef = useRef(null);
     const pingTimerRef = useRef(null);
@@ -50,7 +53,19 @@ export const useAgentWebsocket = () => {
                 const message = JSON.parse(event.data);
                 if (message.type === 'telemetry_metrics') {
                     // Update state with live backend metrics
-                    setTelemetryMetrics(message.data);
+                    const metrics = message.data;
+                    setTelemetryMetrics(metrics);
+                    // Append to the rolling history for live charts.
+                    setTelemetryHistory((prev) => {
+                        const point = {
+                            name: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+                            value: Number(metrics?.events_per_second ?? 0),
+                            cpu: Number(metrics?.cpu_load ?? 0),
+                            memory: Number(metrics?.memory_load ?? 0),
+                            latency: Number(metrics?.latency ?? 0),
+                        };
+                        return [...prev, point].slice(-HISTORY_LIMIT);
+                    });
                 } else if (message.type === 'simulation_update') {
                     console.log('WS: Agent Update:', message.data);
                 }
@@ -99,10 +114,11 @@ export const useAgentWebsocket = () => {
 
     // CRITICAL FIX 7: Use useMemo for a stable return object
     const memoizedReturn = useMemo(() => ({
-        isConnected, 
-        telemetryMetrics, 
-        send 
-    }), [isConnected, telemetryMetrics, send]);
+        isConnected,
+        telemetryMetrics,
+        telemetryHistory,
+        send
+    }), [isConnected, telemetryMetrics, telemetryHistory, send]);
 
     return memoizedReturn;
 };

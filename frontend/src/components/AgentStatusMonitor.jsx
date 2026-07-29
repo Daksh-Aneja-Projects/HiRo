@@ -12,10 +12,18 @@ import { Cpu, Server, CheckCircle, Loader2, AlertTriangle, MessageCircle } from 
 const AgentStatusMonitor = memo(() => {
     
     // CRITICAL API INTEGRATION: Use the WebSocket hook for live data
-    const { 
-        isConnected, 
-        telemetryMetrics 
+    const {
+        isConnected,
+        telemetryMetrics,
+        telemetryHistory
     } = useAgentWebsocket();
+
+    // Live resource-utilization snapshot for the bar chart (real system metrics).
+    const resourceData = useMemo(() => ([
+        { name: 'CPU', value: Number(telemetryMetrics?.cpu_load ?? 0) },
+        { name: 'Memory', value: Number(telemetryMetrics?.memory_load ?? 0) },
+        { name: 'Disk', value: Number(telemetryMetrics?.disk_usage ?? 0) },
+    ]), [telemetryMetrics]);
 
     // Calculate derived status and values
     const primaryStatus = isConnected ? 'ONLINE' : 'OFFLINE';
@@ -68,12 +76,16 @@ const AgentStatusMonitor = memo(() => {
                     </DataCard>
                 </div>
                 
-                {/* Charts */}
+                {/* Charts — live data from the telemetry stream */}
                 <div style={styles.chart}>
-                    <AreaChartWidget label="Event Throughput History" minHeight="100%" />
+                    {telemetryHistory && telemetryHistory.length > 0 ? (
+                        <AreaChartWidget label="Event Throughput (msg/s)" minHeight="100%" data={telemetryHistory} />
+                    ) : (
+                        <AreaChartWidget label="Event Throughput (msg/s) — awaiting telemetry..." minHeight="100%" data={[]} />
+                    )}
                 </div>
                 <div style={styles.chart}>
-                    <BarChartWidget label="Agent Success/Failure Ratio" minHeight="100%" />
+                    <BarChartWidget label="System Resource Utilization (%)" minHeight="100%" data={resourceData} />
                 </div>
             </div>
         </div>
