@@ -209,7 +209,21 @@ async def run_policy_scraping_background(policy_scraping_agent: PolicyScrapingAg
 async def lifespan(app: FastAPI):
     # STARTUP
     logger.info(" 🚀  Starting HiRo backend server with SI Integration...")
-        
+
+    # 0. Refuse to boot in production with shipped default secrets.
+    _DEFAULT_SECRETS = {
+        "hiro_production_signing_key_secure_48char",
+        "hiro_zero_trust_production_key_1001001",
+    }
+    if settings.ENV in ("production", "prod"):
+        in_use = {settings.JWT_SECRET_KEY.get_secret_value(),
+                  settings.AGENT_SIGNING_SECRET.get_secret_value()}
+        if in_use & _DEFAULT_SECRETS:
+            raise RuntimeError(
+                "Refusing to start in production with a default signing secret. "
+                "Set JWT_SECRET_KEY and AGENT_SIGNING_SECRET to strong unique values."
+            )
+
     try:
         # 1. MongoDB
         logger.info("Connecting to MongoDB...")
@@ -426,6 +440,28 @@ if settings.ENABLE_CORS:
         max_age=600
     )
 app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+# --- Security headers (applied to every response) ---
+_SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "X-XSS-Protection": "0",  # modern guidance: disable legacy auditor, rely on CSP
+    "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
+    "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",  # JSON API only
+}
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    for k, v in _SECURITY_HEADERS.items():
+        response.headers.setdefault(k, v)
+    # HSTS only in production (avoids pinning HTTPS during local http dev)
+    if not settings.DEBUG_MODE:
+        response.headers.setdefault(
+            "Strict-Transport-Security", "max-age=63072000; includeSubDomains"
+        )
+    return response
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
