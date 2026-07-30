@@ -36,7 +36,7 @@ const AgentFactoryModule = memo(() => {
     const [isCreating, setIsCreating] = useState(false);
 
     // Real orchestration snapshot: active agents vs active tasks.
-    const { data: orch } = useApi(getOrchestratorDashboardData, [], true, 60000);
+    const { data: orch, refetch: refetchOrch } = useApi(getOrchestratorDashboardData, [], true, 60000);
     const agentDist = useMemo(() => ([
         { name: 'Active Agents', value: Number(orch?.agents) || 0 },
         { name: 'Active Tasks', value: Number(orch?.active_tasks) || 0 },
@@ -49,11 +49,19 @@ const AgentFactoryModule = memo(() => {
         
         setIsCreating(true);
         try {
-            // CRITICAL API INTEGRATION 1: Call the specific createNewAIAgent API function
-            const response = await createNewAIAgent(agentData);
-            
-            toast({ title: 'Agent Deployed', description: `Agent "${agentData.name}" created with ID: ${response.data.agent_id}.`, variant: 'success' });
+            // The agent factory is intent-driven: the backend plans the agent from a
+            // natural-language brief. Compose one from the form so the request matches
+            // the real contract ({intent}) instead of 422-ing on {name, role, model}.
+            const intent = `Create an agent named "${agentData.name}" responsible for ${agentData.role}, running on the ${agentData.model} model.`;
+            const response = await createNewAIAgent({ intent });
+
+            toast({
+                title: 'Agent deployed',
+                description: `${agentData.name} created with ID ${response.data?.agent_id || 'pending'}.`,
+                variant: 'success',
+            });
             setAgentData({ name: '', role: 'Governance', model: 'llama3.1:8b' });
+            refetchOrch?.();
         } catch (error) {
             console.error("Agent creation failed:", error);
             toast({ title: 'Deployment Failed', description: error.response?.data?.detail || error.message, variant: 'destructive' });

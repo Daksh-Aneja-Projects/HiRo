@@ -109,6 +109,20 @@ CREATE TABLE IF NOT EXISTS public.policy_audit_log (
     context_json JSONB
 );
 
+-- Agent deployment tracking (written by AgentCreationService, read by the
+-- orchestrator process-history endpoint). Was referenced but never created.
+CREATE TABLE IF NOT EXISTS public.implementation_status (
+    task_id VARCHAR(64) PRIMARY KEY,
+    project_id VARCHAR(64),
+    status VARCHAR(32),
+    agent_id VARCHAR(64),
+    requester_id VARCHAR(64),
+    step_name VARCHAR(128),
+    process_id VARCHAR(64),
+    audit_trail JSONB,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Compensation change ledger (written by HRModulesService.update_compensation,
 -- read by payslip history). Was referenced but never created.
 CREATE TABLE IF NOT EXISTS public.comp_history (

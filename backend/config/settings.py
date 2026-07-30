@@ -145,6 +145,9 @@ class Settings:
     DTLA_SCENARIO_INTERVAL_SECONDS: int = int(get_env_variable("DTLA_SCENARIO_INTERVAL_SECONDS", str(3600 * 24)))
     DTLA_RISK_THRESHOLD: float = float(get_env_variable("DTLA_RISK_THRESHOLD", "0.9"))
     EXTERNAL_API_TIMEOUT_SECONDS: float = float(get_env_variable("EXTERNAL_API_TIMEOUT_SECONDS", "45.0"))
+    # Local LLM inference runs on CPU here, so a long JSON generation legitimately
+    # takes minutes. Keep it separate from the general external-API timeout.
+    LLM_TIMEOUT_SECONDS: float = float(get_env_variable("LLM_TIMEOUT_SECONDS", "300.0"))
     
     # HRSD ServiceNow LIVE URL
     SNOW_API_URL: str = get_env_variable("SNOW_API_URL", "https://mock.servicenow.com/api")
