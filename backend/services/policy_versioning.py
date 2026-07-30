@@ -2,13 +2,16 @@
 
 import json
 import hashlib
-from typing import Dict, List, Any, Optional, Tuple, Union 
-from datetime import datetime, timezone 
-from dataclasses import dataclass, asdict, field 
+import logging
+from typing import Dict, List, Any, Optional, Tuple, Union
+from datetime import datetime, timezone
+from dataclasses import dataclass, asdict, field
 from enum import Enum
 from copy import deepcopy
-import uuid 
+import uuid
 import asyncio
+
+logger = logging.getLogger(__name__)
 # CRITICAL FIX: Import pg_client for transactional updates
 from services.postgres_client import pg_client as local_pg_client # Renamed for clarity in this file
 
@@ -77,13 +80,74 @@ class PolicyAuditEntry:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 class PolicyVersioningService:
-    """Manages policy versions, approvals, and lifecycle (Synchronous Core Logic)"""
-    def __init__(self):
+    """Manages policy versions, approvals, and lifecycle (Synchronous Core Logic).
+
+    State is durable: it is snapshotted to MongoDB after every mutation and
+    reloaded on startup. Policy versions are governance records, so losing them
+    on a process restart is not acceptable.
+    """
+
+    _SNAPSHOT_ID = "policy_versioning_state"
+
+    def __init__(self, mongo_uri: Optional[str] = None, db_name: Optional[str] = None):
         self.versions: Dict[str, PolicyVersion] = {}
         self.policy_index: Dict[str, List[str]] = {}
         self.active_versions: Dict[str, str] = {}
         self.approval_requests: Dict[str, ApprovalRequest] = {}
         self.audit_trail: List[PolicyAuditEntry] = []
+
+        self._collection = None
+        try:
+            from pymongo import MongoClient
+            from config.settings import settings as _settings
+            uri = mongo_uri or _settings.mongo_url()
+            name = db_name or _settings.MONGO_DB_NAME
+            # Short timeout: persistence must never block policy operations.
+            client = MongoClient(uri, serverSelectionTimeoutMS=2000)
+            self._collection = client[name]["policy_versioning_state"]
+            self._load()
+        except Exception as e:  # storage unavailable -> run in-memory, but say so
+            logger.warning(f"Policy versioning persistence unavailable ({e}); running in-memory only.")
+            self._collection = None
+
+    # ---- durability -------------------------------------------------------
+
+    def _load(self) -> None:
+        if self._collection is None:
+            return
+        doc = self._collection.find_one({"_id": self._SNAPSHOT_ID})
+        if not doc:
+            return
+        try:
+            self.versions = {k: PolicyVersion(**v) for k, v in (doc.get("versions") or {}).items()}
+            self.policy_index = doc.get("policy_index") or {}
+            self.active_versions = doc.get("active_versions") or {}
+            self.approval_requests = {k: ApprovalRequest(**v) for k, v in (doc.get("approval_requests") or {}).items()}
+            self.audit_trail = [PolicyAuditEntry(**a) for a in (doc.get("audit_trail") or [])]
+            logger.info(f"Restored {len(self.versions)} policy version(s) from storage.")
+        except Exception as e:
+            logger.error(f"Could not restore policy state ({e}); starting empty.")
+
+    def _persist(self) -> None:
+        if self._collection is None:
+            return
+        try:
+            self._collection.replace_one(
+                {"_id": self._SNAPSHOT_ID},
+                {
+                    "_id": self._SNAPSHOT_ID,
+                    "versions": {k: asdict(v) for k, v in self.versions.items()},
+                    "policy_index": self.policy_index,
+                    "active_versions": self.active_versions,
+                    "approval_requests": {k: asdict(v) for k, v in self.approval_requests.items()},
+                    "audit_trail": [asdict(a) for a in self.audit_trail[-500:]],
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                },
+                upsert=True,
+            )
+        except Exception as e:
+            # A persistence failure must not fail the user's action; it is logged loudly.
+            logger.error(f"Failed to persist policy state: {e}")
 
     def _generate_content_hash(self, content: Dict[str, Any]) -> str:
         """
@@ -157,6 +221,7 @@ class PolicyVersioningService:
             performed_by=created_by,
             details={"changelog": changelog, "version_number": version_number}
         )
+        self._persist()
         return version
 
     def update_version_content(self,
@@ -184,6 +249,7 @@ class PolicyVersioningService:
             performed_by=updated_by,
             details={"changelog": changelog}
         )
+        self._persist()
         return version
 
     def submit_for_approval(self,
@@ -228,6 +294,7 @@ class PolicyVersioningService:
             performed_by=requested_by,
             details={"request_id": request_id, "approvers": approvers}
         )
+        self._persist()
         return approval_request
 
     def approve_policy(self,
@@ -296,6 +363,7 @@ class PolicyVersioningService:
                     details={"request_id": request_id}
                 )
         
+        self._persist()
         return request
 
     async def embed_approved_policy(self, version_id: str, performer: str) -> Dict[str, Any]:
@@ -421,6 +489,7 @@ class PolicyVersioningService:
             performed_by=activated_by,
             details={"policy_id": policy_id}
         )
+        self._persist()
         return version
 
     def rollback_to_version(self,
