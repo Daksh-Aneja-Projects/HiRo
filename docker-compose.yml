@@ -337,15 +337,13 @@ services:
     container_name: hiro-gateway
     restart: always
     ports:
-      # >>>>>>>>>>>>>>>>>>>>>> THE ONLY CHANGE <<<<<<<<<<<<<<<<<<<<<<<<
-      # Allows access from other devices on the local network (Wi-Fi)
-      - "0.0.0.0:80:80"
-      # >>>>>>>>>>>>>>>>>>>>>> THE ONLY CHANGE <<<<<<<<<<<<<<<<<<<<<<<<
+      # Host 80 maps to the container's unprivileged 8080 listener.
+      - "0.0.0.0:80:8080"
     depends_on:
       backend:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:80/health"]
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
       interval: 30s
       timeout: 5s
       retries: 3
