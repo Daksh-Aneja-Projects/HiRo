@@ -5,9 +5,35 @@ Loads environment variables and provides structured access to all
 constants, ensuring compatibility with the multi-agent, streaming, and RBAC architecture."""
 
 import os
+import json as _json
 import logging
 from typing import Optional, List, Dict, Any
 from pydantic import SecretStr
+
+# --- Pydantic v1/v2 compatibility shim ---------------------------------------
+# The stack pins pydantic 1.10.x (nats-py compat), but much of the code calls the
+# v2-only BaseModel.model_dump()/model_validate(). Add them once here (settings is
+# imported before anything constructs a model) so those calls don't 500 at runtime.
+import pydantic as _pydantic
+if _pydantic.VERSION.startswith("1."):
+    # `model_config = ConfigDict(...)` is a v2 idiom; on v1 it becomes a stray field
+    # that leaks into every response. Strip that inert artifact from serialization.
+    _orig_dict = _pydantic.BaseModel.dict
+    def _dict(self, **kw):
+        d = _orig_dict(self, **kw)
+        d.pop("model_config", None)
+        return d
+    _pydantic.BaseModel.dict = _dict
+if not hasattr(_pydantic.BaseModel, "model_dump"):
+    def _model_dump(self, *, mode=None, **kw):
+        if mode == "json":
+            d = _json.loads(self.json(**kw))
+            d.pop("model_config", None)  # .json() bypasses the patched .dict()
+            return d
+        return self.dict(**kw)
+    _pydantic.BaseModel.model_dump = _model_dump
+if not hasattr(_pydantic.BaseModel, "model_validate"):
+    _pydantic.BaseModel.model_validate = classmethod(lambda cls, obj: cls.parse_obj(obj))
 
 # CRITICAL FIX: Corrected the logger initialization line
 logger = logging.getLogger(__name__)
@@ -25,6 +51,8 @@ class Settings:
     # --- Application Configuration ---
     APP_NAME: str = "HiRo Enterprise API"
     LOG_LEVEL: str = get_env_variable("LOG_LEVEL", "INFO")
+    # Deployment environment; gates dev-only test-user seeding and prod secret checks.
+    ENV: str = get_env_variable("ENV", "development")
     
     # CORS Configuration
     FRONTEND_URL: str = get_env_variable("FRONTEND_URL", "http://localhost:3000,http://127.0.0.1:3000")
