@@ -119,12 +119,12 @@ const XAIDecisionPanelWrapper = memo(({ item, onClose }) => {
                {/* Placeholder for XAIDecisionPanel */}
                <div style={{ maxHeight: '20rem', overflowY: 'auto' }}>
                    <p style={{ color: tokens.color?.['muted-500'] }}>Employee: {xaiDecision.employeeId}</p>
-                   <p style={{ color: tokens.color?.['muted-500'], marginTop: tokens.spacing?.xs }}>**{xaiDecision.scoreLabel}**: <span style={{ color: riskColor, 
+                   <p style={{ color: tokens.color?.['muted-500'], marginTop: tokens.spacing?.xs }}><strong>{xaiDecision.scoreLabel}</strong>: <span style={{ color: riskColor, 
                        // --- FIX: Added optional chaining ---
                        fontWeight: tokens.typography?.h2?.fontWeight 
                        // ------------------------------------
                    }}>{(xaiDecision.primaryScore * 100).toFixed(1)}%</span></p>
-                   <p style={{ color: tokens.color?.['text-100'], marginTop: tokens.spacing?.md }}>**AI Recommendation**: {xaiDecision.outcome}</p>
+                   <p style={{ color: tokens.color?.['text-100'], marginTop: tokens.spacing?.md }}><strong>AI recommendation</strong>: {xaiDecision.outcome}</p>
                    <p style={{ color: tokens.color?.['muted-500'], marginTop: tokens.spacing?.md, 
                        // --- FIX: Added optional chaining ---
                        fontSize: tokens.typography?.small?.fontSize

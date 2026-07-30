@@ -89,7 +89,7 @@ const AgentManagementPanel = memo(() => {
             {deployId && (
                 <div style={styles.approvalBar}>
                     <div style={{ color: tokens.color?.warning }}>
-                        Deployment **{deployId}** pending final approval.
+                        Deployment <strong>{deployId}</strong> pending final approval.
                     </div>
                     <div style={{ display: 'flex', gap: tokens.spacing?.sm }}>
                         <button onClick={() => handleFinalApproval(true)} style={{...styles.button(tokens.color?.success), width: 'auto', color: tokens.color?.['bg-deep']}} className="agent-approve-hover">

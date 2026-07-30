@@ -37,7 +37,7 @@ const RoleNavDashboard = memo(() => {
             </div>
             
             <p style={{ color: tokens.color?.['text-100'] }}>
-                You have access to **{availablePortals.length}** unique portals and tools:
+                You have access to <strong>{availablePortals.length}</strong> portals and tools:
             </p>
 
             <div style={styles.grid}>

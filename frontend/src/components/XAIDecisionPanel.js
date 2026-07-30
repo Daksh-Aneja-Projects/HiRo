@@ -170,7 +170,7 @@ const XAIDecisionPanel = memo(({ employeeId = MOCK_EMPLOYEES[0]?.id || 'EMP001' 
                         <p style={{ fontWeight: tokens.typography.h2.fontWeight, color: simulationResult.metrics.risk_mitigation_percent > 0 ? tokens.color['success'] : tokens.color['danger'] }}>
                             Attrition Risk Mitigated: {simulationResult.metrics.risk_mitigation_percent.toFixed(1)}%
                         </p>
-                        <p style={{ color: tokens.color['text-100'] }}>New Predicted Risk: **{simulationResult.metrics.simulated_attrition_risk.toFixed(2)}**</p>
+                        <p style={{ color: tokens.color['text-100'] }}>New predicted risk: <strong>{simulationResult.metrics.simulated_attrition_risk.toFixed(2)}</strong></p>
                         <p style={{ color: tokens.color['warning'], fontSize: tokens.typography.small.fontSize, marginTop: tokens.spacing.xs }}>{simulationResult.prescriptive_recommendation}</p>
                     </div>
                 )}
