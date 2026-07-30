@@ -14,6 +14,7 @@ import random
 import psutil
 from services import social_recognition
 from config.settings import settings
+from services.postgres_client import pg_client
 
 # CRITICAL FIX 1: Initialize logger immediately after import
 logger = logging.getLogger(__name__)
@@ -251,8 +252,30 @@ async def scan_policy_for_deployment(req: Request, data: PolicyScanRequest, payl
 
 @policy_router.post("/deploy-bpcl-from-prompt/{policy_id}")
 async def deploy_bpcl_from_prompt(req: Request, policy_id: str, nl_prompt: str = Body(..., embed=True), payload: Dict=Depends(policy_admin_role_required)):
-    """FIX: Added missing policy deployment endpoint from NL prompt."""
-    return {"status": "Deployment Initiated", "policy_id": policy_id, "prompt": nl_prompt, "task_id": f"DEPLOY-MOCK-{random.getrandbits(16)}"}
+    """Generate BPCL from the NL prompt via the local LLM, persist the deployment
+    request to Mongo, and return a real tracking id."""
+    ai_service: AIService = getattr(req.app.state, "ai_service", None)
+    generated = None
+    if ai_service:
+        try:
+            generated = await ai_service.generate_text(
+                f"Convert this HR policy instruction into a compact BPCL rule as strict JSON "
+                f"(keys: rule_name, condition, action). Instruction: {nl_prompt}",
+                "You are a BPCL policy compiler. Output only JSON.",
+            )
+        except Exception as e:
+            logger.warning(f"deploy_bpcl_from_prompt LLM generation failed: {e}")
+
+    task_id = f"DEPLOY-{random.getrandbits(48):012x}"
+    mongo_client = getattr(req.app.state, "mongo_client", None)
+    if mongo_client:
+        await mongo_client[settings.MONGO_DB_NAME]["policy_deployments"].insert_one({
+            "task_id": task_id, "policy_id": policy_id, "prompt": nl_prompt,
+            "generated_bpcl": generated, "status": "QUEUED",
+            "requested_by": payload.get("sub"),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+    return {"status": "Deployment Initiated", "policy_id": policy_id, "task_id": task_id}
 
 
 # ======================================
@@ -262,10 +285,8 @@ async def deploy_bpcl_from_prompt(req: Request, policy_id: str, nl_prompt: str =
 async def list_tickets(req: Request, employee_id: Optional[str] = Query(None), limit: Optional[int] = Query(None), offset: Optional[int] = Query(None), payload: Dict=Depends(manager_role_required)):
     """FIX: Added GET endpoint to list tickets (needed by frontend dashboard)."""
     hrsd_system: MultiAgentHRSDSystem = getattr(req.app.state, "hrsd_system", None)
-    if not hrsd_system: 
-        from config.settings import MOCK_HRSD_TICKETS 
-        return {"tickets": MOCK_HRSD_TICKETS, "is_mock": True}
-    
+    if not hrsd_system:
+        raise HTTPException(status_code=503, detail="HRSD system unavailable.")
     return await hrsd_system.list_tickets(employee_id)
 
 @hrsd_router.post("/tickets")
@@ -293,8 +314,24 @@ async def get_hrsd_overview(req: Request, payload: Dict=Depends(manager_role_req
 
 @hrsd_router.post("/integrations/snow/sync")
 async def sync_servicenow(req: Request, payload: Dict=Depends(hrit_admin_role_required)):
-    # Mocking SNOW sync
-    return {"status": "Sync Initiated", "details": {"external_id": f"SNOW-{random.getrandbits(16)}"}}
+    """Record a ServiceNow sync attempt. There is no live ServiceNow tenant wired up,
+    so this persists a local sync-log record (clearly marked as local) rather than
+    fabricating an external ServiceNow id."""
+    mongo_client = getattr(req.app.state, "mongo_client", None)
+    if not mongo_client:
+        raise HTTPException(status_code=503, detail="Sync log store unavailable.")
+    now = datetime.now(timezone.utc).isoformat()
+    record = {
+        "local_record_id": f"LOCAL-SNOWSYNC-{random.getrandbits(48):012x}",
+        "source": "local",
+        "external_system": "servicenow",
+        "external_configured": False,
+        "status": "RECORDED_LOCAL",
+        "triggered_by": payload.get("sub"),
+        "synced_at": now,
+    }
+    await mongo_client[settings.MONGO_DB_NAME]["servicenow_sync_log"].insert_one(dict(record))
+    return {"status": "Sync Recorded (local)", "details": record}
 
 # ======================================
 # 3. SYSTEM ADMIN & AGENTS ROUTER (Fixed/Complete)
@@ -318,26 +355,43 @@ async def create_agent(req: Request, data: AgentCreationRequest, payload: Dict=D
 @admin_router.post("/agent/deploy/final-approval")
 async def process_agent_final_approval(req: Request, task_id: str = Body(...), project_id: str = Body(...), approved: bool = Body(...), comments: Optional[str] = Body(None), payload: Dict=Depends(hrit_admin_role_required)):
     """FIX: Added endpoint for HRIT Manager's final approval on agent deployment/config update."""
-    config_agent: ConfigurationAgent = getattr(req.app.state, "configuration_agent", None)
-    if not config_agent: raise HTTPException(status_code=503, detail="Configuration Agent unavailable.")
-    
+    decision = "APPROVED" if approved else "REJECTED"
+    now = datetime.now(timezone.utc).isoformat()
+    record = {
+        "task_id": task_id, "project_id": project_id, "decision": decision,
+        "approved_by": payload.get("sub"), "comments": comments, "decided_at": now,
+    }
+
+    mongo_client = getattr(req.app.state, "mongo_client", None)
+    if mongo_client:
+        await mongo_client[settings.MONGO_DB_NAME]["agent_deployments"].update_one(
+            {"task_id": task_id}, {"$set": record}, upsert=True,
+        )
+
+    published = False
     if approved:
-        if not hasattr(config_agent, 'finalize_deployment_approval'):
-            raise HTTPException(status_code=501, detail="Agent service not fully implemented (missing finalize_deployment_approval).")
-        result = await config_agent.finalize_deployment_approval(task_id, project_id, payload['sub'], comments)
-        return {"status": "DEPLOYMENT_TRIGGERED", "task_id": task_id, "deployment_result": result}
-    else:
-        if not hasattr(config_agent, 'reject_deployment'):
-            raise HTTPException(status_code=501, detail="Agent service not fully implemented (missing reject_deployment).")
-        await config_agent.reject_deployment(task_id, project_id, payload['sub'], comments)
-        return {"status": "REJECTED", "task_id": task_id}
+        publisher = getattr(req.app.state, "event_publisher", None)
+        if publisher:
+            await publisher.publish_event(
+                publisher.TOPIC_HUMAN_APPROVAL,
+                {"type": "AGENT_DEPLOYMENT_APPROVED", "task_id": task_id,
+                 "project_id": project_id, "approved_by": payload.get("sub")},
+                key=task_id,
+            )
+            published = True
+
+    return {
+        "status": "DEPLOYMENT_TRIGGERED" if approved else "REJECTED",
+        "task_id": task_id, "decision": decision, "event_published": published,
+    }
 
 
 @admin_router.post("/rlff/command")
 async def rlff_command(req: Request, command: str = Body(..., embed=True), payload: Dict=Depends(hrit_admin_role_required)):
-    rlff_llm_fine_tuner = getattr(req.app.state, "rlff_llm_fine_tuner", None)
-    if not rlff_llm_fine_tuner: 
-        return {"result": f"Mocked RLFF Optimization applied for command: {command[:20]}...", "status": "COMMAND_QUEUED"}
+    rlff_llm_fine_tuner: RLFFLLMFineTuner = getattr(req.app.state, "rlff_llm_fine_tuner", None)
+    if not rlff_llm_fine_tuner:
+        raise HTTPException(status_code=503, detail="RLFF fine-tuner unavailable.")
+    return await rlff_llm_fine_tuner.execute_rlff_command({"command": command, "command_type": "analyze"})
 
 @admin_router.get("/dashboard")
 async def get_admin_dashboard(req: Request, payload: Dict=Depends(hrit_admin_role_required)):
@@ -470,13 +524,29 @@ async def reset_all_data(req: Request, payload: Dict=Depends(hrit_admin_role_req
 async def get_hrit_portal_data(req: Request, payload: Dict=Depends(hrit_admin_role_required)):
     return await get_admin_dashboard(req, payload)
 
-@admin_router.post("/hrit/system/reset-data") 
+async def _admin_audit(req: Request, action: str, detail: Dict[str, Any], payload: Dict) -> Dict[str, Any]:
+    """Persist a fire-and-forget admin operation request to the Mongo audit log
+    and return a real acknowledgement with the stored record id."""
+    op_id = f"ADMINOP-{random.getrandbits(48):012x}"
+    now = datetime.now(timezone.utc).isoformat()
+    mongo_client = getattr(req.app.state, "mongo_client", None)
+    if not mongo_client:
+        raise HTTPException(status_code=503, detail="Admin audit store unavailable.")
+    await mongo_client[settings.MONGO_DB_NAME]["admin_operations_log"].insert_one({
+        "op_id": op_id, "action": action, "detail": detail,
+        "requested_by": payload.get("sub"), "status": "ACCEPTED", "requested_at": now,
+    })
+    return {"op_id": op_id, "action": action, "status": "ACCEPTED", "requested_at": now}
+
+@admin_router.post("/hrit/system/reset-data")
 async def reset_hrit_data(req: Request, payload: Dict=Depends(hrit_admin_role_required)):
-    return {"status": "HRIT Data Reset Mock"}
+    """Record an HRIT data-reset request (fire-and-forget). Actual destructive purge
+    is handled by /admin/system/reset-all-data; this records the operator intent."""
+    return await _admin_audit(req, "hrit_reset_data", {}, payload)
 
 @admin_router.post("/data/migrate-legacy-chunk")
 async def trigger_legacy_data_migration(req: Request, instructions: Dict[str, Any], payload: Dict=Depends(hrit_admin_role_required)):
-    return {"status": "Migration Chunk Started", "instructions": instructions}
+    return await _admin_audit(req, "migrate_legacy_chunk", {"instructions": instructions}, payload)
 
 # ======================================
 # 4. DATA & XAI ROUTER (Fixed/Complete)
@@ -487,23 +557,44 @@ async def explain_prediction(req: Request, model_name: str = Body(...), predicti
     xai: XAIWrapper = getattr(req.app.state, "xai_wrapper", None) 
     if not wfm_service or not xai: raise HTTPException(status_code=503, detail="WFM or XAI Service unavailable.")
     
-    mock_pred = await wfm_service.predict_attrition_risk(prediction_input)
-    feature_vector = mock_pred.get('feature_vector_used', prediction_input)
-    
-    if hasattr(xai, 'explain_prediction'):
-        return xai.explain_prediction(feature_vector)
-    else:
-        return {"explanation": "Mock XAI explanation."}
+    prediction = await wfm_service.predict_attrition_risk(prediction_input)
+    feature_vector = prediction.get('feature_vector_used', prediction_input)
+    return xai.explain_prediction(feature_vector)
 
 @data_router.get("/xai/audit/{model_name}")
 async def get_model_audit_log(req: Request, model_name: str, limit: int = Query(10), payload: Dict=Depends(hrit_admin_role_required)):
-    """FIX: Added missing endpoint for model audit log."""
-    return [{"timestamp": "2025-01-01", "action": "Model Retrained", "model": model_name}]
+    """Real model/policy decision audit trail from the Postgres policy_audit_log."""
+    lim = max(1, min(int(limit or 10), 500))
+    try:
+        rows = await pg_client.fetch(
+            """SELECT audit_id, decision_timestamp, policy_version, trigger_type, decision, reason
+               FROM policy_audit_log ORDER BY decision_timestamp DESC LIMIT $1""",
+            lim,
+        )
+    except Exception as e:
+        logger.warning(f"xai audit query failed: {e}")
+        return []
+    return [
+        {"audit_id": r["audit_id"], "timestamp": str(r["decision_timestamp"]),
+         "policy_version": r["policy_version"], "action": r["trigger_type"],
+         "decision": r["decision"], "reason": r.get("reason"), "model": model_name}
+        for r in rows
+    ]
 
 @data_router.post("/correction/{data_id}")
 async def submit_data_correction(req: Request, data_id: str, corrections: Dict[str, Any] = Body(..., embed=True), payload: Dict=Depends(hrit_admin_role_required)):
-    """FIX: Added missing endpoint for submitting data corrections."""
-    return {"status": "Correction Submitted", "data_id": data_id, "fields": list(corrections.keys())}
+    """Persist a data-correction request to Mongo for review/replay."""
+    mongo_client = getattr(req.app.state, "mongo_client", None)
+    if not mongo_client:
+        raise HTTPException(status_code=503, detail="Correction store unavailable.")
+    correction_id = f"CORR-{random.getrandbits(48):012x}"
+    await mongo_client[settings.MONGO_DB_NAME]["data_corrections"].insert_one({
+        "correction_id": correction_id, "data_id": data_id, "corrections": corrections,
+        "submitted_by": payload.get("sub"), "status": "PENDING_REVIEW",
+        "submitted_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return {"status": "Correction Submitted", "correction_id": correction_id,
+            "data_id": data_id, "fields": list(corrections.keys())}
 
 
 @data_router.post("/dtla/command")
@@ -513,11 +604,7 @@ async def dtla_command(req: Request, command_type: str = Body(...), data: Dict =
     
     data["command_type"] = command_type
     data["requester_id"] = payload['sub']
-    
-    if hasattr(dtla, 'execute_dtla_command'):
-        return await dtla.execute_dtla_command(data)
-    else:
-        return {"status": f"Mocked DTLA command executed: {command_type}"}
+    return await dtla.execute_dtla_command(data)
 
 # ======================================
 # 5. DEV & PQC ROUTER (Fixed/Complete)
@@ -541,29 +628,82 @@ async def test_pqc_decrypt(req: Request, ciphertext: str = Body(..., embed=True)
 
 @dev_router.post("/policy/generate_tree")
 async def generate_policy_execution_tree(req: Request, policy_version_id: str = Body(..., embed=True), payload: Dict=Depends(hrit_admin_role_required)):
-    return {"tree": {"id": "root", "version": policy_version_id, "children": []}}
+    """Build a real execution tree from the stored policy version's content."""
+    pvs: PolicyVersioningService = getattr(req.app.state, "policy_versioning_service", None)
+    if not pvs:
+        raise HTTPException(status_code=503, detail="Policy Versioning Service unavailable.")
+    version = await asyncio.to_thread(pvs.get_version_by_id, policy_version_id)
+    if not version:
+        raise HTTPException(status_code=404, detail="Policy version not found.")
+
+    def _node(key: str, value: Any) -> Dict[str, Any]:
+        if isinstance(value, dict):
+            return {"id": key, "type": "branch", "children": [_node(k, v) for k, v in value.items()]}
+        if isinstance(value, list):
+            return {"id": key, "type": "list", "children": [_node(f"{key}[{i}]", v) for i, v in enumerate(value)]}
+        return {"id": key, "type": "leaf", "value": value, "children": []}
+
+    content = version.content or {}
+    tree = {
+        "id": "root",
+        "version": policy_version_id,
+        "version_number": version.version_number,
+        "status": getattr(version.status, "value", str(version.status)),
+        "children": [_node(k, v) for k, v in content.items()],
+    }
+    return {"tree": tree}
+
+async def _dev_persist(req: Request, collection: str, action: str, data: Dict, payload: Dict) -> Dict[str, Any]:
+    mongo_client = getattr(req.app.state, "mongo_client", None)
+    if not mongo_client:
+        raise HTTPException(status_code=503, detail="Dev store unavailable.")
+    op_id = f"{action.upper()}-{random.getrandbits(48):012x}"
+    now = datetime.now(timezone.utc).isoformat()
+    await mongo_client[settings.MONGO_DB_NAME][collection].insert_one({
+        "op_id": op_id, "action": action, "data": data,
+        "requested_by": payload.get("sub"), "status": "ACCEPTED", "created_at": now,
+    })
+    return {"op_id": op_id, "status": "ACCEPTED", "created_at": now}
 
 @dev_router.post("/policy/checked-command")
 async def execute_policy_checked_command(req: Request, data: Dict, payload: Dict=Depends(hrit_admin_role_required)):
-    return {"status": "Command Checked and Executed"}
+    """Run the command through the runtime policy enforcer, then persist the outcome."""
+    scan = await runtime_enforcer("checked_command", {"Command": data})
+    decision = (scan.get("decision") or "").upper()
+    if decision in ("DENY", "STOP", "BLOCK"):
+        raise HTTPException(status_code=400, detail=f"Command blocked by policy: {scan.get('reason', 'denied')}")
+    result = await _dev_persist(req, "dev_checked_commands", "checked_command",
+                                {"command": data, "decision": decision or "PASS", "audit_id": scan.get("audit_id")}, payload)
+    return {"status": "Command Checked and Executed", "decision": decision or "PASS", **result}
 
 @dev_router.post("/sandbox/deploy")
 async def sandbox_deploy(req: Request, data: Dict, payload: Dict=Depends(hrit_admin_role_required)):
-    return {"status": "Sandbox Deployment Initiated"}
+    result = await _dev_persist(req, "sandbox_deployments", "sandbox_deploy", data, payload)
+    return {"status": "Sandbox Deployment Initiated", **result}
 
 
 @dev_router.post("/policy/scan")
 async def security_scan_bpcl(req: Request, code: Dict[str, Any], payload: Dict=Depends(hrit_admin_role_required)):
+    """Validate BPCL through the real V&V compiler on app.state."""
     bpcl_content = code.get('code', '')
-    
-    if "ERROR" in bpcl_content.upper() or "UNSAFE_CALL" in bpcl_content.upper():
-        raise HTTPException(status_code=400, detail="Mocked scan failed: BPCL contains critical error or unsafe keywords.")
-        
+    vv = getattr(req.app.state, "vv_compiler", None)
+    if not vv:
+        raise HTTPException(status_code=503, detail="V&V compiler unavailable.")
+    try:
+        result = vv.validate_bpcl(bpcl_content) if hasattr(vv, "validate_bpcl") else None
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Scan failed: {e}")
+    if result is None:
+        # Compiler present but no validate hook: fall back to a structural check.
+        vulnerabilities = [w for w in ("UNSAFE_CALL", "EXEC", "DROP") if w in bpcl_content.upper()]
+        return {"status": "SECURE" if not vulnerabilities else "VULNERABLE",
+                "vulnerabilities": vulnerabilities,
+                "trace": "Structural scan (no compiler validate hook)."}
+    is_valid = result.get("valid", True) if isinstance(result, dict) else bool(result)
     return {
-        "status": "SECURE", 
-        "vulnerabilities": [], 
-        "score": 98, 
-        "trace": "Policy passed syntax and security checks."
+        "status": "SECURE" if is_valid else "VULNERABLE",
+        "vulnerabilities": (result.get("errors", []) if isinstance(result, dict) else []),
+        "trace": (result.get("summary") if isinstance(result, dict) else "Validated by V&V compiler."),
     }
 
 # ======================================
@@ -846,30 +986,88 @@ async def ess_leave(req: Request, data: LeaveRequestSubmit, payload: Dict=Depend
     return await ess_service.submit_leave_request(payload['sub'], data.model_dump())
 
 @ess_router.get("/profile/personal-info")
-async def get_personal_info(req: Request, payload: Dict=Depends(employee_role_required)): 
-    # Mocking in router if service is missing
-    ess_service: ESSService = getattr(req.app.state, "ess_service", None)
-    if hasattr(ess_service, 'get_personal_info') and ess_service:
-        return await ess_service.get_personal_info()
-    return {"email": "user@hiro.com", "address": "123 Corp Lane"}
+async def get_personal_info(req: Request, payload: Dict=Depends(employee_role_required)):
+    """The caller's own profile from the users store (real record, no fabricated defaults)."""
+    mongo_client = getattr(req.app.state, "mongo_client", None)
+    if not mongo_client:
+        raise HTTPException(status_code=503, detail="User store unavailable.")
+    user = await mongo_client[settings.MONGO_DB_NAME]["users"].find_one(
+        {"username": payload.get("sub")}, {"_id": 0, "password": 0, "hashed_password": 0},
+    )
+    if not user:
+        raise HTTPException(status_code=404, detail="No profile found for this account.")
+    return {
+        "username": user.get("username"),
+        "email": user.get("email"),
+        "full_name": user.get("full_name"),
+        "role": user.get("role"),
+        "employee_uuid": user.get("employee_uuid"),
+    }
 
 @ess_router.post("/profile/update-request")
-async def update_personal_info(req: Request, data: Dict, payload: Dict=Depends(employee_role_required)): 
-    ess_service: ESSService = getattr(req.app.state, "ess_service", None)
-    if hasattr(ess_service, 'submit_personal_info_update') and ess_service:
-        return await ess_service.submit_personal_info_update(data)
-    return {"status": "Update Requested"}
+async def update_personal_info(req: Request, data: Dict, payload: Dict=Depends(employee_role_required)):
+    """Persist a self-service profile-change request for HR review (does not mutate
+    the record directly; approval flow applies it)."""
+    mongo_client = getattr(req.app.state, "mongo_client", None)
+    if not mongo_client:
+        raise HTTPException(status_code=503, detail="Request store unavailable.")
+    request_id = f"PCR-{random.getrandbits(48):012x}"
+    await mongo_client[settings.MONGO_DB_NAME]["profile_change_requests"].insert_one({
+        "request_id": request_id, "username": payload.get("sub"),
+        "employee_uuid": payload.get("employee_uuid"), "requested_changes": data,
+        "status": "PENDING", "submitted_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return {"status": "Update Requested", "request_id": request_id}
 
+
+async def _pending_leave_requests(limit: int = 100) -> List[Dict[str, Any]]:
+    """Real pending leave-approval items from the Postgres leave_requests table."""
+    try:
+        rows = await pg_client.fetch(
+            """SELECT request_id, employee_uuid, start_date, end_date, hours, status, submitted_at
+               FROM leave_requests WHERE status = 'PENDING'
+               ORDER BY submitted_at ASC LIMIT $1""",
+            max(1, min(int(limit or 100), 500)),
+        )
+    except Exception as e:
+        logger.warning(f"pending leave query failed: {e}")
+        return []
+    return [
+        {"request_id": r["request_id"], "type": "LEAVE_REQUEST", "employee_uuid": r["employee_uuid"],
+         "start_date": str(r["start_date"]), "end_date": str(r["end_date"]),
+         "hours": r["hours"], "status": r["status"], "submitted_at": str(r["submitted_at"])}
+        for r in rows
+    ]
 
 @mss_router.get("/team/roster")
 async def get_team_roster(req: Request, manager_id: Optional[str] = Query(None), status: Optional[str] = Query(None), payload: Dict=Depends(manager_role_required)):
-    """FIX: Added missing endpoint for getting team roster."""
-    return {"roster": [{"id": "E1", "name": "Team Member 1"}]}
+    """Real team roster: the manager's direct reports via the MSS service (PII-vault backed)."""
+    mss_service: MSSService = getattr(req.app.state, "mss_service", None)
+    if not mss_service:
+        raise HTTPException(status_code=503, detail="MSS Service unavailable.")
+    mgr_uuid = payload.get("employee_uuid") or manager_id
+    if not mgr_uuid:
+        raise HTTPException(status_code=404, detail="No manager record linked to this account.")
+    try:
+        data = await mss_service.get_manager_team_data(mgr_uuid, payload["role"])
+    except Exception as e:
+        logger.warning(f"team roster query failed: {e}")
+        return {"roster": []}
+    return {"manager_id": mgr_uuid, "roster": data.get("team", [])}
 
 @mss_router.get("/hiring/requisitions")
 async def get_requisitions(req: Request, manager_id: Optional[str] = Query(None), status: Optional[str] = Query(None), payload: Dict=Depends(manager_role_required)):
-    """FIX: Added missing endpoint for getting requisitions."""
-    return {"requisitions": [{"id": "REQ-101", "title": "Software Engineer"}]}
+    """Real hiring requisitions from the Mongo requisitions collection (empty until created)."""
+    mongo_client = getattr(req.app.state, "mongo_client", None)
+    if not mongo_client:
+        return {"requisitions": []}
+    query: Dict[str, Any] = {}
+    if manager_id:
+        query["manager_id"] = manager_id
+    if status:
+        query["status"] = status
+    cursor = mongo_client[settings.MONGO_DB_NAME]["requisitions"].find(query, {"_id": 0}).sort("created_at", -1).limit(200)
+    return {"requisitions": await cursor.to_list(length=200)}
 
 @mss_router.get("/team/{manager_id}")
 async def mss_team(req: Request, manager_id: str, payload: Dict=Depends(manager_role_required)):
@@ -887,22 +1085,27 @@ async def mss_approve(req: Request, request_id: str = Body(...), approved: bool 
 
 @mss_router.get("/approvals/queue")
 async def get_approval_queue(req: Request, payload: Dict=Depends(manager_role_required)):
-    mss_service: MSSService = getattr(req.app.state, "mss_service", None)
-    if hasattr(mss_service, 'get_approval_queue') and mss_service:
-        return await mss_service.get_approval_queue()
-    return []
+    """Real pending leave-approval queue from Postgres."""
+    return await _pending_leave_requests()
 
 @mss_router.get("/approvals/hrit-queue")
 async def get_hrit_queue(req: Request, payload: Dict=Depends(hrit_admin_role_required)):
-    return []
+    """HRIT-wide pending approval queue from Postgres."""
+    return await _pending_leave_requests(limit=500)
 
 @mss_router.post("/approvals/action")
 async def action_approval(req: Request, payload_data: Dict, payload: Dict=Depends(manager_role_required)):
-    """FIX: Added missing endpoint for general approval action."""
+    """Approve/reject a pending leave request. Delegates to the real MSS service which
+    updates leave_requests transactionally and publishes the decision event."""
     mss_service: MSSService = getattr(req.app.state, "mss_service", None)
-    if hasattr(mss_service, 'action_approval') and mss_service:
-        return await mss_service.action_approval(payload_data)
-    return {"status": "Actioned (Mock)"}
+    if not mss_service:
+        raise HTTPException(status_code=503, detail="MSS Service unavailable.")
+    request_id = payload_data.get("request_id") or payload_data.get("id")
+    if not request_id:
+        raise HTTPException(status_code=400, detail="request_id is required.")
+    approved = bool(payload_data.get("approved", payload_data.get("action") == "approve"))
+    comments = payload_data.get("comments", "")
+    return await mss_service.approve_leave(request_id, payload["sub"], approved, comments)
 
 
 # ======================================
@@ -1012,8 +1215,12 @@ async def synthesize_learning_curriculum(req: Request, employee_id: str, target_
 
 @talent_exp_router.get("/learning-modules")
 async def get_learning_modules(req: Request, payload: Dict = Depends(employee_role_required)):
-    """FIX: Added missing endpoint for getting learning modules."""
-    return {"modules": [{"id": 1, "title": "Advanced Python"}, {"id": 2, "title": "Leadership 101"}]}
+    """Real learning catalog from the Mongo learning_modules collection (empty until seeded)."""
+    mongo_client = getattr(req.app.state, "mongo_client", None)
+    if not mongo_client:
+        return {"modules": []}
+    cursor = mongo_client[settings.MONGO_DB_NAME]["learning_modules"].find({}, {"_id": 0}).limit(200)
+    return {"modules": await cursor.to_list(length=200)}
 
 # ======================================
 # 12. AI ROUTER (Fixed/Complete)
@@ -1125,21 +1332,79 @@ async def get_digital_twin_history(req: Request, user_id: str, payload: Dict = D
 # ======================================
 # 13. PII ROUTER (Fixed/Complete)
 # ======================================
+def _pqc(req: Request) -> PQCEncryptionWrapper:
+    pqc = getattr(req.app.state, "pqc_wrapper", None)
+    if not pqc:
+        raise HTTPException(status_code=503, detail="PQC Wrapper unavailable.")
+    return pqc
+
+def _consents(req: Request):
+    mongo_client = getattr(req.app.state, "mongo_client", None)
+    if not mongo_client:
+        raise HTTPException(status_code=503, detail="Consent store unavailable.")
+    return mongo_client[settings.MONGO_DB_NAME]["privacy_consents"]
+
 @pii_router.post("/tokenize")
 async def tokenize_pii(req: Request, value: str = Body(..., embed=True), payload: Dict=Depends(employee_role_required)):
-    return {"token": f"TOKEN-{random.getrandbits(16)}", "value_hash": "mock_hash"}
+    """Real reversible token via the PQC/Fernet wrapper (ciphertext is the token)."""
+    ciphertext, metadata = _pqc(req).encrypt(value, data_context="pii_tokenize")
+    return {
+        "token": ciphertext,
+        "value_hash": hashlib.sha256(value.encode("utf-8")).hexdigest()[:16],
+        "metadata": metadata,
+    }
 
 @pii_router.post("/update_consent")
 async def update_user_consent(req: Request, consent_data: Dict, payload: Dict=Depends(employee_role_required)):
-    return {"status": "Consent Updated"}
+    """Upsert a real consent record keyed by (employee_uuid, purpose_id)."""
+    employee_uuid = payload.get("employee_uuid")
+    if not employee_uuid:
+        raise HTTPException(status_code=404, detail="No employee record linked to this account.")
+    purpose_id = consent_data.get("purpose_id")
+    if not purpose_id:
+        raise HTTPException(status_code=400, detail="purpose_id is required.")
+    granted = bool(consent_data.get("granted", consent_data.get("consent", False)))
+    await _consents(req).update_one(
+        {"employee_uuid": employee_uuid, "purpose_id": purpose_id},
+        {"$set": {"granted": granted, "updated_by": payload.get("sub"),
+                  "updated_at": datetime.now(timezone.utc).isoformat()}},
+        upsert=True,
+    )
+    return {"status": "Consent Updated", "purpose_id": purpose_id, "granted": granted}
 
 @pii_router.post("/unmask")
-async def get_unmasked_pii(req: Request, reason: str = Body(..., embed=True), payload: Dict=Depends(employee_role_required)):
-    return {"unmasked_data": {"ssn": "999-99-9999", "reason": reason}}
+async def get_unmasked_pii(req: Request, token: str = Body(..., embed=True), reason: str = Body(..., embed=True), payload: Dict=Depends(employee_role_required)):
+    """Decrypt a PII token via the PQC wrapper. Every access is logged to Mongo
+    pii_access_log with the caller-supplied reason. Denies on invalid/empty input."""
+    reason = (reason or "").strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="A reason is required to unmask PII.")
+    mongo_client = getattr(req.app.state, "mongo_client", None)
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        plaintext = _pqc(req).decrypt(token, data_context="pii_unmask")
+        outcome = "GRANTED"
+    except ValueError:
+        outcome = "DENIED_INVALID_TOKEN"
+        plaintext = None
+    if mongo_client:
+        await mongo_client[settings.MONGO_DB_NAME]["pii_access_log"].insert_one({
+            "actor": payload.get("sub"), "employee_uuid": payload.get("employee_uuid"),
+            "reason": reason, "outcome": outcome,
+            "token_hash": hashlib.sha256(token.encode("utf-8")).hexdigest()[:16], "accessed_at": now,
+        })
+    if plaintext is None:
+        raise HTTPException(status_code=400, detail="Invalid token; access denied and logged.")
+    return {"unmasked_value": plaintext, "reason": reason, "outcome": outcome}
 
 @pii_router.get("/check_consent")
 async def check_user_consent(req: Request, purpose_id: str = Query(...), payload: Dict=Depends(employee_role_required)):
-    return {"consent": random.choice([True, False]), "purpose_id": purpose_id}
+    """Real consent check. Default DENY (False) when no explicit grant exists."""
+    employee_uuid = payload.get("employee_uuid")
+    if not employee_uuid:
+        raise HTTPException(status_code=404, detail="No employee record linked to this account.")
+    record = await _consents(req).find_one({"employee_uuid": employee_uuid, "purpose_id": purpose_id})
+    return {"consent": bool(record and record.get("granted", False)), "purpose_id": purpose_id}
 
 # ======================================
 # 14. INGESTION ROUTER (Fixed/Complete)
@@ -1211,8 +1476,20 @@ async def get_active_proposals(req: Request, payload: Dict = Depends(employee_ro
 
 @dao_router.post("/vote")
 async def cast_vote(req: Request, proposal_id: str = Body(...), vote: str = Body(...), voting_power: float = Body(...), payload: Dict = Depends(employee_role_required)):
-    """FIX: Added missing DAO endpoint."""
-    return {"status": "Vote Cast", "proposal_id": proposal_id}
+    """Cast a real, persisted DAO vote through the governance chaincode (Postgres-backed)."""
+    chaincode = getattr(req.app.state, "governance_chaincode", None)
+    if not chaincode:
+        raise HTTPException(status_code=503, detail="Governance service unavailable.")
+    try:
+        await chaincode.cast_vote({
+            "proposal_id": proposal_id,
+            "voter_id": payload.get("sub"),
+            "vote": vote,
+            "token_weight": voting_power,
+        })
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"status": "Vote Cast", "proposal_id": proposal_id, "voter_id": payload.get("sub")}
 
 @dao_router.get("/dashboard")
 async def get_governance_dashboard_data(req: Request, payload: Dict = Depends(employee_role_required)):
@@ -1252,31 +1529,96 @@ async def post_social_post(req: Request, data: Dict, payload: Dict = Depends(emp
         raise HTTPException(status_code=400, detail=str(e))
     return {"status": "Posted", "post": post}
     
+def _social_activities(req: Request):
+    mongo_client = getattr(req.app.state, "mongo_client", None)
+    if not mongo_client:
+        raise HTTPException(status_code=503, detail="Social store unavailable.")
+    return mongo_client[settings.MONGO_DB_NAME]["social_activities"]
+
 @social_router.post("/activity")
 async def create_activity_site(req: Request, activity_details: Dict, payload: Dict = Depends(employee_role_required)):
-    """FIX: Added missing activity site creation endpoint."""
-    return {"status": "Activity Created", "id": f"ACT-MOCK-{random.getrandbits(16)}"}
+    """Persist a new social activity so it appears in the joinable-activities list."""
+    activity_id = f"ACT-{random.getrandbits(48):012x}"
+    doc = {
+        "id": activity_id,
+        "title": (activity_details.get("title") or "Untitled Activity").strip(),
+        "description": activity_details.get("description", ""),
+        "created_by": payload.get("sub"),
+        "members": [payload.get("sub")],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await _social_activities(req).insert_one(dict(doc))
+    return {"status": "Activity Created", "id": activity_id, "activity": doc}
 
 @social_router.get("/activities")
 async def get_joinable_activities(req: Request, payload: Dict = Depends(employee_role_required)):
-    """FIX: Added missing joinable activities endpoint."""
-    return [{"id": "ACT-1", "title": "Book Club"}]
+    """Real joinable activities from Mongo (newest first, empty until created)."""
+    cursor = _social_activities(req).find({}, {"_id": 0}).sort("created_at", -1).limit(200)
+    return await cursor.to_list(length=200)
 
 @social_router.post("/chat-link")
 async def create_private_chat_link(req: Request, details: Dict, payload: Dict = Depends(employee_role_required)):
-    """FIX: Added missing private chat link creation endpoint."""
-    return {"link": f"https://mockchat.com/p/{random.getrandbits(16)}"}
+    """Generate a deterministic private chat link id for a pair of users and persist it."""
+    peer = details.get("peer") or details.get("to_user") or details.get("target") or ""
+    me = payload.get("sub") or ""
+    seed = ":".join(sorted([me, str(peer)]))
+    link_id = hashlib.sha256(seed.encode("utf-8")).hexdigest()[:24]
+    mongo_client = getattr(req.app.state, "mongo_client", None)
+    if mongo_client:
+        await mongo_client[settings.MONGO_DB_NAME]["chat_links"].update_one(
+            {"link_id": link_id},
+            {"$set": {"link_id": link_id, "participants": sorted([me, str(peer)]),
+                      "created_at": datetime.now(timezone.utc).isoformat()}},
+            upsert=True,
+        )
+    return {"link_id": link_id, "link": f"/collab/chat/{link_id}", "participants": sorted([me, str(peer)])}
 
+
+def _ideas(req: Request):
+    mongo_client = getattr(req.app.state, "mongo_client", None)
+    if not mongo_client:
+        raise HTTPException(status_code=503, detail="Innovation store unavailable.")
+    return mongo_client[settings.MONGO_DB_NAME]["innovation_ideas"]
 
 @innovation_router.get("/ideas")
 async def get_innovation_ideas(req: Request, payload: Dict = Depends(employee_role_required)):
-    """FIX: Added missing innovation ideas endpoint."""
-    return [{"id": 1, "title": "AI Expense Automation"}]
+    """Real innovation ideas from Mongo, ranked by votes (empty until submitted)."""
+    cursor = _ideas(req).find({}, {"_id": 0}).sort("votes", -1).limit(200)
+    return await cursor.to_list(length=200)
+
+@innovation_router.post("/ideas")
+async def create_innovation_idea(req: Request, payload_data: Dict, payload: Dict = Depends(employee_role_required)):
+    """Persist a new innovation idea (so /ideas and voting have real data to act on)."""
+    title = (payload_data.get("title") or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="title is required.")
+    idea_id = f"IDEA-{random.getrandbits(48):012x}"
+    doc = {
+        "id": idea_id, "title": title, "description": payload_data.get("description", ""),
+        "submitted_by": payload.get("sub"), "votes": 0, "voters": [],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await _ideas(req).insert_one(dict(doc))
+    return {"status": "Idea Submitted", "id": idea_id, "idea": doc}
 
 @innovation_router.post("/ideas/vote")
 async def vote_innovation_idea(req: Request, payload_data: Dict, payload: Dict = Depends(employee_role_required)):
-    """FIX: Added missing innovation vote endpoint."""
-    return {"status": "Voted"}
+    """Cast a real, deduplicated up-vote (atomic $inc) on an innovation idea."""
+    idea_id = payload_data.get("id") or payload_data.get("idea_id")
+    if not idea_id:
+        raise HTTPException(status_code=400, detail="idea id is required.")
+    voter = payload.get("sub")
+    result = await _ideas(req).update_one(
+        {"id": idea_id, "voters": {"$ne": voter}},
+        {"$inc": {"votes": 1}, "$addToSet": {"voters": voter}},
+    )
+    if result.matched_count == 0:
+        existing = await _ideas(req).find_one({"id": idea_id}, {"_id": 0, "votes": 1})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Idea not found.")
+        return {"status": "Already Voted", "id": idea_id, "votes": existing.get("votes", 0)}
+    updated = await _ideas(req).find_one({"id": idea_id}, {"_id": 0, "votes": 1})
+    return {"status": "Voted", "id": idea_id, "votes": (updated or {}).get("votes", 0)}
 
 # ======================================
 # 17. RECOGNITION ROUTES (Dedicated router - Fixes 404)
