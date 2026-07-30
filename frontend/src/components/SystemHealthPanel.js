@@ -1,65 +1,83 @@
-// /frontend/src/components/SystemHealthPanel.js - FINAL PRODUCTION-READY REPLACEMENT
+// /frontend/src/components/SystemHealthPanel.js
+// Live probe of the platform's dependencies. Renders only what /admin/health actually
+// reported: no seeded service list, no invented latency figures.
 import React, { useMemo, memo } from 'react';
 import { theme as tokens } from '../theme';
 import { useApi } from '../hooks/useApi';
-import { getHealthStatus } from '../config/api'; // CRITICAL FIX: Import stabilized API function
-import StatusChip from './StatusChip'; // Assuming StatusChip exists
-import { Shield, Server, Zap, Loader2, MessageSquare, AlertTriangle } from 'lucide-react';
+import { getSystemHealthStatus } from '../config/api';
+import StatusChip from './StatusChip';
+import { ui, Loading, EmptyState, ErrorNote } from './employee/shared';
+import { Activity, Database, Radio, Cpu, Server, HeartPulse } from 'lucide-react';
+
+// The health payload keys are machine names. These turn them into something a
+// non-technical reader understands.
+const SERVICE_COPY = {
+    postgres: { label: 'Employee and payroll database', icon: Database, healthy: 'Answering queries normally.', unhealthy: 'Not answering. Records may fail to load.' },
+    mongo: { label: 'Document and audit store', icon: Database, healthy: 'Storing documents and audit entries.', unhealthy: 'Unreachable. New audit entries may be lost.' },
+    redis: { label: 'Cache layer', icon: Activity, healthy: 'Serving cached lookups.', unhealthy: 'Down. Every lookup goes to the database instead.' },
+    nats: { label: 'Agent message bus', icon: Radio, healthy: 'Agents can talk to each other.', unhealthy: 'Down. Agents run in isolation.' },
+    ai_primary: { label: 'Local language model', icon: Cpu, healthy: 'Ready to answer prompts.', unhealthy: 'Not responding. AI features will fail.' },
+};
+
+const describe = (key) => SERVICE_COPY[key] || {
+    label: String(key).replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase()),
+    icon: Server,
+    healthy: 'Reporting healthy.',
+    unhealthy: 'Reporting a problem.',
+};
 
 const SystemHealthPanel = memo(() => {
-    
-    // CRITICAL API INTEGRATION: Fetch System Health Status (Polling every 60s)
-    const { 
-        data: healthData, 
-        isLoading, 
-        error 
-    } = useApi(getHealthStatus, [], true, 60000); // CRITICAL FIX: Polling interval increased to 60000ms (60 seconds)
+    const { data, isLoading, error } = useApi(getSystemHealthStatus, [], true, 30000);
 
-    // Mock/stabilize data access
-    const status = healthData?.overall_status || 'UNKNOWN';
-    const services = healthData?.service_status || [
-        { name: 'API Gateway', status: 'ONLINE', latency: 45 },
-        { name: 'Orchestrator', status: 'ONLINE', latency: 60 },
-        { name: 'Policy Ledger', status: 'ERROR', latency: 120 },
-        { name: 'Message Bus', status: 'ONLINE', latency: 30 },
-    ];
+    const services = useMemo(() => Object.entries(data?.checks || {}).map(([key, state]) => {
+        const copy = describe(key);
+        const up = String(state).toUpperCase() === 'UP';
+        return { key, up, label: copy.label, icon: copy.icon, note: up ? copy.healthy : copy.unhealthy };
+    }), [data]);
 
-
-    const styles = useMemo(() => ({
-        container: { padding: tokens.spacing?.md, background: tokens.color?.['panel-800'], borderRadius: tokens.border?.radius?.card, minHeight: '350px', display: 'flex', flexDirection: 'column' },
-        header: { color: tokens.color?.['text-100'], borderBottom: `1px solid ${tokens.color?.['border-600']}`, paddingBottom: tokens.spacing?.xs, marginBottom: tokens.spacing?.md },
-        statusList: { flexGrow: 1, overflowY: 'auto' },
-        serviceItem: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: `1px dotted ${tokens.color?.['border-700']}` },
-    }), []);
+    const down = services.filter((s) => !s.up).length;
+    const overall = String(data?.status || '').toUpperCase();
 
     return (
-        <div style={styles.container}>
-            <h3 style={styles.header}>
-                <Shield size={20} style={{ marginRight: tokens.spacing?.xs }} color={tokens.color?.['accent-primary']} />
-                Global System Health ({status})
-            </h3>
-            
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: tokens.spacing?.md }}>
-                 <p style={{ color: tokens.color?.['muted-500'], margin: 0 }}>Last Check: {new Date().toLocaleTimeString()}</p>
-                 <StatusChip status={status} />
+        <div style={{ ...ui.panel, height: '100%', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: tokens.spacing?.sm }}>
+                <div style={{ minWidth: 0 }}>
+                    <h3 style={ui.h3}>
+                        <HeartPulse size={15} style={{ marginRight: 7, verticalAlign: '-2px' }} color={tokens.color?.['accent-primary']} />
+                        Dependency health
+                    </h3>
+                    <p style={ui.hint}>
+                        {services.length === 0
+                            ? 'Waiting for the first live probe.'
+                            : down === 0
+                                ? `All ${services.length} dependencies answered on the last probe.`
+                                : `${down} of ${services.length} dependencies did not answer on the last probe.`}
+                        {data?.timestamp ? ` Last checked at ${new Date(data.timestamp).toLocaleTimeString()}.` : ''}
+                    </p>
+                </div>
+                {overall && <StatusChip status={overall === 'HEALTHY' ? 'ONLINE' : 'ERROR'} label={overall === 'HEALTHY' ? 'Healthy' : 'Degraded'} />}
             </div>
 
-            <div style={styles.statusList}>
-                {isLoading && <p style={{textAlign: 'center'}}><Loader2 size={24} className="animate-spin" /></p>}
-                {error && <p style={{ color: tokens.color?.danger }}><AlertTriangle size={16} /> Error fetching global health.</p>}
-
-                {services.map((service) => (
-                    <div key={service.name} style={styles.serviceItem}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: tokens.spacing?.xs }}>
-                            <Server size={18} color={tokens.color?.['muted-500']} />
-                            <span style={{ color: tokens.color?.['text-100'] }}>{service.name}</span>
+            <div style={{ marginTop: tokens.spacing?.md, flexGrow: 1, minHeight: 0 }}>
+                {isLoading && services.length === 0 && <Loading label="Probing platform dependencies" />}
+                <ErrorNote error={error} context="the dependency health probe" />
+                {!isLoading && !error && services.length === 0 && (
+                    <EmptyState icon={Server} title="No dependencies were reported" action="The health endpoint answered but listed no services to check." />
+                )}
+                <div style={ui.scroller('300px')} className="emp-scroll">
+                    {services.map(({ key, up, label, icon: Icon, note }) => (
+                        <div key={key} style={ui.listRow}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                                <Icon size={16} color={up ? tokens.color?.success : tokens.color?.danger} />
+                                <div style={ui.rowMain}>
+                                    <span style={ui.rowTitle}>{label}</span>
+                                    <span style={ui.rowMeta}>{note}</span>
+                                </div>
+                            </div>
+                            <StatusChip status={up ? 'ONLINE' : 'OFFLINE'} label={up ? 'Up' : 'Down'} />
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: tokens.spacing?.md }}>
-                            <span style={{ color: tokens.color?.['muted-500'], fontSize: tokens.typography.small.fontSize }}>{service.latency}ms</span>
-                            <StatusChip status={service.status} label={service.status} />
-                        </div>
-                    </div>
-                ))}
+                    ))}
+                </div>
             </div>
         </div>
     );

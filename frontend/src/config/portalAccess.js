@@ -47,9 +47,10 @@ export const SIDEBAR_NAV = [
         color: 'accent-primary', 
         subModules: [
             { label: 'Agent Factory', path: '/hrit-portal?module=agent' },
-            { label: 'Autonomous Healing', path: '/hrit-portal?module=governance' }, 
-            { label: 'Telemetry', path: '/hrit-portal?module=health' },
-        ] 
+            { label: 'Governance', path: '/hrit-portal?module=governance' },
+            { label: 'System Health', path: '/hrit-portal?module=health' },
+            { label: 'Models', path: '/hrit-portal?module=models' },
+        ]
     },
     { 
         label: 'Manager Portal', 
@@ -59,9 +60,12 @@ export const SIDEBAR_NAV = [
         color: 'accent-primary', 
         subModules: [
             { label: 'Team Overview', path: '/manager-portal?module=team' },
-            { label: 'Approvals Queue', path: '/manager-portal?module=overview' },
-            { label: 'Attrition Simulation', path: '/manager-portal?module=risk' },
-        ] 
+            { label: 'Approvals', path: '/manager-portal?module=approvals' },
+            { label: 'Performance', path: '/manager-portal?module=performance' },
+            { label: 'Workforce Risk', path: '/manager-portal?module=risk' },
+            { label: 'Attrition Simulation', path: '/manager-portal?module=simulation' },
+            { label: 'Recognition', path: '/manager-portal?module=recognition' },
+        ]
     },
     { 
         label: 'Employee Portal', 
@@ -95,8 +99,9 @@ export const SIDEBAR_NAV = [
         roles: [ROLES.HRIT_MANAGER, ROLES.SUPER_ADMIN],
         color: 'warning',
         subModules: [
-            { label: 'RLFF & AI Command', path: '/ultimate-orchestrator?module=command' },
-            { label: 'System Governor', path: '/ultimate-orchestrator?module=danger' },
+            { label: 'Command', path: '/ultimate-orchestrator?module=command' },
+            { label: 'History', path: '/ultimate-orchestrator?module=history' },
+            { label: 'Danger Zone', path: '/ultimate-orchestrator?module=danger' },
         ]
     },
     {
@@ -105,7 +110,12 @@ export const SIDEBAR_NAV = [
         icon: ShieldCheck,
         roles: [ROLES.HRIT_MANAGER, ROLES.SUPER_ADMIN],
         color: 'danger',
-        subModules: []
+        subModules: [
+            { label: 'Users & Roles', path: '/admin-portal?module=users' },
+            { label: 'Announcements', path: '/admin-portal?module=announcements' },
+            { label: 'System', path: '/admin-portal?module=system' },
+            { label: 'Security', path: '/admin-portal?module=security' },
+        ]
     },
     {
         label: 'Profile',

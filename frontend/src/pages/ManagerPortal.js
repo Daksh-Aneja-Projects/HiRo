@@ -1,498 +1,867 @@
-// /frontend/src/pages/ManagerPortal.js - FINAL PRODUCTION-READY REPLACEMENT (Adding Fixed Digital Twin Widget & Rate Limit Fix)
+// /frontend/src/pages/ManagerPortal.js
+// The manager portal. Every figure on every module is read from a real backend
+// endpoint. Where an endpoint returns nothing, the module says so plainly rather
+// than inventing a number, and every failure is shown in the user's own words.
 import React, { useMemo, memo, useState, useCallback } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, Link } from 'react-router-dom';
 import { theme as tokens } from '../theme';
 
-// CRITICAL API IMPORTS
 import {
-    getTeamRoster, getApprovalQueue, actionApproval,
-    runSimulation, runAttritionSimulation,
-    getDigitalTwinHistory, getAnalyticsCharts
+    getApprovalQueue, actionApproval,
+    getEmployeePerformance, submitPerformanceReview, getTeamPerformanceTrend, getPeerFeedback,
+    predictAttritionRisk, runSimulation,
 } from '../config/api';
 import { useApi } from '../hooks/useApi';
 import { useToast } from '../hooks/use-toast';
 
-// UI & NEW COMPONENTS
 import DataCard from '../components/DataCard';
+import AreaChartWidget from '../components/charts/AreaChartWidget';
+import { CountUp, LiveMeter } from '../components/live/LivePrimitives';
+import { ui, Btn, Loading, EmptyState, ErrorNote, fmtDate, humanText, EmployeeStyles } from '../components/employee/shared';
+import { useRoster, RosterSelect, RosterPager, useEmployeeNames } from '../components/manager/roster';
+
 import DigitalTwinChat from '../components/DigitalTwinChat';
-import DigitalTwinRiskChart from '../components/DigitalTwinRiskChart';
-import BarChartWidget from '../components/charts/BarChartWidget';
-import { 
-    Users, Clock, CheckCircle, TrendingDown, 
-    AlertTriangle, MessageCircle, Loader2 
+import RiskOverview from '../components/RiskOverview';
+import XAIDecisionPanel from '../components/XAIDecisionPanel';
+import StarRecognitionWidget from '../components/StarRecognitionWidget';
+
+import {
+    Users, CheckSquare, Gauge, ShieldAlert, FlaskConical, Award,
+    CheckCircle, XCircle, AlertTriangle, MessageSquare, CalendarDays,
+    TrendingDown, Search, Play, UserCheck,
 } from 'lucide-react';
-import { useCustomization } from '../contexts/CustomizationContext';
 
+const MODULES = [
+    { key: 'team', label: 'Team Overview', title: 'Your team', icon: Users, blurb: 'Your direct reports, and a conversation with any of their digital twins.' },
+    { key: 'approvals', label: 'Approvals', title: 'Approvals', icon: CheckSquare, blurb: 'Requests from your team that are waiting on a decision from you.' },
+    { key: 'performance', label: 'Performance', title: 'Performance', icon: Gauge, blurb: 'How the team is rated over time, and where you record a review.' },
+    { key: 'risk', label: 'Workforce Risk', title: 'Workforce risk', icon: ShieldAlert, blurb: 'Where the organisation is most likely to lose people, and why.' },
+    { key: 'simulation', label: 'Attrition Simulation', title: 'Attrition simulation', icon: FlaskConical, blurb: 'Test a change on one person before you commit to it.' },
+    { key: 'recognition', label: 'Recognition', title: 'Recognition', icon: Award, blurb: 'Give a star to someone who earned it, and see who is being noticed.' },
+];
 
-// --- 8.1. Sub-Module: Team Overview (Default View) ---
-/**
- * Renders the Roster and Digital Twin Chat integration.
- */
-const TeamOverviewModule = memo(() => {
-    // CRITICAL API INTEGRATION 1: Fetch Team Roster (Polling every 5 minutes)
-    const { 
-        data: teamRosterRaw, // Rename to raw to safely initialize cleaned data
-        isLoading: isRosterLoading, 
-        error: rosterError 
-    } = useApi(getTeamRoster, [], true, 300000); // FIX: Polling interval set to 5 minutes (300000ms) to prevent 429 errors
-    
-    // Backend returns { manager_id, roster: [...] }; accept either shape and
-    // always end up with an array so .map/.length are safe.
-    const teamRoster = Array.isArray(teamRosterRaw)
-        ? teamRosterRaw
-        : (teamRosterRaw?.roster || teamRosterRaw?.team || []);
-    // The endpoint is paginated; surface the true size so the count is honest.
-    const rosterTotal = Number(teamRosterRaw?.total) || teamRoster.length;
-    
-    // State for the currently selected employee for the Digital Twin Chat
-    const [selectedEmployee, setSelectedEmployee] = useState(null);
+// Old sidebar links used ?module=overview for the approvals queue.
+const ALIASES = { overview: 'approvals' };
+
+/* -------------------------------------------------------------------------- */
+/* Team overview                                                              */
+/* -------------------------------------------------------------------------- */
+const TeamModule = memo(() => {
+    const roster = useRoster();
+    const [selectedId, setSelectedId] = useState(null);
+    const [filter, setFilter] = useState('');
+
+    const { data: queue } = useApi(getApprovalQueue, [], true);
+    const { data: trend } = useApi(getTeamPerformanceTrend, [], true);
+
+    const pending = Array.isArray(queue) ? queue.length : 0;
+    const latest = Array.isArray(trend) && trend.length ? trend[trend.length - 1] : null;
+
+    const shown = useMemo(() => {
+        const q = filter.trim().toLowerCase();
+        if (!q) return roster.people;
+        return roster.people.filter((p) => p.name.toLowerCase().includes(q) || p.email.toLowerCase().includes(q));
+    }, [roster.people, filter]);
+
+    const selected = roster.people.find((p) => p.id === selectedId) || null;
 
     const styles = useMemo(() => ({
-        grid: { display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: tokens.spacing?.lg, marginBottom: tokens.spacing?.lg },
-        rosterWidget: { gridColumn: 'span 5', minHeight: '600px', background: tokens.color?.['panel-800'], borderRadius: tokens.border?.radius?.card, padding: tokens.spacing?.md, overflowY: 'auto' },
-        chatWidget: { gridColumn: 'span 7', minHeight: '600px' },
-        rosterItem: (isSelected) => ({
-            padding: tokens.spacing?.sm,
-            marginBottom: tokens.spacing?.xs,
-            background: isSelected ? tokens.color?.['panel-700'] : 'transparent',
-            borderRadius: tokens.border?.radius?.input,
-            cursor: 'pointer',
-            border: isSelected ? `1px solid ${tokens.color?.['accent-primary']}` : '1px solid transparent',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            transition: 'all 0.2s ease',
-        })
+        stat: { gridColumn: 'span 4', minWidth: 0 },
+        list: { ...ui.panel, gridColumn: 'span 5', display: 'flex', flexDirection: 'column', gap: tokens.spacing?.sm, minHeight: 500 },
+        chat: { gridColumn: 'span 7', minWidth: 0, minHeight: 500 },
+        person: (active) => ({
+            display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left',
+            padding: '9px 10px', marginBottom: 4, borderRadius: tokens.border?.radius?.input,
+            background: active ? `${tokens.color?.['accent-primary']}18` : 'transparent',
+            border: `1px solid ${active ? `${tokens.color?.['accent-primary']}55` : 'transparent'}`,
+            cursor: 'pointer', transition: tokens.ui?.transition?.micro, minWidth: 0,
+            fontFamily: tokens.typography?.fontFamily,
+        }),
+        avatar: {
+            flexShrink: 0, width: 28, height: 28, borderRadius: tokens.border?.radius?.full,
+            display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 600,
+            background: 'rgba(255,255,255,0.05)', color: tokens.color?.['muted-500'],
+        },
     }), []);
 
-    // Set the first employee as default if not selected
-    // FIX: useEffect now safely checks teamRoster.length (which is an array)
-    React.useEffect(() => {
-        if (!selectedEmployee && teamRoster.length > 0) {
-            setSelectedEmployee(teamRoster[0]);
-        }
-    }, [teamRoster, selectedEmployee]);
-
     return (
-        <div style={styles.grid}>
-            {/* Roster List */}
-            <div style={styles.rosterWidget}>
-                <h3 style={{ color: tokens.color?.['text-100'], borderBottom: `1px solid ${tokens.color?.['border-600']}`, paddingBottom: tokens.spacing?.xs, marginBottom: tokens.spacing?.md }}>
-                    Team roster
-                    {rosterTotal > teamRoster.length
-                        ? ` (showing ${teamRoster.length} of ${rosterTotal.toLocaleString()})`
-                        : ` (${teamRoster.length})`}
-                </h3>
-                {isRosterLoading && <p style={{textAlign: 'center'}}><Loader2 size={20} className="animate-spin" /> Loading team...</p>}
-                {rosterError && <p style={{ color: tokens.color?.danger }}>Error loading team roster.</p>}
-                
-                {/* FIX: map is now safe to call on teamRoster */}
-                {teamRoster.map(employee => (
-                    <div 
-                        key={employee.id} 
-                        style={styles.rosterItem(selectedEmployee?.id === employee.id)}
-                        onClick={() => setSelectedEmployee(employee)}
-                        className="roster-item-hover"
-                    >
-                        <span>{employee.full_name} ({employee.role})</span>
-                        <span style={{ color: employee.attrition_risk > 0.7 ? tokens.color?.danger : tokens.color?.success }}>
-                            Risk: {(employee.attrition_risk * 100).toFixed(0)}%
-                        </span>
-                    </div>
-                ))}
+        <div style={ui.grid}>
+            <div style={styles.stat}>
+                <DataCard
+                    title="People reporting to you"
+                    value={<CountUp value={roster.total} />}
+                    icon={<Users size={15} />}
+                    subtitle={roster.total > roster.people.length
+                        ? `${roster.people.length} loaded on this page`
+                        : 'Everyone is loaded'}
+                />
+            </div>
+            <div style={styles.stat}>
+                <DataCard
+                    title="Waiting on your decision"
+                    value={<CountUp value={pending} />}
+                    icon={<CheckSquare size={15} />}
+                    color={pending > 0 ? tokens.color?.warning : tokens.color?.success}
+                    subtitle={pending === 0 ? 'Nothing needs you right now' : 'Requests sitting in your approvals queue'}
+                />
+            </div>
+            <div style={styles.stat}>
+                <DataCard
+                    title="Latest team rating"
+                    value={latest ? <CountUp value={Number(latest.value) || 0} decimals={2} /> : 'Not recorded'}
+                    unit={latest ? 'out of 5' : undefined}
+                    icon={<Gauge size={15} />}
+                    subtitle={latest ? `Monthly average for ${latest.name}` : 'No reviews recorded yet'}
+                />
             </div>
 
-            {/* CRITICAL INTEGRATION 2: Digital Twin Chat (Inline Version) */}
-            <div style={styles.chatWidget}>
-                {selectedEmployee ? (
-                    <DigitalTwinChat 
-                        targetUserId={selectedEmployee.id} 
-                        targetUserName={selectedEmployee.full_name} 
-                        isManagerView={true} // Enable manager input
+            <div style={styles.list}>
+                <div>
+                    <h3 style={ui.h3}>Your direct reports</h3>
+                    <p style={ui.hint}>Pick someone to open a conversation with their digital twin.</p>
+                </div>
+
+                <div style={{ position: 'relative' }}>
+                    <Search size={14} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: tokens.color?.['muted-600'] }} />
+                    <input
+                        type="text"
+                        value={filter}
+                        onChange={(e) => setFilter(e.target.value)}
+                        placeholder="Filter the people on this page"
+                        style={{ ...ui.input, paddingLeft: 32 }}
+                    />
+                </div>
+
+                <ErrorNote error={roster.error} context="your team roster" />
+                {roster.isLoading && roster.people.length === 0 && <Loading label="Reading your roster" />}
+
+                <div style={{ ...ui.scroller('300px'), flexGrow: 1 }} className="emp-scroll">
+                    {!roster.isLoading && shown.length === 0 && (
+                        <EmptyState
+                            icon={Users}
+                            title={filter ? 'Nobody on this page matches that' : 'No direct reports on record'}
+                            action={filter ? 'Clear the filter, or move to another page of the roster.' : 'Once people are assigned to you they appear here.'}
+                        />
+                    )}
+                    {shown.map((p) => (
+                        <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => setSelectedId(p.id)}
+                            style={styles.person(p.id === selectedId)}
+                        >
+                            <span style={styles.avatar}>{p.name.slice(0, 2).toUpperCase()}</span>
+                            <span style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                <span style={ui.rowTitle}>{p.name}</span>
+                                <span style={ui.rowMeta}>{p.email || 'No email on record'}</span>
+                            </span>
+                        </button>
+                    ))}
+                </div>
+
+                <RosterPager roster={roster} />
+            </div>
+
+            <div style={styles.chat}>
+                {selected ? (
+                    <DigitalTwinChat
+                        key={selected.id}
+                        targetUserId={selected.id}
+                        targetUserName={selected.name}
+                        isManagerView
                     />
                 ) : (
-                    <p style={{ textAlign: 'center', color: tokens.color?.['muted-500'], marginTop: tokens.spacing?.xl }}>Select an employee to view their Digital Twin chat history.</p>
+                    <div style={{ ...ui.panel, height: '100%', display: 'grid', placeItems: 'center' }}>
+                        <EmptyState
+                            icon={MessageSquare}
+                            title="Choose someone from your team"
+                            action="Their digital twin answers the way they would, so you can check on workload or blockers without interrupting them."
+                        />
+                    </div>
                 )}
             </div>
         </div>
     );
 });
-TeamOverviewModule.displayName = 'TeamOverviewModule';
+TeamModule.displayName = 'TeamModule';
 
-// --- 8.2. Sub-Module: Approvals Queue ---
-const ApprovalsQueueModule = memo(() => {
-    const { userContext } = useCustomization();
-    
-    // CRITICAL API INTEGRATION 3: Fetch Approval Queue
-    const { 
-        data: queue, 
-        isLoading: isQueueLoading, 
-        error: queueError, 
-        refetch 
-    } = useApi(getApprovalQueue, [], true, []);
+/* -------------------------------------------------------------------------- */
+/* Approvals                                                                  */
+/* -------------------------------------------------------------------------- */
+const requestKind = (type) => ({
+    LEAVE_REQUEST: 'Time off',
+    LEAVE: 'Time off',
+    TIMESHEET: 'Timesheet',
+    EXPENSE: 'Expense claim',
+}[String(type || '').toUpperCase()] || humanText(type) || 'Request');
 
-    // Real attrition-risk distribution by department from the employee UDM.
-    const { data: charts } = useApi(getAnalyticsCharts, [], true);
-
-    // CRITICAL: Action Approval (Approve/Reject)
-    const handleAction = useCallback(async (item, action) => {
-        try {
-            // Send the decision as an explicit boolean. The backend reads
-            // `approved`; a bare uppercase action string was always falsy,
-            // which made every "Approve" click silently reject the request.
-            const approved = String(action).toUpperCase() === 'APPROVE';
-            const payload = {
-                request_id: item.request_id,
-                approved,
-                action: approved ? 'approve' : 'reject',
-                actor_id: userContext.userId,
-                comments: `${approved ? 'Approved' : 'Rejected'} by ${userContext.userId}`,
-            };
-            
-            await actionApproval(payload);
-            
-            alert(`Request ${item.request_id} successfully ${action.toLowerCase()}d.`);
-            refetch(); // Refresh the queue
-        } catch (error) {
-            console.error(`Failed to ${action} request:`, error);
-            alert(`Failed to process request: ${error.response?.data?.detail || error.message}`);
-        }
-    }, [userContext.userId, refetch]);
-
-
-    const styles = useMemo(() => ({
-        queueGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: tokens.spacing?.lg, marginBottom: tokens.spacing?.lg },
-        queueCard: (type) => ({
-            padding: tokens.spacing?.md,
-            background: tokens.color?.['panel-700'],
-            borderRadius: tokens.border?.radius?.card,
-            borderLeft: `4px solid ${type === 'LEAVE' ? tokens.color?.warning : tokens.color?.['accent-primary']}`,
-            position: 'relative',
-        }),
-        buttonGroup: { display: 'flex', gap: tokens.spacing?.xs, marginTop: tokens.spacing?.sm, justifyContent: 'flex-end' },
-        actionButton: (isPrimary) => ({
-            padding: '5px 10px',
-            borderRadius: tokens.border?.radius?.button,
-            cursor: 'pointer',
-            border: 'none',
-            fontSize: tokens.typography?.small?.fontSize, // FIX: Safe access
-            background: isPrimary ? tokens.color?.success : tokens.color?.danger,
-            color: tokens.color?.['bg-deep'],
-            transition: 'background 0.2s',
-        })
-    }), []);
-
-    return (
-        <>
-            <h3 style={{ color: tokens.color?.['text-100'] }}>Pending Approvals Queue</h3>
-            {isQueueLoading && <p style={{textAlign: 'center'}}><Loader2 size={20} className="animate-spin" /> Loading approvals...</p>}
-            {queueError && <p style={{ color: tokens.color?.danger }}>Error loading approval queue.</p>}
-            
-            <div style={styles.queueGrid}>
-                {/* FIX: Ensure queue defaults to an empty array for mapping */}
-                {(queue || [])?.length === 0 && !isQueueLoading && (
-                    <p style={{ gridColumn: 'span 3', textAlign: 'center', color: tokens.color?.success }}>
-                        <CheckCircle size={24} style={{ marginBottom: tokens.spacing?.xs }} />
-                        <br/>All clear! No pending approvals.
-                    </p>
-                )}
-                {/* FIX: Ensure queue defaults to an empty array for mapping */}
-                {(queue || []).map(item => (
-                    <div key={item.request_id} style={styles.queueCard(item.type)}>
-                        <p style={{ fontWeight: 'bold', margin: '0 0 5px 0', color: tokens.color?.['accent-primary'] }}>
-                            {item.type === 'LEAVE_REQUEST' ? 'Leave request' : (item.type || 'Request')}
-                        </p>
-                        <p style={{ margin: '0 0 5px 0', color: tokens.color?.['text-100'] }}>
-                            <strong>{item.employee_name || item.employee_uuid}</strong>
-                            {item.hours ? ` requested ${item.hours} hours` : ''}
-                            {item.start_date ? ` from ${item.start_date} to ${item.end_date}` : ''}
-                        </p>
-                        <p style={{ margin: 0, fontSize: tokens.typography?.small?.fontSize, color: tokens.color?.['muted-500'] }}>
-                            Submitted {new Date(item.submitted_at || item.submitted_date).toLocaleDateString()}
-                        </p>
-                        <div style={styles.buttonGroup}>
-                            <button 
-                                onClick={() => handleAction(item, 'REJECT')} 
-                                style={styles.actionButton(false)} 
-                                className="action-reject-hover"
-                            >
-                                Reject
-                            </button>
-                            <button 
-                                onClick={() => handleAction(item, 'APPROVE')} 
-                                style={styles.actionButton(true)} 
-                                className="action-approve-hover"
-                            >
-                                Approve
-                            </button>
-                        </div>
-                    </div>
-                ))}
-            </div>
-            
-            <DataCard title="Attrition Risk by Department" isChart minHeight="300px">
-                <BarChartWidget data={charts?.attrition_by_department || []} minHeight="240px" color={tokens.color?.warning} />
-            </DataCard>
-        </>
-    );
-});
-ApprovalsQueueModule.displayName = 'ApprovalsQueueModule';
-
-
-// --- 8.3. Sub-Module: Attrition Simulation ---
-const AttritionSimulationModule = memo(() => {
+const ApprovalsModule = memo(() => {
     const { toast } = useToast();
-    const [employeeId, setEmployeeId] = useState('EMP-005');
-    const [simulationResult, setSimulationResult] = useState(null);
-    const [simulationError, setSimulationError] = useState(null);
-    const [isLoading, setIsLoading] = useState(false);
-    const [adjustments, setAdjustments] = useState({ 
-        'training_sessions': 1, 
-        'salary_increase_pct': 5, 
-        'remote_work_days': 1 
-    });
-    
-    // CRITICAL: Run Attrition Simulation
-    const handleRunSimulation = useCallback(async () => {
-        if (!employeeId) return;
-        setIsLoading(true);
-        setSimulationResult(null);
+    const { data: queue, isLoading, error, refetch } = useApi(getApprovalQueue, [], true);
 
+    const items = useMemo(() => (Array.isArray(queue) ? queue : []), [queue]);
+    const ids = useMemo(() => items.map((i) => i.employee_uuid), [items]);
+    const names = useEmployeeNames(ids);
+
+    const [comments, setComments] = useState({});
+    const [busy, setBusy] = useState(null);
+
+    const totalHours = items.reduce((sum, i) => sum + (Number(i.hours) || 0), 0);
+
+    const decide = useCallback(async (item, approved) => {
+        const who = names[item.employee_uuid] || 'this person';
+        setBusy(`${item.request_id}:${approved}`);
         try {
-            const response = await runAttritionSimulation(employeeId, adjustments);
-            // Real engine shape: { metrics: { risk_score_delta, attrition_probability_change,
-            // productivity_impact, cost_implication }, prescriptive_recommendation, confidence_score }
-            const d = response.data || {};
-            const m = d.metrics || {};
-            // The engine reports risk_score_delta; attrition_probability_change can be 0
-            // when the model has no probability head, so fall back to the score delta.
-            const delta = Number(m.attrition_probability_change) || Number(m.risk_score_delta) || 0;
-            const baseline = Number(d.baseline_attrition_risk ?? m.baseline ?? 0);
-            // prescriptive_recommendation may be a string or {type, message}.
-            const rec = d.prescriptive_recommendation;
-            const recommendation = typeof rec === 'string' ? rec : rec?.message || '';
-            setSimulationResult({
-                simulation_id: d.simulation_id,
-                original_risk: baseline,
-                simulated_risk: Math.max(0, baseline + delta),
-                risk_delta: delta,
-                productivity_impact: m.productivity_impact,
-                cost_implication: m.cost_implication,
-                confidence: d.confidence_score,
-                recommendation,
-                adjustments_applied: d.adjustments_applied,
+            // `approved` must reach the backend as a real boolean, an action string is falsy there.
+            await actionApproval({
+                request_id: item.request_id,
+                approved: Boolean(approved),
+                comments: (comments[item.request_id] || '').trim(),
             });
             toast({
-                title: 'Simulation complete',
-                description: `Modelled impact for ${employeeId}.`,
-                variant: 'success',
+                title: approved ? 'Request approved' : 'Request declined',
+                description: `${who} has been told about your decision.`,
+                variant: approved ? 'success' : 'default',
             });
-        } catch (error) {
-            // No fabricated fallback: surface the failure and leave the panel empty.
-            setSimulationError(error.response?.data?.detail || error.message);
+            setComments((prev) => ({ ...prev, [item.request_id]: '' }));
+            refetch();
+        } catch (err) {
             toast({
-                title: 'Simulation failed',
-                description: error.response?.data?.detail || error.message,
+                title: 'The decision was not saved',
+                description: err.response?.data?.detail || err.message,
                 variant: 'destructive',
             });
         } finally {
-            setIsLoading(false);
+            setBusy(null);
         }
-    }, [employeeId, adjustments, toast]);
+    }, [comments, names, toast, refetch]);
 
     const styles = useMemo(() => ({
-        grid: { display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: tokens.spacing?.lg, marginBottom: tokens.spacing?.lg },
-        inputGroup: { gridColumn: 'span 4', padding: tokens.spacing?.md, background: tokens.color?.['panel-700'], borderRadius: tokens.border?.radius?.card, display: 'flex', flexDirection: 'column', gap: tokens.spacing?.md },
-        chartContainer: { gridColumn: 'span 8', minHeight: '500px' },
-        inputField: { padding: '8px 12px', background: tokens.color?.['bg-input'], border: `1px solid ${tokens.color?.['border-600']}`, borderRadius: tokens.border?.radius?.input, color: tokens.color?.['text-100'] },
+        stat: { gridColumn: 'span 4', minWidth: 0 },
+        list: { ...ui.panel, gridColumn: 'span 12', display: 'flex', flexDirection: 'column', gap: tokens.spacing?.sm },
+        card: {
+            padding: '14px 16px', borderRadius: tokens.border?.radius?.card,
+            border: `1px solid ${tokens.color?.['border-600']}`,
+            borderLeft: `3px solid ${tokens.color?.warning}`,
+            background: tokens.color?.['panel-700'], marginBottom: tokens.spacing?.sm,
+        },
+        pill: {
+            display: 'inline-flex', alignItems: 'center', flexShrink: 0,
+            padding: '3px 9px', borderRadius: tokens.border?.radius?.full,
+            fontSize: '11.5px', fontWeight: 500, whiteSpace: 'nowrap',
+            color: tokens.color?.warning, border: `1px solid ${tokens.color?.warning}44`,
+            background: `${tokens.color?.warning}14`,
+        },
     }), []);
 
     return (
-        <div style={styles.grid}>
-            {/* Simulation Controls */}
-            <div style={styles.inputGroup}>
-                <h3 style={{ color: tokens.color?.['text-100'], margin: 0 }}>What-If Simulation Controls</h3>
-                <p style={{ color: tokens.color?.['muted-500'], fontSize: tokens.typography?.small?.fontSize, marginBottom: tokens.spacing?.sm }}> 
-                    Adjust factors to predict their impact on {employeeId}'s attrition risk.
-                </p>
-                <input
-                    type="text"
-                    placeholder="Target Employee ID"
-                    value={employeeId}
-                    onChange={(e) => setEmployeeId(e.target.value)}
-                    style={styles.inputField}
+        <div style={ui.grid}>
+            <div style={styles.stat}>
+                <DataCard
+                    title="Waiting on you"
+                    value={<CountUp value={items.length} />}
+                    icon={<CheckSquare size={15} />}
+                    color={items.length ? tokens.color?.warning : tokens.color?.success}
+                    subtitle={items.length ? 'Each one is blocking somebody' : 'Your queue is clear'}
                 />
-                <label style={{ color: tokens.color?.['text-100'], fontSize: tokens.typography?.small?.fontSize }}>Salary Increase (%)</label> 
-                <input
-                    type="number"
-                    value={adjustments.salary_increase_pct}
-                    onChange={(e) => setAdjustments(prev => ({ ...prev, salary_increase_pct: parseFloat(e.target.value) }))}
-                    style={styles.inputField}
+            </div>
+            <div style={styles.stat}>
+                <DataCard
+                    title="Hours requested"
+                    value={<CountUp value={totalHours} />}
+                    unit="hours"
+                    icon={<CalendarDays size={15} />}
+                    subtitle="Across everything in the queue"
                 />
-                <label style={{ color: tokens.color?.['text-100'], fontSize: tokens.typography?.small?.fontSize }}>Extra Training Sessions</label> 
-                <input
-                    type="number"
-                    value={adjustments.training_sessions}
-                    onChange={(e) => setAdjustments(prev => ({ ...prev, training_sessions: parseInt(e.target.value) }))}
-                    style={styles.inputField}
+            </div>
+            <div style={styles.stat}>
+                <DataCard
+                    title="People affected"
+                    value={<CountUp value={new Set(ids.filter(Boolean)).size} />}
+                    icon={<Users size={15} />}
+                    subtitle="Team members with something outstanding"
                 />
-                <button 
-                    onClick={handleRunSimulation} 
-                    disabled={isLoading || !employeeId}
-                    style={{ padding: '10px 20px', background: tokens.color?.['accent-primary'], border: 'none', borderRadius: tokens.border?.radius?.button, color: tokens.color?.['bg-deep'], cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: tokens.spacing?.xs, marginTop: tokens.spacing?.md }}
-                    className="sim-run-btn-hover"
-                >
-                    {isLoading ? <Loader2 size={16} className="animate-spin" /> : <TrendingDown size={16} />} 
-                    {isLoading ? 'Running Simulation...' : 'Run Simulation'}
-                </button>
             </div>
 
-            {/* CRITICAL INTEGRATION 5: Digital Twin Risk Chart */}
-            <div style={styles.chartContainer}>
-                {simulationResult ? (
-                    <>
-                        <DigitalTwinRiskChart
-                            originalRisk={simulationResult.original_risk}
-                            simulatedRisk={simulationResult.simulated_risk}
-                            mitigationFactors={simulationResult.adjustments_applied}
-                        />
-                        <div style={{ marginTop: tokens.spacing?.md, display: 'flex', flexWrap: 'wrap', gap: tokens.spacing?.lg }}>
-                            <div>
-                                <div style={{ fontSize: 11.5, color: 'var(--text-tertiary)' }}>Change in attrition probability</div>
-                                <div style={{ fontSize: 19, fontWeight: 640, color: simulationResult.risk_delta <= 0 ? tokens.color?.success : tokens.color?.danger }}>
-                                    {simulationResult.risk_delta > 0 ? '+' : ''}{(simulationResult.risk_delta * 100).toFixed(1)}%
+            <div style={styles.list}>
+                <div>
+                    <h3 style={ui.h3}>Requests from your team</h3>
+                    <p style={ui.hint}>
+                        A decision here is final and the person is told straight away. Add a note if you are declining.
+                    </p>
+                </div>
+
+                <ErrorNote error={error} context="your approvals queue" />
+                {isLoading && items.length === 0 && <Loading label="Reading your approvals queue" />}
+
+                {!isLoading && items.length === 0 && !error && (
+                    <EmptyState
+                        icon={CheckCircle}
+                        title="Nothing is waiting for you"
+                        action="When someone on your team asks for time off, it lands here."
+                    />
+                )}
+
+                <div style={ui.scroller('440px')} className="emp-scroll">
+                    {items.map((item) => {
+                        const who = names[item.employee_uuid];
+                        const hours = Number(item.hours) || 0;
+                        return (
+                            <div key={item.request_id} style={styles.card}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: tokens.spacing?.sm, marginBottom: 8 }}>
+                                    <span style={{ color: tokens.color?.['accent-primary'], fontSize: '11.5px', fontWeight: 600, letterSpacing: '0.02em', textTransform: 'uppercase' }}>
+                                        {requestKind(item.type)}
+                                    </span>
+                                    <span style={styles.pill}>Awaiting your decision</span>
+                                </div>
+
+                                <p style={{ margin: '0 0 6px 0', color: tokens.color?.['text-100'], fontSize: tokens.typography?.base?.fontSize, lineHeight: 1.55 }}>
+                                    <strong>{who || 'A team member'}</strong>
+                                    {hours ? ` has asked for ${hours} hours off` : ' has raised a request'}
+                                    {item.start_date ? `, from ${fmtDate(item.start_date)} to ${fmtDate(item.end_date)}` : ''}.
+                                </p>
+                                <p style={{ ...ui.hint, margin: '0 0 10px 0' }}>
+                                    Submitted {fmtDate(item.submitted_at)}
+                                    {who ? '' : '. The name could not be looked up, so only the record is shown.'}
+                                </p>
+
+                                <input
+                                    type="text"
+                                    value={comments[item.request_id] || ''}
+                                    onChange={(e) => setComments((prev) => ({ ...prev, [item.request_id]: e.target.value }))}
+                                    placeholder="Optional note the person will see with your decision"
+                                    style={{ ...ui.input, marginBottom: 10 }}
+                                />
+
+                                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                                    <Btn
+                                        tone="ghost"
+                                        icon={XCircle}
+                                        loading={busy === `${item.request_id}:false`}
+                                        disabled={Boolean(busy)}
+                                        onClick={() => decide(item, false)}
+                                    >
+                                        Decline
+                                    </Btn>
+                                    <Btn
+                                        tone="success"
+                                        icon={CheckCircle}
+                                        loading={busy === `${item.request_id}:true`}
+                                        disabled={Boolean(busy)}
+                                        onClick={() => decide(item, true)}
+                                    >
+                                        Approve
+                                    </Btn>
                                 </div>
                             </div>
-                            {simulationResult.productivity_impact != null && (
-                                <div>
-                                    <div style={{ fontSize: 11.5, color: 'var(--text-tertiary)' }}>Productivity impact</div>
-                                    <div style={{ fontSize: 19, fontWeight: 640, color: 'var(--text-primary)' }}>{simulationResult.productivity_impact}</div>
-                                </div>
-                            )}
-                            {simulationResult.confidence != null && (
-                                <div>
-                                    <div style={{ fontSize: 11.5, color: 'var(--text-tertiary)' }}>Confidence</div>
-                                    <div style={{ fontSize: 19, fontWeight: 640, color: 'var(--text-primary)' }}>{Math.round(simulationResult.confidence * 100)}%</div>
-                                </div>
-                            )}
-                        </div>
-                        {simulationResult.recommendation && (
-                            <p style={{ marginTop: tokens.spacing?.md, color: 'var(--text-secondary)', fontSize: 13.5, lineHeight: 1.55 }}>
-                                {simulationResult.recommendation}
+                        );
+                    })}
+                </div>
+            </div>
+        </div>
+    );
+});
+ApprovalsModule.displayName = 'ApprovalsModule';
+
+/* -------------------------------------------------------------------------- */
+/* Performance                                                                */
+/* -------------------------------------------------------------------------- */
+const RATINGS = [
+    { value: 5, label: 'Outstanding, well beyond what the role asks for' },
+    { value: 4, label: 'Strong, consistently above expectations' },
+    { value: 3, label: 'Solid, doing the job as expected' },
+    { value: 2, label: 'Below expectations, needs support' },
+    { value: 1, label: 'Not meeting the requirements of the role' },
+];
+
+const PerformanceModule = memo(() => {
+    const { toast } = useToast();
+    const roster = useRoster();
+    const [selectedId, setSelectedId] = useState('');
+    const [rating, setRating] = useState('');
+    const [isSaving, setIsSaving] = useState(false);
+
+    const { data: trend, isLoading: trendLoading, error: trendError } = useApi(getTeamPerformanceTrend, [], true);
+    const {
+        data: perf, isLoading: perfLoading, error: perfError, refetch: refetchPerf,
+    } = useApi(getEmployeePerformance, [selectedId], Boolean(selectedId));
+    const { data: feedback, isLoading: feedbackLoading } = useApi(getPeerFeedback, [selectedId], Boolean(selectedId));
+
+    const series = Array.isArray(trend) ? trend : [];
+    const first = series[0];
+    const last = series[series.length - 1];
+    const movement = (first && last) ? Number(last.value) - Number(first.value) : null;
+
+    const selected = roster.people.find((p) => p.id === selectedId);
+    const score = Number(perf?.score);
+    const peers = Array.isArray(feedback) ? feedback : [];
+
+    const saveReview = useCallback(async (e) => {
+        e.preventDefault();
+        if (!selectedId || !rating || isSaving) return;
+        setIsSaving(true);
+        try {
+            await submitPerformanceReview({ employee_uuid: selectedId, overall_rating: Number(rating) });
+            toast({
+                title: 'Review recorded',
+                description: `${selected?.name || 'The review'} is now on record at ${rating} out of 5.`,
+                variant: 'success',
+            });
+            setRating('');
+            refetchPerf();
+        } catch (err) {
+            toast({
+                title: 'The review was not saved',
+                description: err.response?.data?.detail || err.message,
+                variant: 'destructive',
+            });
+        } finally {
+            setIsSaving(false);
+        }
+    }, [selectedId, rating, isSaving, selected, toast, refetchPerf]);
+
+    const styles = useMemo(() => ({
+        chart: { gridColumn: 'span 12', minWidth: 0 },
+        left: { ...ui.panel, gridColumn: 'span 5', display: 'flex', flexDirection: 'column', gap: tokens.spacing?.md },
+        right: { ...ui.panel, gridColumn: 'span 7', display: 'flex', flexDirection: 'column', gap: tokens.spacing?.sm },
+    }), []);
+
+    return (
+        <div style={ui.grid}>
+            <div style={styles.chart}>
+                <DataCard
+                    title="Team performance over time"
+                    isChart
+                    minHeight="300px"
+                    icon={<Gauge size={15} />}
+                    footer={null}
+                >
+                    <ErrorNote error={trendError} context="the performance trend" />
+                    {trendLoading && series.length === 0 && <Loading label="Reading monthly averages" />}
+                    {!trendError && (
+                        <>
+                            <p style={{ ...ui.hint, marginTop: 0 }}>
+                                {series.length === 0
+                                    ? 'No monthly averages have been recorded yet.'
+                                    : movement === null
+                                        ? 'Monthly average rating across everyone with a recorded review.'
+                                        : `Monthly average rating, ${movement >= 0 ? 'up' : 'down'} ${Math.abs(movement).toFixed(2)} points since ${first.name}.`}
                             </p>
-                        )}
-                    </>
-                ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: '300px', gap: tokens.spacing?.sm, color: tokens.color?.['muted-500'], textAlign: 'center' }}>
-                        <TrendingDown size={28} color={simulationError ? tokens.color?.danger : tokens.color?.['accent-primary']} />
-                        <p style={{ margin: 0 }}>
-                            {simulationError
-                                ? `The simulation could not run: ${simulationError}`
-                                : 'Run a what-if simulation to see the projected attrition-risk change for this employee.'}
-                        </p>
+                            <AreaChartWidget
+                                data={series}
+                                minHeight="220px"
+                                color={movement !== null && movement < 0 ? tokens.color?.warning : tokens.color?.['accent-primary']}
+                            />
+                        </>
+                    )}
+                </DataCard>
+            </div>
+
+            <div style={styles.left}>
+                <div>
+                    <h3 style={ui.h3}>Record a review</h3>
+                    <p style={ui.hint}>What you save here becomes part of the person's permanent record.</p>
+                </div>
+
+                <ErrorNote error={roster.error} context="your team roster" />
+
+                <form onSubmit={saveReview} style={{ display: 'flex', flexDirection: 'column', gap: tokens.spacing?.md }}>
+                    <RosterSelect roster={roster} value={selectedId} onChange={(v) => { setSelectedId(v); setRating(''); }} label="Who are you reviewing" />
+
+                    <div>
+                        <label style={ui.label}>Overall rating</label>
+                        <select
+                            value={rating}
+                            onChange={(e) => setRating(e.target.value)}
+                            style={ui.input}
+                            disabled={!selectedId || isSaving}
+                            required
+                        >
+                            <option value="">Choose a rating</option>
+                            {RATINGS.map((r) => (
+                                <option key={r.value} value={r.value}>{r.value} of 5, {r.label}</option>
+                            ))}
+                        </select>
                     </div>
+
+                    <Btn type="submit" icon={UserCheck} loading={isSaving} disabled={!selectedId || !rating}>
+                        Save this review
+                    </Btn>
+                </form>
+            </div>
+
+            <div style={styles.right}>
+                <h3 style={ui.h3}>{selected ? `${selected.name} today` : 'Individual record'}</h3>
+
+                {!selectedId && (
+                    <EmptyState
+                        icon={Gauge}
+                        title="Nobody selected"
+                        action="Choose a team member on the left to see their current rating and the feedback their peers have left."
+                    />
+                )}
+
+                {selectedId && (
+                    <>
+                        <ErrorNote error={perfError} context={`the record for ${selected?.name || 'this person'}`} />
+                        {perfLoading && !perf && <Loading label="Reading their record" />}
+
+                        {perf && !perfError && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                <div style={{ display: 'flex', alignItems: 'baseline', gap: 9, flexWrap: 'wrap' }}>
+                                    <span style={{ fontSize: 28, fontWeight: 640, letterSpacing: '-0.02em', color: tokens.color?.['text-100'], fontVariantNumeric: 'tabular-nums' }}>
+                                        {Number.isFinite(score) ? <CountUp value={score} decimals={2} /> : 'Not rated'}
+                                    </span>
+                                    {Number.isFinite(score) && <span style={{ fontSize: 13, color: tokens.color?.['muted-500'] }}>out of 5</span>}
+                                </div>
+                                {Number.isFinite(score) && (
+                                    <LiveMeter
+                                        pct={(score / 5) * 100}
+                                        color={score >= 4 ? tokens.color?.success : (score >= 3 ? tokens.color?.['accent-primary'] : tokens.color?.warning)}
+                                    />
+                                )}
+                                <p style={{ ...ui.hint, marginTop: 0 }}>
+                                    Last reviewed {fmtDate(perf.last_review_date)}.
+                                </p>
+                            </div>
+                        )}
+
+                        <h3 style={{ ...ui.h3, marginTop: tokens.spacing?.md }}>What their peers said</h3>
+                        {feedbackLoading && <Loading label="Reading peer feedback" />}
+                        {!feedbackLoading && peers.length === 0 && (
+                            <EmptyState
+                                icon={MessageSquare}
+                                title="No peer feedback on record"
+                                action="Nobody has left written feedback for this person yet."
+                            />
+                        )}
+                        <div style={ui.scroller('200px')} className="emp-scroll">
+                            {peers.map((f, i) => (
+                                <div key={f.id || i} style={{ ...ui.listRow, alignItems: 'flex-start' }}>
+                                    <div style={ui.rowMain}>
+                                        <span style={{ ...ui.rowTitle, whiteSpace: 'normal' }}>{f.comment || f.text || f.feedback || 'No comment recorded'}</span>
+                                        <span style={ui.rowMeta}>{f.from_name || f.author || 'Anonymous colleague'}{f.date ? `, ${fmtDate(f.date)}` : ''}</span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </>
                 )}
             </div>
         </div>
     );
 });
-AttritionSimulationModule.displayName = 'AttritionSimulationModule';
+PerformanceModule.displayName = 'PerformanceModule';
 
+/* -------------------------------------------------------------------------- */
+/* Attrition simulation                                                        */
+/* -------------------------------------------------------------------------- */
+const LEVERS = [
+    { key: 'salary_increase_pct', label: 'Pay rise', unit: '%', step: 1 },
+    { key: 'training_sessions', label: 'Extra training sessions per quarter', unit: 'sessions', step: 1 },
+    { key: 'remote_work_days', label: 'Extra days at home per week', unit: 'days', step: 1 },
+];
 
-// --- MAIN MANAGER PORTAL COMPONENT ---
+const readableRecommendation = (rec) => {
+    if (!rec) return '';
+    if (typeof rec === 'string') return rec;
+    return rec.message || '';
+};
+
+const SimulationModule = memo(() => {
+    const { toast } = useToast();
+    const roster = useRoster();
+    const [selectedId, setSelectedId] = useState('');
+    const [levers, setLevers] = useState({ salary_increase_pct: 5, training_sessions: 1, remote_work_days: 1 });
+    const [result, setResult] = useState(null);
+    const [simError, setSimError] = useState(null);
+    const [isRunning, setIsRunning] = useState(false);
+
+    // The real, current model score for this person, used as the simulation baseline.
+    const {
+        data: prediction, isLoading: predLoading, error: predError,
+    } = useApi(predictAttritionRisk, [{ employee_id: selectedId }], Boolean(selectedId));
+
+    const selected = roster.people.find((p) => p.id === selectedId);
+    const baseline = Number(prediction?.risk_score);
+    const hasBaseline = Number.isFinite(baseline);
+
+    const run = useCallback(async () => {
+        if (!selectedId || isRunning) return;
+        setIsRunning(true);
+        setResult(null);
+        setSimError(null);
+        try {
+            const res = await runSimulation(selectedId, levers);
+            const d = res.data || {};
+            const m = d.metrics || {};
+            setResult({
+                id: d.simulation_id,
+                riskDelta: Number(m.risk_score_delta) || 0,
+                probabilityChange: Number(m.attrition_probability_change) || 0,
+                productivity: Number(m.productivity_impact) || 0,
+                cost: Number(m.cost_implication) || 0,
+                confidence: Number(d.confidence_score),
+                recommendation: readableRecommendation(d.prescriptive_recommendation),
+                applied: d.adjustments_applied || {},
+            });
+            toast({
+                title: 'Simulation finished',
+                description: `Modelled the effect on ${selected?.name || 'this person'}.`,
+                variant: 'success',
+            });
+        } catch (err) {
+            // No invented numbers on failure: the panel stays empty and says why.
+            const detail = err.response?.data?.detail || err.message;
+            setSimError(detail);
+            toast({ title: 'The simulation could not run', description: detail, variant: 'destructive' });
+        } finally {
+            setIsRunning(false);
+        }
+    }, [selectedId, levers, isRunning, selected, toast]);
+
+    const projected = (hasBaseline && result) ? Math.max(0, Math.min(1, baseline + result.riskDelta)) : null;
+
+    const styles = useMemo(() => ({
+        left: { ...ui.panel, gridColumn: 'span 5', display: 'flex', flexDirection: 'column', gap: tokens.spacing?.md },
+        right: { ...ui.panel, gridColumn: 'span 7', display: 'flex', flexDirection: 'column', gap: tokens.spacing?.sm, minHeight: 420 },
+        xai: { gridColumn: 'span 12', minWidth: 0 },
+        metric: { display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 },
+        metricLabel: { fontSize: '11.5px', color: tokens.color?.['muted-600'] },
+        metricValue: { fontSize: 19, fontWeight: 640, color: tokens.color?.['text-100'], fontVariantNumeric: 'tabular-nums' },
+    }), []);
+
+    return (
+        <div style={ui.grid}>
+            <div style={styles.left}>
+                <div>
+                    <h3 style={ui.h3}>Test a change before you make it</h3>
+                    <p style={ui.hint}>
+                        Pick someone, set the levers you are considering, and the model projects what it would do to
+                        their chance of leaving. Nothing is changed for real.
+                    </p>
+                </div>
+
+                <ErrorNote error={roster.error} context="your team roster" />
+                <RosterSelect roster={roster} value={selectedId} onChange={(v) => { setSelectedId(v); setResult(null); setSimError(null); }} label="Who are you modelling" />
+
+                {selectedId && (
+                    <div>
+                        <ErrorNote error={predError} context="their current risk score" />
+                        {predLoading && !prediction && <Loading label="Reading their current risk" />}
+                        {hasBaseline && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 4 }}>
+                                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
+                                    <span style={styles.metricLabel}>Chance of leaving today</span>
+                                    <span style={{ ...styles.metricValue, fontSize: 16 }}>
+                                        <CountUp value={baseline * 100} decimals={1} suffix="%" />
+                                    </span>
+                                </div>
+                                <LiveMeter
+                                    pct={baseline * 100}
+                                    color={baseline >= 0.7 ? tokens.color?.danger : (baseline >= 0.4 ? tokens.color?.warning : tokens.color?.success)}
+                                />
+                                {prediction?.recommendation && (
+                                    <p style={{ ...ui.hint, marginTop: 2 }}>{prediction.recommendation}</p>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {LEVERS.map((l) => (
+                    <div key={l.key}>
+                        <label style={ui.label}>{l.label}</label>
+                        <input
+                            type="number"
+                            step={l.step}
+                            value={levers[l.key]}
+                            onChange={(e) => setLevers((p) => ({ ...p, [l.key]: Number(e.target.value) || 0 }))}
+                            style={ui.input}
+                            disabled={isRunning}
+                        />
+                    </div>
+                ))}
+
+                <Btn icon={Play} onClick={run} loading={isRunning} disabled={!selectedId}>
+                    {isRunning ? 'Running the model' : 'Run the simulation'}
+                </Btn>
+            </div>
+
+            <div style={styles.right}>
+                <h3 style={ui.h3}>What the model projects</h3>
+
+                {!result && (
+                    <EmptyState
+                        icon={simError ? AlertTriangle : TrendingDown}
+                        title={simError ? 'The simulation could not run' : 'Nothing modelled yet'}
+                        action={simError || 'Choose a team member, set the levers on the left and run the simulation to see the projected effect.'}
+                    />
+                )}
+
+                {result && (
+                    <>
+                        {hasBaseline && projected !== null ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: tokens.spacing?.md }}>
+                                <p style={{ margin: 0, color: tokens.color?.['text-100'], fontSize: tokens.typography?.base?.fontSize, lineHeight: 1.55 }}>
+                                    With these changes, {selected?.name || 'this person'} would go from a{' '}
+                                    <strong>{(baseline * 100).toFixed(1)}%</strong> chance of leaving to{' '}
+                                    <strong style={{ color: result.riskDelta <= 0 ? tokens.color?.success : tokens.color?.danger }}>
+                                        {(projected * 100).toFixed(1)}%
+                                    </strong>
+                                    {result.riskDelta === 0 ? ', which is no change at all.' : (result.riskDelta < 0 ? ', a genuine improvement.' : ', which makes things worse.')}
+                                </p>
+                                <div>
+                                    <span style={styles.metricLabel}>Where they are today</span>
+                                    <LiveMeter pct={baseline * 100} color={tokens.color?.['muted-500']} height={9} />
+                                </div>
+                                <div>
+                                    <span style={styles.metricLabel}>Where this change would put them</span>
+                                    <LiveMeter
+                                        pct={projected * 100}
+                                        color={result.riskDelta <= 0 ? tokens.color?.success : tokens.color?.danger}
+                                        height={9}
+                                    />
+                                </div>
+                            </div>
+                        ) : (
+                            <p style={{ ...ui.hint, marginTop: 0 }}>
+                                The model returned a change of {(result.riskDelta * 100).toFixed(1)} points, but the
+                                person's current risk score is not available, so a before and after cannot be drawn.
+                            </p>
+                        )}
+
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: tokens.spacing?.lg, paddingTop: tokens.spacing?.sm }}>
+                            <div style={styles.metric}>
+                                <span style={styles.metricLabel}>Change in risk score</span>
+                                <span style={{ ...styles.metricValue, color: result.riskDelta <= 0 ? tokens.color?.success : tokens.color?.danger }}>
+                                    {result.riskDelta > 0 ? '+' : ''}{(result.riskDelta * 100).toFixed(1)} points
+                                </span>
+                            </div>
+                            <div style={styles.metric}>
+                                <span style={styles.metricLabel}>Effect on their output</span>
+                                <span style={styles.metricValue}>
+                                    {result.productivity === 0 ? 'No change modelled' : `${result.productivity > 0 ? '+' : ''}${result.productivity}`}
+                                </span>
+                            </div>
+                            <div style={styles.metric}>
+                                <span style={styles.metricLabel}>Cost of the change</span>
+                                <span style={styles.metricValue}>
+                                    {result.cost === 0 ? 'None modelled' : result.cost.toLocaleString()}
+                                </span>
+                            </div>
+                            {Number.isFinite(result.confidence) && (
+                                <div style={styles.metric}>
+                                    <span style={styles.metricLabel}>How sure the model is</span>
+                                    <span style={styles.metricValue}>
+                                        <CountUp value={result.confidence * 100} suffix="%" />
+                                    </span>
+                                </div>
+                            )}
+                        </div>
+
+                        {result.recommendation && (
+                            <p style={{ color: tokens.color?.['text-100'], fontSize: tokens.typography?.base?.fontSize, lineHeight: 1.55, marginBottom: 0 }}>
+                                {result.recommendation}
+                            </p>
+                        )}
+
+                        {Object.keys(result.applied).length > 0 && (
+                            <p style={{ ...ui.hint, marginTop: 0 }}>
+                                Based on {Object.entries(result.applied).map(([k, v]) => `${humanText(k)} set to ${v}`).join(', ')}.
+                            </p>
+                        )}
+                    </>
+                )}
+            </div>
+
+            <div style={styles.xai}>
+                <XAIDecisionPanel employeeId={selectedId || null} employeeName={selected?.name} />
+            </div>
+        </div>
+    );
+});
+SimulationModule.displayName = 'SimulationModule';
+
+/* -------------------------------------------------------------------------- */
+/* Shell                                                                      */
+/* -------------------------------------------------------------------------- */
 export const ManagerPortalComponent = memo(() => {
     const location = useLocation();
-    const query = new URLSearchParams(location.search);
-    // CRITICAL FIX: Get the module name from the URL, default to 'team'
-    const module = query.get('module') || 'team'; 
+    const requested = useMemo(() => {
+        const raw = new URLSearchParams(location.search).get('module') || 'team';
+        return ALIASES[raw] || raw;
+    }, [location.search]);
 
-    const getModuleComponent = (mod) => {
-        switch (mod) {
-            case 'team':
-                return <TeamOverviewModule />;
-            case 'overview':
-                return <ApprovalsQueueModule />;
-            case 'risk':
-                return <AttritionSimulationModule />;
+    const active = MODULES.find((m) => m.key === requested);
+
+    const styles = useMemo(() => ({
+        container: { display: 'flex', flexDirection: 'column', gap: tokens.spacing?.lg, minWidth: 0, maxWidth: '100%' },
+        header: { borderBottom: `1px solid ${tokens.color?.['border-600']}`, paddingBottom: tokens.spacing?.md },
+        title: {
+            margin: 0, display: 'flex', alignItems: 'center', gap: tokens.spacing?.sm,
+            fontSize: tokens.typography?.h1?.fontSize, fontWeight: tokens.typography?.h1?.fontWeight,
+            letterSpacing: '-0.022em', color: tokens.color?.['text-100'],
+        },
+        subtitle: { margin: '6px 0 0 0', fontSize: tokens.typography?.small?.fontSize, color: tokens.color?.['muted-600'] },
+        tabs: { display: 'flex', gap: 6, overflowX: 'auto', overflowY: 'hidden', paddingBottom: 4, marginTop: tokens.spacing?.md, maxWidth: '100%' },
+        tab: (isActive) => ({
+            display: 'inline-flex', alignItems: 'center', gap: 7, flexShrink: 0,
+            padding: '7px 13px', borderRadius: tokens.border?.radius?.full,
+            border: `1px solid ${isActive ? `${tokens.color?.['accent-primary']}55` : tokens.color?.['border-600']}`,
+            background: isActive ? `${tokens.color?.['accent-primary']}18` : 'transparent',
+            color: isActive ? tokens.color?.['text-100'] : tokens.color?.['muted-500'],
+            fontSize: tokens.typography?.button?.fontSize, fontWeight: 500,
+            textDecoration: 'none', whiteSpace: 'nowrap', transition: tokens.ui?.transition?.micro,
+        }),
+    }), []);
+
+    const body = () => {
+        switch (requested) {
+            case 'team': return <TeamModule />;
+            case 'approvals': return <ApprovalsModule />;
+            case 'performance': return <PerformanceModule />;
+            case 'risk': return <RiskOverview />;
+            case 'simulation': return <SimulationModule />;
+            case 'recognition': return <StarRecognitionWidget />;
             default:
                 return (
-                    <div style={{ textAlign: 'center', color: tokens.color?.danger, padding: tokens.spacing?.xl }}>
-                        <AlertTriangle size={32} />
-                        <h3 style={{ margin: tokens.spacing?.md }}>Module Not Found</h3>
-                        <p>The requested Manager portal module "{mod}" could not be loaded.</p>
-                    </div>
+                    <EmptyState
+                        icon={AlertTriangle}
+                        title={`There is no manager section called "${requested}"`}
+                        action="Pick one of the sections above to carry on."
+                    />
                 );
         }
     };
 
-    const moduleTitleMap = {
-        team: 'Team Overview & Digital Twin Chat',
-        overview: 'Approvals Queue Management',
-        risk: 'Digital Twin Attrition Simulation',
-    };
-    
-    const styles = useMemo(() => ({
-        container: { minHeight: '100%', display: 'flex', flexDirection: 'column' },
-        header: {
-            color: tokens.color?.['text-100'],
-            marginBottom: tokens.spacing?.lg,
-            borderBottom: `1px solid ${tokens.color?.['border-600']}`,
-            paddingBottom: tokens.spacing?.md,
-        },
-        title: {
-            fontSize: tokens.typography?.h1?.fontSize, // FIX: Safe access
-            margin: 0,
-            display: 'flex',
-            alignItems: 'center',
-            gap: tokens.spacing?.sm,
-        },
-        // NEW FIX: Fixed container for the Digital Twin Chat Widget
-        chatFixedContainer: {
-            position: 'fixed', // Pin to viewport
-            bottom: tokens.spacing?.lg,
-            right: tokens.spacing?.lg,
-            zIndex: 1000, // Ensure it's above other content
-        }
-    }), []);
+    const Icon = active?.icon || Users;
 
     return (
         <div style={styles.container} className="portal-container">
             <div style={styles.header}>
                 <h1 style={styles.title}>
-                    <Users size={32} color={tokens.color?.['accent-primary']} />
-                    Manager Portal: {moduleTitleMap[module] || 'Unknown Module'}
+                    <Icon size={26} color={tokens.color?.['accent-primary']} />
+                    {active?.title || 'Manager portal'}
                 </h1>
+                <p style={styles.subtitle}>
+                    {active?.blurb || 'Everything here is read live from your own team records.'}
+                </p>
+
+                <nav style={styles.tabs} className="emp-scroll" aria-label="Manager portal sections">
+                    {MODULES.map((m) => {
+                        const TabIcon = m.icon;
+                        return (
+                            <Link key={m.key} to={`/manager-portal?module=${m.key}`} style={styles.tab(m.key === requested)}>
+                                <TabIcon size={14} /> {m.label}
+                            </Link>
+                        );
+                    })}
+                </nav>
             </div>
-            
-            {/* Render the dynamically selected module component */}
-            {getModuleComponent(module)}
 
-            {/* CRITICAL INTEGRATION: Digital Twin Chat Widget (Fixed) */}
-            {/* NEW FIX: Added the fixed chat widget here, only visible when it's not the inline 'team' view */}
-            {module !== 'team' && (
-                <div style={styles.chatFixedContainer}>
-                    <DigitalTwinChat isWidget={true} />
-                </div>
-            )}
-
-            <style>{`
-                .roster-item-hover:hover {
-                    background: ${tokens.color?.['panel-600']};
-                }
-                .action-approve-hover:hover {
-                    box-shadow: 0 0 5px ${tokens.color?.success};
-                    transform: scale(1.05);
-                }
-                .action-reject-hover:hover {
-                    background: ${tokens.color?.['danger-700']} !important;
-                    box-shadow: 0 0 5px ${tokens.color?.danger};
-                    transform: scale(1.05);
-                }
-                .sim-run-btn-hover:hover {
-                    box-shadow: 0 0 10px ${tokens.color?.['accent-primary']}77;
-                    transform: translateY(-1px);
-                }
-            `}</style>
+            {body()}
+            <EmployeeStyles />
         </div>
     );
 });

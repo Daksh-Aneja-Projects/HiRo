@@ -1,112 +1,186 @@
-// /frontend/src/components/AgentManagementPanel.js - FINAL PRODUCTION-READY REPLACEMENT
-import React, { useMemo, memo, useState, useCallback } from 'react';
+// /frontend/src/components/AgentManagementPanel.js
+// Intent-driven agent factory. The backend plans the agent itself from a natural
+// language brief, so this sends { intent } and nothing else. The local model does the
+// planning, which takes tens of seconds on CPU, hence the visible in-flight state.
+import React, { memo, useState, useCallback, useEffect, useRef } from 'react';
 import { theme as tokens } from '../theme';
-import { createNewAIAgent, processAgentFinalApproval } from '../config/api'; // CRITICAL FIX: Import stabilized API functions
+import { createNewAIAgent, processAgentFinalApproval } from '../config/api';
 import { useToast } from '../hooks/use-toast';
-import { Zap, Loader2, CheckCircle, XCircle } from 'lucide-react';
+import { ui, Btn, EmptyState } from './employee/shared';
+import { Bot, Sparkles, CheckCircle, XCircle, Info } from 'lucide-react';
+
+const errText = (e) => e?.response?.data?.detail || e?.message || 'The request failed.';
+
+const EXAMPLES = [
+    'Watch every compensation change over ten percent and notify the HRIT team before it is applied.',
+    'Audit policy edits each night and raise a case when a change has no approver recorded.',
+    'Summarise open HR service tickets each morning and flag any breaching their response time.',
+];
 
 const AgentManagementPanel = memo(() => {
     const { toast } = useToast();
-    const [agentData, setAgentData] = useState({ name: '', role: 'Governance', model: 'llama3.1:8b' });
+    const [intent, setIntent] = useState('');
     const [isCreating, setIsCreating] = useState(false);
-    const [deployId, setDeployId] = useState(null); // ID used for approval step
+    const [elapsed, setElapsed] = useState(0);
+    const [deployment, setDeployment] = useState(null);
+    const [approving, setApproving] = useState(false);
+    const timerRef = useRef(null);
 
-    // CRITICAL: Handle New Agent Creation
-    const handleCreateAgent = useCallback(async (e) => {
+    useEffect(() => () => clearInterval(timerRef.current), []);
+
+    const handleCreate = useCallback(async (e) => {
         e.preventDefault();
-        if (!agentData.name || !agentData.role || isCreating) return;
-        
+        if (!intent.trim() || isCreating) return;
+
         setIsCreating(true);
-        setDeployId(null);
+        setElapsed(0);
+        setDeployment(null);
+        clearInterval(timerRef.current);
+        timerRef.current = setInterval(() => setElapsed((s) => s + 1), 1000);
 
         try {
-            // CRITICAL API INTEGRATION 1: Create the new agent
-            const response = await createNewAIAgent(agentData);
-            
-            const newDeployId = response.data.deployment_id || `DEPLOY_${Date.now()}`;
-            setDeployId(newDeployId);
-            
-            toast({ title: 'Agent Queued', description: `Agent "${agentData.name}" created. Pending final deployment approval.`, variant: 'info' });
-            setAgentData({ name: '', role: 'Governance', model: 'llama3.1:8b' });
-        } catch (error) {
-            console.error("Agent creation failed:", error);
-            toast({ title: 'Deployment Failed', description: error.response?.data?.detail || error.message, variant: 'destructive' });
+            const res = await createNewAIAgent({ intent: intent.trim() });
+            const body = res.data || {};
+            setDeployment({
+                taskId: body.task_id || null,
+                agentId: body.agent_id || null,
+                bpmnId: body.bpmn_id || null,
+                // The create response carries no project reference today. The sign-off
+                // controls only appear if the backend starts sending one, so nothing
+                // here invents an identifier.
+                projectId: body.project_id || body.final_agent_config?.project_id || null,
+                name: body.final_agent_config?.agent_name || null,
+                instructions: body.final_agent_config?.instructions_prompt || null,
+                tools: (body.final_agent_config?.tools || []).map((t) => t?.name).filter(Boolean),
+                model: body.final_agent_config?.model || null,
+            });
+            toast({
+                title: 'Agent planned and queued',
+                description: body.final_agent_config?.agent_name
+                    ? `${body.final_agent_config.agent_name} was designed from your brief and sent into the deployment pipeline.`
+                    : 'The agent was designed from your brief and sent into the deployment pipeline.',
+                variant: 'success',
+            });
+            setIntent('');
+        } catch (err) {
+            toast({ title: 'The agent could not be created', description: errText(err), variant: 'destructive' });
         } finally {
+            clearInterval(timerRef.current);
             setIsCreating(false);
         }
-    }, [agentData, isCreating, toast]);
-    
-    // CRITICAL: Handle Final Deployment Approval (Simulated)
-    const handleFinalApproval = useCallback(async (approved) => {
-        if (!deployId) return;
-        
-        const action = approved ? 'Approved' : 'Rejected';
-        if (!window.confirm(`Are you sure you want to ${action} deployment ${deployId}?`)) return;
+    }, [intent, isCreating, toast]);
 
+    const handleApproval = useCallback(async (approved) => {
+        if (!deployment?.taskId || !deployment?.projectId) return;
+        const word = approved ? 'approve' : 'reject';
+        if (!window.confirm(`Are you sure you want to ${word} the deployment of ${deployment.name || deployment.agentId}?`)) return;
+        setApproving(true);
         try {
-            // CRITICAL API INTEGRATION 2: Process the final approval step
-            await processAgentFinalApproval(deployId, 'HRIT_PROJECT', approved, `Final HRIT sign-off: ${action}`);
-            
-            toast({ title: `Deployment ${action}`, description: `Agent deployment ${deployId} finalized.`, variant: approved ? 'success' : 'danger' });
-            setDeployId(null);
-        } catch (error) {
-            console.error("Approval failed:", error);
-            toast({ title: 'Approval Error', description: error.response?.data?.detail || error.message, variant: 'destructive' });
+            await processAgentFinalApproval(deployment.taskId, deployment.projectId, approved, `Final HRIT sign-off: ${approved ? 'approved' : 'rejected'}`);
+            toast({
+                title: approved ? 'Deployment approved' : 'Deployment rejected',
+                description: approved ? 'The agent will now be rolled out.' : 'The agent will not be rolled out.',
+                variant: approved ? 'success' : 'destructive',
+            });
+            setDeployment(null);
+        } catch (err) {
+            toast({ title: 'The decision could not be recorded', description: errText(err), variant: 'destructive' });
+        } finally {
+            setApproving(false);
         }
-    }, [deployId, toast]);
-
-
-    const styles = useMemo(() => ({
-        container: { padding: tokens.spacing?.md, background: tokens.color?.['panel-800'], borderRadius: tokens.border?.radius?.card, minHeight: '400px' },
-        input: { width: '100%', padding: '10px', background: tokens.color?.['bg-input'], border: `1px solid ${tokens.color?.['border-600']}`, borderRadius: tokens.border?.radius?.input, color: tokens.color?.['text-100'], boxSizing: 'border-box', marginBottom: tokens.spacing?.md },
-        button: (bgColor) => ({ padding: '10px 20px', background: bgColor, border: 'none', borderRadius: tokens.border?.radius?.button, color: tokens.color?.['bg-deep'], cursor: 'pointer', transition: 'all 0.2s ease', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: tokens.spacing?.xs, width: '100%' }),
-        approvalBar: { border: `2px dashed ${tokens.color?.warning}`, padding: tokens.spacing?.md, borderRadius: tokens.border?.radius?.input, marginTop: tokens.spacing?.lg, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }
-    }), []);
+    }, [deployment, toast]);
 
     return (
-        <div style={styles.container}>
-            <h2 style={{ color: tokens.color?.['text-100'], margin: '0 0 20px 0' }}>AI Agent Deployment & Management</h2>
-            
-            <form onSubmit={handleCreateAgent}>
-                <input type="text" placeholder="Agent Name" style={styles.input} value={agentData.name} onChange={e => setAgentData(p => ({ ...p, name: e.target.value }))} required />
-                <select style={styles.input} value={agentData.role} onChange={e => setAgentData(p => ({ ...p, role: e.target.value }))}>
-                    <option value="Governance">Policy Governance Agent</option>
-                    <option value="Remediation">Autonomous Healing Agent</option>
-                    <option value="XAI">XAI & Simulation Agent</option>
-                </select>
-                <select style={styles.input} value={agentData.model} onChange={e => setAgentData(p => ({ ...p, model: e.target.value }))}>
-                    <option value="llama3.1:8b">Llama 3.1 8B (Default)</option>
-                    <option value="qwen2.5-coder:7b">Qwen 2.5 Coder 7B</option>
-                    <option value="mistral:7b-instruct">Mistral 7B Instruct</option>
-                </select>
-                <button type="submit" style={styles.button(tokens.color?.['accent-primary'])} disabled={isCreating} className="agent-create-hover">
-                    {isCreating ? <Loader2 size={16} className="animate-spin" /> : <Zap size={16} />}
-                    {isCreating ? 'Requesting Deployment...' : 'Create New Agent'}
-                </button>
+        <div style={{ ...ui.panel, height: '100%' }}>
+            <h3 style={ui.h3}>
+                <Bot size={15} style={{ marginRight: 7, verticalAlign: '-2px' }} color={tokens.color?.['accent-primary']} />
+                Describe the agent you need
+            </h3>
+            <p style={ui.hint}>
+                Write what the agent should do in plain English. The local model designs the agent, picks the tools it may
+                use and sends it into the deployment pipeline. Planning runs on this machine and usually takes under a minute.
+            </p>
+
+            <form onSubmit={handleCreate} style={{ marginTop: tokens.spacing?.md }}>
+                <label style={ui.label} htmlFor="agent-intent">What should it do</label>
+                <textarea
+                    id="agent-intent"
+                    style={{ ...ui.input, minHeight: 120, resize: 'vertical', fontFamily: tokens.typography?.fontFamily }}
+                    value={intent}
+                    onChange={(e) => setIntent(e.target.value)}
+                    placeholder={EXAMPLES[0]}
+                    disabled={isCreating}
+                    required
+                />
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, margin: '10px 0 14px 0' }}>
+                    {EXAMPLES.map((ex) => (
+                        <button
+                            key={ex}
+                            type="button"
+                            onClick={() => setIntent(ex)}
+                            disabled={isCreating}
+                            className="emp-btn"
+                            style={{
+                                padding: '5px 10px', borderRadius: tokens.border?.radius?.full,
+                                border: `1px solid ${tokens.color?.['border-600']}`, background: 'transparent',
+                                color: tokens.color?.['muted-600'], fontSize: '11.5px',
+                                fontFamily: tokens.typography?.fontFamily, cursor: isCreating ? 'not-allowed' : 'pointer',
+                                maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                            }}
+                        >
+                            {ex.length > 52 ? `${ex.slice(0, 52)}...` : ex}
+                        </button>
+                    ))}
+                </div>
+                <Btn type="submit" icon={Sparkles} loading={isCreating} disabled={!intent.trim()}>
+                    {isCreating ? `Designing the agent, ${elapsed}s elapsed` : 'Design and deploy this agent'}
+                </Btn>
             </form>
 
-            {/* Deployment Approval Step (Appears after creation) */}
-            {deployId && (
-                <div style={styles.approvalBar}>
-                    <div style={{ color: tokens.color?.warning }}>
-                        Deployment <strong>{deployId}</strong> pending final approval.
-                    </div>
-                    <div style={{ display: 'flex', gap: tokens.spacing?.sm }}>
-                        <button onClick={() => handleFinalApproval(true)} style={{...styles.button(tokens.color?.success), width: 'auto', color: tokens.color?.['bg-deep']}} className="agent-approve-hover">
-                            <CheckCircle size={16} /> Approve
-                        </button>
-                        <button onClick={() => handleFinalApproval(false)} style={{...styles.button(tokens.color?.danger), width: 'auto', color: tokens.color?.['text-100'], background: tokens.color?.['danger-700']}} className="agent-reject-hover">
-                            <XCircle size={16} /> Reject
-                        </button>
-                    </div>
+            {isCreating && (
+                <p style={{ ...ui.hint, color: tokens.color?.warning }}>
+                    The model is reading your brief and writing the agent's configuration. Leave this page open until it finishes.
+                </p>
+            )}
+
+            {!isCreating && !deployment && (
+                <div style={{ marginTop: tokens.spacing?.md }}>
+                    <EmptyState icon={Bot} title="No agent designed in this session" action="Describe a job above and the factory will build an agent for it." />
                 </div>
             )}
-            
-            <style>{`
-                .agent-create-hover:hover { box-shadow: 0 0 10px ${tokens.color?.['accent-primary']}77; transform: translateY(-1px); }
-                .agent-approve-hover:hover { box-shadow: 0 0 10px ${tokens.color?.success}77; transform: translateY(-1px); }
-                .agent-reject-hover:hover { background: ${tokens.color?.danger} !important; box-shadow: 0 0 10px ${tokens.color?.danger}77; transform: translateY(-1px); }
-            `}</style>
+
+            {deployment && (
+                <div style={{
+                    marginTop: tokens.spacing?.md, padding: '12px 14px',
+                    borderRadius: tokens.border?.radius?.input,
+                    border: `1px solid ${tokens.color?.success}33`, background: `${tokens.color?.success}0d`,
+                }}>
+                    <div style={{ ...ui.rowTitle, whiteSpace: 'normal', marginBottom: 6 }}>
+                        {deployment.name || 'The new agent'} is queued for rollout
+                    </div>
+                    <p style={{ ...ui.hint, margin: 0 }}>
+                        {deployment.instructions ? `${deployment.instructions} ` : ''}
+                        {deployment.tools.length > 0
+                            ? `It is allowed to use ${deployment.tools.length} tool${deployment.tools.length === 1 ? '' : 's'}: ${deployment.tools.join(', ').replace(/_/g, ' ')}. `
+                            : 'It was given no tools to call. '}
+                        {deployment.model ? `It runs on the ${deployment.model} model. ` : ''}
+                        The rollout is tracked as {deployment.taskId || 'an unnamed task'}.
+                    </p>
+
+                    {deployment.projectId ? (
+                        <div style={{ display: 'flex', gap: tokens.spacing?.xs, marginTop: tokens.spacing?.md, flexWrap: 'wrap' }}>
+                            <Btn tone="success" icon={CheckCircle} loading={approving} onClick={() => handleApproval(true)}>Approve the rollout</Btn>
+                            <Btn tone="danger" icon={XCircle} loading={approving} onClick={() => handleApproval(false)}>Reject it</Btn>
+                        </div>
+                    ) : (
+                        <p style={{ ...ui.hint, display: 'flex', gap: 7, alignItems: 'flex-start', marginTop: 10 }}>
+                            <Info size={14} style={{ flexShrink: 0, marginTop: 2 }} />
+                            Final sign-off is not available from here. The deployment pipeline owns this step and the platform
+                            does not yet tell this console which project the rollout belongs to.
+                        </p>
+                    )}
+                </div>
+            )}
         </div>
     );
 });

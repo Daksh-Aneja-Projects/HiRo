@@ -1,206 +1,160 @@
-// /frontend/src/components/XAIDecisionPanel.js
-import React, { useState, useEffect, useCallback, useMemo, memo } from 'react';
-import { Loader2, Zap, Cpu, TrendingUp, AlertTriangle, User, MessageSquare, X } from 'lucide-react';
-import { runSimulation, getXAIExplanation } from '../config/api';
-import { useToast } from '../hooks/use-toast';
+// Explains, in plain English, why the attrition model scored a person the way it
+// did. Everything shown comes from /data/xai/explain. There is no mock fallback:
+// if the model cannot be reached the panel says so and shows nothing else.
+import React, { useMemo, memo } from 'react';
 import { theme as tokens } from '../theme';
+import { useApi } from '../hooks/useApi';
+import { getXAIExplanation } from '../config/api';
 import DataCard from './DataCard';
-import { MOCK_EMPLOYEES } from '../config/settings'; // CRITICAL FIX: Import MOCK_EMPLOYEES
-import DigitalTwinRiskChart from './DigitalTwinRiskChart'; // INTEGRATION: New Chart Component
+import { CountUp, LiveMeter } from './live/LivePrimitives';
+import { ui, Loading, EmptyState, ErrorNote, humanText } from './employee/shared';
+import { Brain, ArrowUpRight, ArrowDownRight, Minus, UserSearch } from 'lucide-react';
 
-// --- Static Style Definitions ---
-const getStyles = (tokens) => ({
-    // CRITICAL FIX: Ensure grid starts inside the component structure
-    grid: { display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: tokens.spacing.lg },
-    header: { fontSize: tokens.typography.h2.fontSize, fontWeight: tokens.typography.h2.fontWeight, color: tokens.color['text-100'], display: 'flex', alignItems: 'center', gap: tokens.spacing.xs, borderBottom: `1px solid ${tokens.color['border-600']}`, paddingBottom: tokens.spacing.sm },
-    miniLabel: { fontSize: tokens.typography.small.fontSize, color: tokens.color['muted-500'], marginBottom: tokens.spacing.xs },
-    input: { width: '100%', padding: '10px 12px', background: 'rgba(255,255,255,0.02)', border: `1px solid rgba(255,255,255,0.04)`, borderRadius: tokens.border.radius.chip, color: tokens.color['text-100'], fontSize: tokens.typography.base.fontSize, outline: 'none', resize: 'vertical', minHeight: '40px' },
-    primaryBtn: { padding: '10px 14px', borderRadius: tokens.border.radius.button, background: tokens.color['warning'], border: 'none', color: tokens.color['bg-900'], fontWeight: tokens.typography.h2.fontWeight, cursor: 'pointer', transition: 'all 180ms ease', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: tokens.spacing.xs },
-    xaiSummary: { 
-        display: 'flex', 
-        alignItems: 'flex-start', // FIX: Use flex-start to allow text to wrap without vertical centering issues
-        gap: tokens.spacing.xs, 
-        color: tokens.color['text-100'], 
-        fontSize: tokens.typography.base.fontSize, 
-        background: tokens.color['panel-700'], 
-        padding: tokens.spacing.sm, 
-        borderRadius: tokens.border.radius.chip 
-    },
-    contributionsGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: tokens.spacing.sm }, // Adjusted minmax for smaller panel
-    chip: { padding: '6px 10px', borderRadius: tokens.border.radius.chip, fontSize: tokens.typography.small.fontSize, color: tokens.color['text-100'], display: 'flex', alignItems: 'center', justifyContent: 'center' }
-});
+const MODEL_NAME = 'attrition_model';
 
-const XAIDecisionPanel = memo(({ employeeId = MOCK_EMPLOYEES[0]?.id || 'EMP001' }) => {
-    const { toast } = useToast();
-    const [adjustments, setAdjustments] = useState({ salary_increase_percent: 10, training_hours: 5 });
-    const [simulationResult, setSimulationResult] = useState(null);
-    const [xaiExplanation, setXaiExplanation] = useState(null);
-    const [isLoading, setIsLoading] = useState(false);
+// "Heuristic_v2" is a model identifier, not something to put in front of a person.
+const readableModel = (raw) => {
+    const t = humanText(raw);
+    return t ? `${t.charAt(0).toUpperCase()}${t.slice(1)}` : 'the attrition model';
+};
 
-    // CRITICAL FIX: Ensure MOCK_EMPLOYEES array access is safe
-    const targetEmployee = useMemo(() => MOCK_EMPLOYEES.find(e => e.id === employeeId) || { id: employeeId, name: 'Employee Mock', role: 'Engineer' }, [employeeId]);
-    const styles = useMemo(() => getStyles(tokens), []);
+const riskWords = (score) => {
+    if (score >= 0.7) return 'a high chance of leaving';
+    if (score >= 0.4) return 'a moderate chance of leaving';
+    return 'a low chance of leaving';
+};
 
-    const MOCK_SIMULATION_RESULT_LOCAL = useMemo(() => ({
-        metrics: {
-            original_attrition_risk: 0.82,
-            simulated_attrition_risk: 0.35,
-            risk_mitigation_percent: 57.3
-        },
-        prescriptive_recommendation: "MOCK: The simulation suggests a compensation review and training path."
-    }), []);
+const XAIDecisionPanel = memo(({ employeeId, employeeName }) => {
+    const enabled = Boolean(employeeId);
+    const { data, isLoading, error } = useApi(
+        getXAIExplanation,
+        [MODEL_NAME, { employee_id: employeeId }],
+        enabled,
+    );
 
-    const resultBoxStyle = useCallback((mitigationPercent) => ({
-        padding: tokens.spacing.md, 
-        border: `2px solid ${mitigationPercent > 0 ? tokens.color['success'] : tokens.color['danger']}`, 
-        background: mitigationPercent > 0 ? `rgba(${tokens.color['success-rgb']}, 0.1)` : `rgba(${tokens.color['danger-rgb']}, 0.1)`,
-        borderRadius: tokens.border.radius.chip,
-        marginBottom: tokens.spacing.lg,
-    }), []);
+    const who = employeeName || 'This person';
+    const score = Number(data?.prediction_score);
+    const hasScore = Number.isFinite(score);
 
-    const handleSimulation = useCallback(async () => {
-        setIsLoading(true);
-        setSimulationResult(null);
-        setXaiExplanation(null);
-
-        try {
-            // CRITICAL FIX: Use the stable API call to run the simulation
-            const simResponse = await runSimulation(targetEmployee.id, adjustments).catch(() => ({ 
-                 data: {
-                    ...MOCK_SIMULATION_RESULT_LOCAL,
-                    metrics: {
-                        ...MOCK_SIMULATION_RESULT_LOCAL.metrics,
-                        simulated_attrition_risk: 0.35 + (Math.random() * 0.1),
-                        risk_mitigation_percent: 50 + (Math.random() * 10)
-                    }
-                }, 
-                 isMock: true 
-             }));
-
-            const simResult = simResponse.data || MOCK_SIMULATION_RESULT_LOCAL;
-            setSimulationResult(simResult);
-
-            // CRITICAL FIX: Use the stable API call for XAI explanation
-            const xaiResponse = await getXAIExplanation('attrition_model', { employee_id: targetEmployee.id, adjustments }).catch(() => ({ 
-                 data: {
-                    prediction_score: simResult.metrics?.simulated_attrition_risk || 0.35,
-                    human_summary: 'MOCK XAI: The combined salary and training adjustments successfully lowered the predicted flight risk by addressing the compensation anomaly and skill gap factors.',
-                    feature_contributions: [
-                        { feature: "Compensation", impact: -0.25 }, 
-                        { feature: "Training Gap", impact: -0.10 }, 
-                        { feature: "Tenure", impact: 0.15 }
-                    ]
-                },
-                isMock: true
-            }));
-
-            setXaiExplanation(xaiResponse.data);
-
-            toast({ title: "Simulation Complete", description: "What-if scenario analyzed successfully.", variant: 'success' });
-        } catch (error) {
-            toast({ title: "Simulation Failed", description: `Error running scenario: ${error.message}`, variant: 'destructive' });
-        } finally {
-            setIsLoading(false);
-        }
-    }, [targetEmployee.id, adjustments, toast, MOCK_SIMULATION_RESULT_LOCAL]);
-
-    const handleAdjustmentChange = useCallback((e) => {
-        setAdjustments(prev => ({ 
-            ...prev, 
-            [e.target.name]: parseFloat(e.target.value) || 0 
-        }));
-    }, []);
-
-    // Calculate features for the new chart component
-    const chartData = useMemo(() => {
-        if (!simulationResult || !xaiExplanation) return null;
-        return {
-            originalRisk: simulationResult.metrics.original_attrition_risk,
-            simulatedRisk: simulationResult.metrics.simulated_attrition_risk,
-            // Filter contributions to only include those that had a net negative impact (mitigation)
-            mitigationFactors: xaiExplanation.feature_contributions.filter(f => f.impact < 0).map(f => ({
-                feature: f.feature,
-                impact: f.impact
+    // Ranked by how hard each factor pushed the score, largest push first.
+    const drivers = useMemo(() => (
+        (data?.feature_contributions || [])
+            .map((f) => ({
+                label: humanText(f.feature),
+                impact: Number(f.impact) || 0,
+                reason: f.reason || '',
             }))
-        };
-    }, [simulationResult, xaiExplanation]);
+            .sort((a, b) => Math.abs(b.impact) - Math.abs(a.impact))
+    ), [data]);
+
+    const strongest = Math.max(...drivers.map((d) => Math.abs(d.impact)), 0.0001);
+    const leading = drivers.find((d) => d.impact !== 0);
+
+    const styles = useMemo(() => ({
+        row: {
+            display: 'flex', alignItems: 'flex-start', gap: tokens.spacing?.sm,
+            padding: '11px 0', borderBottom: `1px solid ${tokens.color?.['border-600']}`,
+        },
+        icon: (up) => ({
+            flexShrink: 0, display: 'grid', placeItems: 'center', width: 24, height: 24,
+            borderRadius: 7, marginTop: 2,
+            color: up ? tokens.color?.danger : tokens.color?.success,
+            background: `${up ? tokens.color?.danger : tokens.color?.success}14`,
+        }),
+        weight: {
+            flexShrink: 0, minWidth: 62, textAlign: 'right', fontVariantNumeric: 'tabular-nums',
+            fontSize: 13, fontWeight: 600,
+        },
+    }), []);
+
+    if (!enabled) {
+        return (
+            <DataCard title="Why the model says what it says" icon={<Brain size={15} />}>
+                <EmptyState
+                    icon={UserSearch}
+                    title="Pick a team member first"
+                    action="Once you choose someone, this panel breaks down every factor behind their attrition score."
+                />
+            </DataCard>
+        );
+    }
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: tokens.spacing.lg }}>
-             {/* Simulation Input is split into two halves here: Controls and Output. 
-                  Since the parent container (ManagerPortal) provides the span, we use flex within the component. */}
-            <DataCard title="What-If Scenario Adjustments" style={{ gridColumn: 'span 12' }}>
-                <h3 style={styles.header}>
-                    <Zap size={16} /> Target: {targetEmployee.name} ({targetEmployee.role})
-                </h3>
-                <form onSubmit={(e) => { e.preventDefault(); handleSimulation(); }} style={{ display: 'flex', flexDirection: 'column', gap: tokens.spacing.sm }}>
-                    <label style={styles.miniLabel}>Salary Increase (%)</label>
-                    <input type="number" name="salary_increase_percent" value={adjustments.salary_increase_percent} onChange={handleAdjustmentChange} style={styles.input} disabled={isLoading} />
-                                        
-                    <label style={styles.miniLabel}>Training Hours (Per Month)</label>
-                    <input type="number" name="training_hours" value={adjustments.training_hours} onChange={handleAdjustmentChange} style={styles.input} disabled={isLoading} />
-                                        
-                    <button type="submit" style={styles.primaryBtn} disabled={isLoading} className="sim-btn-hover">
-                        {isLoading ? <Loader2 size={16} className="animate-spin" /> : <Cpu size={16} />} 
-                        Run Predictive Simulation
-                    </button>
-                </form>
-            </DataCard>
+        <DataCard title="Why the model says what it says" icon={<Brain size={15} />}>
+            <ErrorNote error={error} context="the model explanation" />
+            {isLoading && !data && <Loading label={`Asking ${readableModel(data?.model_type)} to explain itself`} />}
 
-            {/* XAI Output - Now rendered below the controls in the same panel structure */}
-            <DataCard title="Prediction & Explanation" style={{ gridColumn: 'span 12' }}>
-                {isLoading && (
-                    <div style={{ textAlign: 'center', padding: tokens.spacing.xl, color: tokens.color['muted-500'] }}>
-                        <Loader2 size={24} className="animate-spin" /> Running Digital Twin Simulation...
-                    </div>
-                )}
-
-                {simulationResult && chartData && !isLoading && (
-                    <div style={{ marginBottom: tokens.spacing.lg }}>
-                        <DigitalTwinRiskChart 
-                            originalRisk={chartData.originalRisk}
-                            simulatedRisk={chartData.simulatedRisk}
-                            mitigationFactors={chartData.mitigationFactors}
-                        />
-                    </div>
-                )}
-
-                {simulationResult && !isLoading && (
-                    <div style={resultBoxStyle(simulationResult.metrics.risk_mitigation_percent)}>
-                        <p style={{ fontWeight: tokens.typography.h2.fontWeight, color: simulationResult.metrics.risk_mitigation_percent > 0 ? tokens.color['success'] : tokens.color['danger'] }}>
-                            Attrition Risk Mitigated: {simulationResult.metrics.risk_mitigation_percent.toFixed(1)}%
-                        </p>
-                        <p style={{ color: tokens.color['text-100'] }}>New predicted risk: <strong>{simulationResult.metrics.simulated_attrition_risk.toFixed(2)}</strong></p>
-                        <p style={{ color: tokens.color['warning'], fontSize: tokens.typography.small.fontSize, marginTop: tokens.spacing.xs }}>{simulationResult.prescriptive_recommendation}</p>
-                    </div>
-                )}
-                                
-                {xaiExplanation && !isLoading && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: tokens.spacing.sm }}>
-                        <p style={styles.xaiSummary}>
-                            <AlertTriangle size={16} color={tokens.color['accent-secondary']} /> 
-                            **XAI Insights:** {xaiExplanation.human_summary}
-                        </p>
-                        <div style={styles.contributionsGrid}>
-                            {xaiExplanation.feature_contributions.map((f, i) => (
-                                <div key={i} style={{ ...styles.chip, background: f.impact < 0 ? 'rgba(0, 255, 0, 0.1)' : 'rgba(255, 0, 0, 0.1)' }}>
-                                    {f.feature}: {f.impact} (Risk {f.impact < 0 ? 'Decreased' : 'Increased'})
-                                </div>
-                            ))}
+            {!error && data && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: tokens.spacing?.md }}>
+                    {hasScore && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+                            <p style={{ margin: 0, color: tokens.color?.['text-100'], fontSize: tokens.typography?.base?.fontSize, lineHeight: 1.55 }}>
+                                The explanation model puts {who} at{' '}
+                                <strong><CountUp value={score * 100} decimals={1} suffix="%" /></strong>, {riskWords(score)}.
+                                {leading ? <> The single strongest influence is <strong>{leading.label}</strong>.</> : null}
+                            </p>
+                            <LiveMeter
+                                pct={score * 100}
+                                color={score >= 0.7 ? tokens.color?.danger : (score >= 0.4 ? tokens.color?.warning : tokens.color?.success)}
+                                height={7}
+                            />
                         </div>
-                    </div>
-                )}
-                                
-                {!simulationResult && !isLoading && <p style={{ color: tokens.color['muted-500'] }}>Run a simulation to view results.</p>}
-                            </DataCard>
+                    )}
 
-            <style>{`
-                .sim-btn-hover:hover {
-                    box-shadow: ${tokens.shadow.hover};
-                    transform: translateY(-2px);
-                }
-            `}</style>
-        </div>
+                    {drivers.length > 0 ? (
+                        <div>
+                            <p style={{ ...ui.hint, marginTop: 0 }}>
+                                Each factor below either pushed the score up, making a departure more likely, or pulled it down.
+                            </p>
+                            <div style={ui.scroller('260px')} className="emp-scroll">
+                                {drivers.map((d, i) => {
+                                    const up = d.impact > 0;
+                                    const flat = d.impact === 0;
+                                    const Icon = flat ? Minus : (up ? ArrowUpRight : ArrowDownRight);
+                                    return (
+                                        <div key={`${d.label}-${i}`} style={styles.row}>
+                                            <span style={{ ...styles.icon(up), color: flat ? tokens.color?.['muted-600'] : undefined }}>
+                                                <Icon size={14} />
+                                            </span>
+                                            <div style={{ flexGrow: 1, minWidth: 0 }}>
+                                                <div style={ui.rowTitle}>{d.label}</div>
+                                                <div style={{ ...ui.rowMeta, whiteSpace: 'normal', lineHeight: 1.5 }}>
+                                                    {d.reason || (flat
+                                                        ? 'Made no difference to the score this time.'
+                                                        : `${up ? 'Pushed the risk up' : 'Pulled the risk down'} for this person.`)}
+                                                </div>
+                                                <div style={{ marginTop: 6 }}>
+                                                    <LiveMeter
+                                                        pct={(Math.abs(d.impact) / strongest) * 100}
+                                                        color={flat ? tokens.color?.['muted-600'] : (up ? tokens.color?.danger : tokens.color?.success)}
+                                                        height={4}
+                                                    />
+                                                </div>
+                                            </div>
+                                            <span style={{ ...styles.weight, color: flat ? tokens.color?.['muted-600'] : (up ? tokens.color?.danger : tokens.color?.success) }}>
+                                                {up ? '+' : ''}{(d.impact * 100).toFixed(1)}%
+                                            </span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    ) : (
+                        <EmptyState
+                            icon={Brain}
+                            title="The model returned a score but no breakdown"
+                            action="Without contributing factors there is nothing to explain. Treat the score with caution."
+                        />
+                    )}
+
+                    <p style={{ ...ui.hint, marginTop: 0 }}>
+                        Produced by {readableModel(data.model_type)}
+                        {data.generated_at ? ` on ${new Date(data.generated_at).toLocaleString()}` : ''}. This is the
+                        explainability model, so its score can differ from the workforce planning figure shown elsewhere.
+                    </p>
+                </div>
+            )}
+        </DataCard>
     );
 });
 

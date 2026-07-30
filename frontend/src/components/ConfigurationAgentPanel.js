@@ -1,183 +1,191 @@
-// /frontend/src/components/ConfigurationAgentPanel.js - FINAL PRODUCTION-READY REPLACEMENT (Fixes fontSize TypeErrors)
-import React, { useMemo, memo, useState, useCallback, useRef } from 'react';
+// /frontend/src/components/ConfigurationAgentPanel.js
+// Live configuration agent: streams the local model's reasoning as it turns a plain
+// English goal into a business rule, and lets an administrator change which model the
+// platform runs on. Model list and active model both come from the backend.
+import React, { memo, useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { theme as tokens } from '../theme';
-import { streamAgentConfig, getAiModels, setAIProvider } from '../config/api'; // CRITICAL FIX: Import stabilized API functions
+import { streamAgentConfig, getAiModels, getActiveAIProvider, setAIProvider } from '../config/api';
 import { useApi } from '../hooks/useApi';
 import { useToast } from '../hooks/use-toast';
-import { Zap, Loader2, Settings, Code, MessageCircle } from 'lucide-react';
+import { ui, Btn, EmptyState, ErrorNote } from './employee/shared';
+import { Zap, SlidersHorizontal, Code, Square } from 'lucide-react';
+
+const errText = (e) => e?.response?.data?.detail || e?.message || 'The request failed.';
+
+// The agent stream decorates its stage messages with pictographs. Strip them so the
+// console stays icon-only.
+const clean = (s) => String(s || '').replace(/[\u{1F000}-\u{1FAFF}\u{2190}-\u{27BF}\u{FE0F}]/gu, '').replace(/\s+/g, ' ').trim();
 
 const ConfigurationAgentPanel = memo(() => {
     const { toast } = useToast();
-    const [prompt, setPrompt] = useState('Tune the HRBP agent to prioritize cost-of-living adjustments.');
-    const [output, setOutput] = useState('');
-    const [isLoading, setIsLoading] = useState(false);
-    const [currentProvider, setCurrentProvider] = useState('llama3.1:8b');
-    const eventSourceRef = useRef(null);
-    
-    // CRITICAL API INTEGRATION 1: Fetch Available AI Models
-    const { data: models, isLoading: isModelsLoading } = useApi(getAiModels, [], true, []);
+    const [prompt, setPrompt] = useState('');
+    const [lines, setLines] = useState([]);
+    const [isStreaming, setIsStreaming] = useState(false);
+    const [selectedModel, setSelectedModel] = useState('');
+    const [switching, setSwitching] = useState(false);
+    const sourceRef = useRef(null);
+    const outRef = useRef(null);
 
-    // CRITICAL: Handle Agent Configuration Streaming
-    const handleConfigure = useCallback(async (e) => {
-        e.preventDefault();
-        if (!prompt.trim() || isLoading) return;
+    const { data: modelsResp, isLoading: modelsLoading, error: modelsError } = useApi(getAiModels, [], true);
+    const { data: provider, refetch: refetchProvider } = useApi(getActiveAIProvider, [], true);
+    const models = useMemo(() => modelsResp?.models || [], [modelsResp]);
 
-        if (eventSourceRef.current) {
-            eventSourceRef.current.close();
-        }
-        
-        setIsLoading(true);
-        setOutput('');
+    // Start the dropdown on whatever the platform is actually running.
+    useEffect(() => {
+        if (provider?.default_model && !selectedModel) setSelectedModel(provider.default_model);
+    }, [provider, selectedModel]);
 
-        const onChunk = (chunk) => {
-             // Assuming the stream sends configuration details/BPCL chunks
-            try {
-                const data = JSON.parse(chunk);
-                setOutput(prev => prev + (data.content || ''));
-            } catch (e) {
-                setOutput(prev => prev + chunk);
-            }
-        };
+    useEffect(() => () => sourceRef.current?.close(), []);
+    useEffect(() => { if (outRef.current) outRef.current.scrollTop = outRef.current.scrollHeight; }, [lines]);
 
-        const onComplete = () => {
-            setIsLoading(false);
-            toast({ title: 'Agent Config Complete', description: 'Agent configuration stream finalized.', variant: 'success' });
-        };
-
-        const onError = (error) => {
-            setIsLoading(false);
-            setOutput(prev => prev + `\n\n--- STREAM ERROR: ${error.message || 'Connection failed'} ---`);
-            toast({ title: 'Stream Error', description: 'Configuration stream failed.', variant: 'destructive' });
-        };
-
-        try {
-            // CRITICAL API INTEGRATION 2: Use the streaming function
-            eventSourceRef.current = streamAgentConfig(prompt, onChunk, onComplete, onError);
-        } catch (error) {
-            onError(error);
-        }
-
-    }, [prompt, isLoading, toast]);
-    
-    // CRITICAL: Handle AI Provider Switch
-    const handleProviderSwitch = useCallback(async (provider) => {
-        if (!provider || provider === currentProvider) return;
-        
-        if (!window.confirm(`Confirm switching the primary AI provider to ${provider}? This affects all agents.`)) return;
-
-        try {
-            // CRITICAL API INTEGRATION 3: Switch AI Provider
-            await setAIProvider(provider);
-            setCurrentProvider(provider);
-            toast({ title: 'Provider Switched', description: `Primary AI provider is now set to ${provider}.`, variant: 'warning' });
-        } catch (error) {
-            toast({ title: 'Switch Failed', description: error.response?.data?.detail || error.message, variant: 'destructive' });
-        }
-    }, [currentProvider, toast]);
-
-
-    React.useEffect(() => {
-        return () => {
-            if (eventSourceRef.current) {
-                eventSourceRef.current.close();
-            }
-        };
+    const stop = useCallback(() => {
+        sourceRef.current?.close();
+        sourceRef.current = null;
+        setIsStreaming(false);
     }, []);
 
+    const handleStream = useCallback((e) => {
+        e.preventDefault();
+        if (!prompt.trim() || isStreaming) return;
 
-    const styles = useMemo(() => ({
-        grid: { display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: tokens.spacing?.lg, minHeight: '500px' },
-        formCard: { gridColumn: 'span 5', padding: tokens.spacing?.md, background: tokens.color?.['panel-700'], borderRadius: tokens.border?.radius?.card, display: 'flex', flexDirection: 'column' },
-        outputCard: { gridColumn: 'span 7', padding: tokens.spacing?.md, background: tokens.color?.['panel-700'], borderRadius: tokens.border?.radius?.card, display: 'flex', flexDirection: 'column' },
-        textarea: { width: '100%', padding: '10px', background: tokens.color?.['bg-input'], border: `1px solid ${tokens.color?.['border-600']}`, borderRadius: tokens.border?.radius?.input, color: tokens.color?.['text-100'], boxSizing: 'border-box', minHeight: '120px', resize: 'vertical', marginBottom: tokens.spacing?.md },
-        outputPre: { 
-            flexGrow: 1, 
-            background: tokens.color?.['panel-800'], 
-            padding: tokens.spacing?.sm, 
-            borderRadius: tokens.border?.radius?.input, 
-            overflow: 'auto', 
-            whiteSpace: 'pre-wrap', 
-            fontFamily: 'monospace', 
-            // --- FIX: Added optional chaining ---
-            fontSize: tokens.typography?.small?.fontSize, 
-            // ------------------------------------
-            color: tokens.color?.['text-100'], 
-            marginTop: tokens.spacing?.md 
-        },
-        button: (bgColor) => ({ padding: '10px 20px', background: bgColor, border: 'none', borderRadius: tokens.border?.radius?.button, color: tokens.color?.['bg-deep'], cursor: 'pointer', transition: 'all 0.2s ease', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: tokens.spacing?.xs, width: '100%' }),
-        select: { padding: '8px', background: tokens.color?.['bg-input'], border: `1px solid ${tokens.color?.['border-600']}`, borderRadius: tokens.border?.radius?.input, color: tokens.color?.['text-100'], flexGrow: 1 }
-    }), []);
+        sourceRef.current?.close();
+        setLines([]);
+        setIsStreaming(true);
+
+        const onChunk = (chunk) => {
+            try {
+                const d = JSON.parse(chunk);
+                const stage = clean(d.stage);
+                const message = clean(d.message);
+                if (message) setLines((p) => [...p, { kind: 'step', stage, text: message }]);
+                if (d.content) setLines((p) => [...p, { kind: 'code', text: String(d.content) }]);
+            } catch {
+                setLines((p) => [...p, { kind: 'code', text: String(chunk) }]);
+            }
+        };
+        const onComplete = () => {
+            setIsStreaming(false);
+            sourceRef.current = null;
+            toast({ title: 'The agent finished', description: 'The rule it drafted is shown on the right.', variant: 'success' });
+        };
+        const onError = () => {
+            setIsStreaming(false);
+            sourceRef.current = null;
+            setLines((p) => [...p, { kind: 'step', stage: 'stopped', text: 'The connection to the agent dropped before it finished.' }]);
+            toast({ title: 'The agent stream failed', description: 'The connection dropped before the agent finished. Try again.', variant: 'destructive' });
+        };
+
+        try {
+            sourceRef.current = streamAgentConfig(prompt.trim(), onChunk, onComplete, onError);
+        } catch (err) {
+            onError(err);
+        }
+    }, [prompt, isStreaming, toast]);
+
+    const handleSwitch = useCallback(async () => {
+        if (!selectedModel || selectedModel === provider?.default_model) return;
+        if (!window.confirm(`Switch the platform to the ${selectedModel} model? Every agent will use it from the next request onward.`)) return;
+        setSwitching(true);
+        try {
+            await setAIProvider(selectedModel);
+            toast({ title: 'Model switched', description: `Agents now run on ${selectedModel}.`, variant: 'success' });
+            refetchProvider();
+        } catch (err) {
+            toast({ title: 'Could not switch the model', description: errText(err), variant: 'destructive' });
+        } finally {
+            setSwitching(false);
+        }
+    }, [selectedModel, provider, refetchProvider, toast]);
 
     return (
-        <div style={styles.grid}>
-            {/* Configuration Form */}
-            <div style={styles.formCard}>
-                <h3 style={{ color: tokens.color?.['text-100'], margin: 0 }}>Live Agent Configuration</h3>
-                <p style={{ color: tokens.color?.['muted-500'], 
-                    // --- FIX: Added optional chaining ---
-                    fontSize: tokens.typography?.small?.fontSize, 
-                    // ------------------------------------
-                    marginBottom: tokens.spacing?.md }}>
-                    Issue a prompt to stream dynamic configuration changes or BPCL rules.
-                </p>
-                <form onSubmit={handleConfigure} style={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
-                    <textarea 
-                        style={styles.textarea} 
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: tokens.spacing?.lg, width: '100%' }}>
+            <div style={{ ...ui.panel, gridColumn: 'span 5' }}>
+                <h3 style={ui.h3}>Draft a rule with the agent</h3>
+                <p style={ui.hint}>Say what the rule should achieve. The agent writes it, checks its own work and corrects itself as it goes. Every step it takes is shown as it happens.</p>
+                <form onSubmit={handleStream} style={{ marginTop: tokens.spacing?.md }}>
+                    <label style={ui.label} htmlFor="config-prompt">The goal</label>
+                    <textarea
+                        id="config-prompt"
+                        style={{ ...ui.input, minHeight: 120, resize: 'vertical', fontFamily: tokens.typography?.fontFamily }}
                         value={prompt}
-                        onChange={(e) => setPrompt(e.target.value)}
-                        placeholder="Enter configuration goal..."
-                        disabled={isLoading}
+                        onChange={(ev) => setPrompt(ev.target.value)}
+                        placeholder="e.g. Cost of living adjustments must be reviewed by an HR business partner before payroll runs."
+                        disabled={isStreaming}
                         required
                     />
-                    <button 
-                        type="submit" 
-                        style={styles.button(tokens.color?.['accent-secondary'])} 
-                        disabled={isLoading}
-                        className="config-stream-hover"
-                    >
-                        {isLoading ? <Loader2 size={16} className="animate-spin" /> : <Zap size={16} />}
-                        {isLoading ? 'Streaming Config...' : 'Stream Configuration'}
-                    </button>
+                    <div style={{ display: 'flex', gap: tokens.spacing?.xs, marginTop: tokens.spacing?.sm, flexWrap: 'wrap' }}>
+                        <Btn type="submit" icon={Zap} loading={isStreaming} disabled={!prompt.trim()}>
+                            {isStreaming ? 'The agent is working' : 'Draft the rule'}
+                        </Btn>
+                        {isStreaming && <Btn type="button" tone="ghost" icon={Square} onClick={stop}>Stop</Btn>}
+                    </div>
                 </form>
-                
+
                 <div style={{ marginTop: tokens.spacing?.lg, borderTop: `1px solid ${tokens.color?.['border-600']}`, paddingTop: tokens.spacing?.md }}>
-                    <h4 style={{ color: tokens.color?.['text-100'], margin: 0 }}>AI Provider Switch</h4>
-                    <div style={{ display: 'flex', gap: tokens.spacing?.sm, marginTop: tokens.spacing?.sm }}>
-                        <select 
-                            style={styles.select} 
-                            value={currentProvider} 
-                            onChange={(e) => setCurrentProvider(e.target.value)}
-                            disabled={isModelsLoading}
+                    <h3 style={ui.h3}>Which model the platform runs on</h3>
+                    <p style={ui.hint}>
+                        {provider
+                            ? `Running ${provider.default_model} through ${provider.provider} at ${provider.base_url}.`
+                            : 'Reading the active model from the platform.'}
+                    </p>
+                    <ErrorNote error={modelsError} context="the list of installed models" />
+                    <div style={{ display: 'flex', gap: tokens.spacing?.xs, marginTop: tokens.spacing?.sm, flexWrap: 'wrap' }}>
+                        <select
+                            aria-label="Model to run"
+                            style={{ ...ui.input, flex: 1, minWidth: 190, width: 'auto' }}
+                            value={selectedModel}
+                            onChange={(ev) => setSelectedModel(ev.target.value)}
+                            disabled={modelsLoading || models.length === 0}
                         >
-                            {isModelsLoading && <option>Loading Models...</option>}
-                            {models?.map(model => (
-                                <option key={model.name} value={model.name}>{model.label}</option>
-                            ))}
+                            {modelsLoading && <option value="">Reading installed models</option>}
+                            {!modelsLoading && models.length === 0 && <option value="">No models are installed</option>}
+                            {models.map((m) => <option key={m.name} value={m.name}>{m.label || m.name}</option>)}
                         </select>
-                         <button 
-                            onClick={() => handleProviderSwitch(currentProvider)} 
-                            style={{ ...styles.button(tokens.color?.warning), width: 'auto', color: tokens.color?.['bg-deep'], padding: '8px 15px' }}
-                            className="provider-switch-hover"
+                        <Btn
+                            icon={SlidersHorizontal}
+                            loading={switching}
+                            onClick={handleSwitch}
+                            disabled={!selectedModel || selectedModel === provider?.default_model}
                         >
-                            <Settings size={16} /> Switch
-                        </button>
+                            {selectedModel && selectedModel === provider?.default_model ? 'Already active' : 'Switch to this model'}
+                        </Btn>
                     </div>
                 </div>
             </div>
 
-            {/* Streaming Output */}
-            <div style={styles.outputCard}>
-                <h3 style={{ color: tokens.color?.['text-100'], margin: '0 0 10px 0', display: 'flex', alignItems: 'center', gap: tokens.spacing?.xs }}><Code size={20} /> Configuration Output Stream</h3>
-                <pre style={styles.outputPre}>
-                    {output || (isLoading ? 'Waiting for agent to process configuration...' : 'Configuration stream output will appear here.')}
-                    {isLoading && <Loader2 size={16} className="animate-spin" style={{ marginLeft: tokens.spacing?.sm }} />}
-                </pre>
+            <div style={{ ...ui.panel, gridColumn: 'span 7', display: 'flex', flexDirection: 'column', minHeight: 420 }}>
+                <h3 style={ui.h3}>
+                    <Code size={15} style={{ marginRight: 7, verticalAlign: '-2px' }} color={tokens.color?.['accent-secondary']} />
+                    What the agent is doing
+                </h3>
+                <div ref={outRef} style={{ ...ui.scroller('420px'), marginTop: tokens.spacing?.md, flexGrow: 1 }} className="emp-scroll">
+                    {lines.length === 0 && !isStreaming && (
+                        <EmptyState icon={Code} title="The agent has not run yet" action="Describe a goal on the left and the agent's working will stream in here line by line." />
+                    )}
+                    {lines.length === 0 && isStreaming && (
+                        <p style={ui.hint}>Waiting for the model to send its first step.</p>
+                    )}
+                    {lines.map((l, i) => (l.kind === 'step' ? (
+                        <div key={i} style={{ display: 'flex', gap: 9, padding: '7px 0', alignItems: 'flex-start' }}>
+                            <span style={{
+                                marginTop: 5, width: 6, height: 6, borderRadius: 999, flexShrink: 0,
+                                background: tokens.color?.['accent-primary'], boxShadow: `0 0 8px ${tokens.color?.['accent-primary']}`,
+                            }} />
+                            <span style={{ color: tokens.color?.['text-100'], fontSize: tokens.typography?.small?.fontSize, lineHeight: 1.55 }}>
+                                {l.text}
+                            </span>
+                        </div>
+                    ) : (
+                        <pre key={i} style={{
+                            margin: '4px 0 10px 15px', padding: '10px 12px', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                            background: tokens.color?.['panel-900'], borderRadius: tokens.border?.radius?.input,
+                            border: `1px solid ${tokens.color?.['border-600']}`,
+                            fontFamily: tokens.typography?.fontMono, fontSize: '11.5px', lineHeight: 1.6,
+                            color: tokens.color?.['muted-500'],
+                        }}>{l.text}</pre>
+                    )))}
+                </div>
             </div>
-            
-            <style>{`
-                .config-stream-hover:hover { box-shadow: 0 0 10px ${tokens.color?.['accent-secondary']}77; transform: translateY(-1px); }
-                .provider-switch-hover:hover { box-shadow: 0 0 10px ${tokens.color?.warning}77; transform: translateY(-1px); }
-            `}</style>
         </div>
     );
 });

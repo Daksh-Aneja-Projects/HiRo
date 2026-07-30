@@ -1,111 +1,174 @@
-// /frontend/src/components/RiskOverview.js - FINAL PRODUCTION-READY REPLACEMENT
+// Organisation-wide workforce risk, read live from workforce planning and the
+// analytics warehouse. Nothing on this panel is hardcoded: if a figure is absent
+// from the backend the card says so rather than inventing one.
+// /compliance/dashboard is deliberately not called here, it is restricted to HR
+// business partners and HR IT and returns 403 for a manager.
 import React, { useMemo, memo } from 'react';
 import { theme as tokens } from '../theme';
 import { useApi } from '../hooks/useApi';
-import { predictAttritionRisk, getComplianceDashboardData, getAnalyticsCharts } from '../config/api'; // CRITICAL FIX: Import stabilized API functions
+import { getWFPProjections, getAnalyticsCharts } from '../config/api';
 import DataCard from './DataCard';
 import BarChartWidget from './charts/BarChartWidget';
-import PieChartWidget from './charts/PieChartWidget';
-import { AlertTriangle, TrendingDown, Shield, Loader2, Zap } from 'lucide-react';
+import { CountUp, LiveMeter } from './live/LivePrimitives';
+import { ui, Loading, EmptyState, ErrorNote, humanText } from './employee/shared';
+import { Users, Star, Clock, Gauge, ShieldAlert, TrendingUp } from 'lucide-react';
+
+// Turns a 0..1 model score into language a person can act on.
+const riskBand = (score) => {
+    if (score >= 0.7) return { label: 'High', color: tokens.color?.danger, note: 'A large share of the workforce looks likely to leave. Treat retention as urgent.' };
+    if (score >= 0.4) return { label: 'Moderate', color: tokens.color?.warning, note: 'Retention pressure is building. Worth a look at pay and workload in the weakest departments.' };
+    return { label: 'Low', color: tokens.color?.success, note: 'The workforce looks stable on the factors the model tracks.' };
+};
+
+const topN = (series, n) => (Array.isArray(series) ? [...series].sort((a, b) => (b.value || 0) - (a.value || 0)).slice(0, n) : []);
 
 const RiskOverview = memo(() => {
-    
-    // CRITICAL API INTEGRATION 1: Fetch Compliance Data (Directly shows a risk metric)
-    const { 
-        data: complianceData, 
-        isLoading: isCompLoading, 
-        error: compError 
-    } = useApi(getComplianceDashboardData, [], true, {});
-    
-    // CRITICAL API INTEGRATION 2: Fetch Attrition Risk (Using a simplified organization-wide query)
-    const { 
-        data: attritionRiskData, 
-        isLoading: isAttrLoading, 
-        error: attrError 
-    } = useApi(() => predictAttritionRisk({ organizational_scope: 'global' }), [], true, {});
+    const { data: wfp, isLoading: wfpLoading, error: wfpError } = useApi(getWFPProjections, [], true);
+    const { data: charts, isLoading: chartsLoading, error: chartsError } = useApi(getAnalyticsCharts, [], true);
 
-    // Real attrition-by-department series + compliance decision breakdown.
-    const { data: charts } = useApi(getAnalyticsCharts, [], true);
-    const decisionBreakdown = useMemo(() => {
-        const total = Number(complianceData?.total_decisions) || 0;
-        const denials = Number(complianceData?.denials) || 0;
-        if (total <= 0) return [];
-        return [
-            { name: 'Compliant', value: Math.max(0, total - denials) },
-            { name: 'Denied / Violation', value: denials },
-        ];
-    }, [complianceData]);
+    const state = wfp?.current_state || {};
+    const riskScore = Number(state.overall_risk_score);
+    const hasRisk = Number.isFinite(riskScore);
+    const band = riskBand(hasRisk ? riskScore : 0);
 
-    const isLoading = isCompLoading || isAttrLoading;
+    // Departments the planner flags as short on the skills they need.
+    const skillGaps = useMemo(() => (
+        Object.entries(wfp?.skill_gaps || {})
+            .filter(([, level]) => String(level).toUpperCase() === 'HIGH')
+            .map(([dept]) => dept)
+            .sort()
+    ), [wfp]);
+
+    const attrition = useMemo(() => topN(charts?.attrition_by_department, 10), [charts]);
+    const headcount = useMemo(() => topN(charts?.headcount_by_department, 10), [charts]);
 
     const styles = useMemo(() => ({
-        grid: { display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: tokens.spacing?.lg, marginBottom: tokens.spacing?.lg },
-        card: { gridColumn: 'span 3' },
-        chartHalf: { gridColumn: 'span 6', minHeight: '300px' },
+        grid: { ...ui.grid },
+        stat: { gridColumn: 'span 3', minWidth: 0 },
+        wide: { gridColumn: 'span 12', minWidth: 0 },
+        half: { gridColumn: 'span 6', minWidth: 0 },
+        chip: {
+            display: 'inline-block', padding: '4px 10px', margin: '0 6px 6px 0',
+            borderRadius: tokens.border?.radius?.full, fontSize: '11.5px',
+            color: tokens.color?.warning, background: `${tokens.color?.warning}14`,
+            border: `1px solid ${tokens.color?.warning}44`,
+        },
     }), []);
 
-    // Derived risk scores (mocked/stabilized)
-    const attritionScore = attritionRiskData?.global_risk_score || 0.72;
-    const policyViolationCount = complianceData?.policies_in_violation || 12;
-
-    if (isLoading) {
-        return (
-            <div style={{ textAlign: 'center', padding: tokens.spacing?.xl }}>
-                <Loader2 size={32} className="animate-spin" color={tokens.color?.['accent-primary']} />
-                <p style={{ color: tokens.color?.['muted-500'] }}>Aggregating risk intelligence...</p>
-            </div>
-        );
+    if (wfpLoading && !wfp) {
+        return <Loading label="Reading workforce risk from the planning engine" />;
     }
-    
+
     return (
         <div style={styles.grid}>
-            {/* Attrition Risk */}
-            <div style={styles.card}>
-                <DataCard 
-                    title="Overall Attrition Risk" 
-                    value={(attritionScore * 100).toFixed(1)} 
-                    unit="%" 
-                    color={attritionScore > 0.7 ? tokens.color?.danger : tokens.color?.warning}
-                >
-                    <TrendingDown size={24} color={attritionScore > 0.7 ? tokens.color?.danger : tokens.color?.warning} />
-                </DataCard>
+            <div style={styles.stat}>
+                <DataCard
+                    title="People in the workforce"
+                    value={<CountUp value={Number(state.total_employees) || 0} />}
+                    icon={<Users size={15} />}
+                    subtitle="Everyone currently on the books"
+                />
             </div>
-            
-            {/* Policy Risk */}
-            <div style={styles.card}>
-                <DataCard 
-                    title="Critical Policy Violations" 
-                    value={policyViolationCount} 
-                    unit="Count" 
-                    color={policyViolationCount > 10 ? tokens.color?.danger : tokens.color?.warning}
-                >
-                    <Shield size={24} color={policyViolationCount > 10 ? tokens.color?.danger : tokens.color?.warning} />
+            <div style={styles.stat}>
+                <DataCard
+                    title="Roles marked critical"
+                    value={<CountUp value={Number(state.critical_roles) || 0} />}
+                    icon={<Star size={15} />}
+                    color={tokens.color?.warning}
+                    subtitle="Positions the business cannot run without"
+                />
+            </div>
+            <div style={styles.stat}>
+                <DataCard
+                    title="Average time in post"
+                    value={<CountUp value={Number(state.average_tenure_months) || 0} />}
+                    unit="months"
+                    icon={<Clock size={15} />}
+                    subtitle="How long the average person has been here"
+                />
+            </div>
+            <div style={styles.stat}>
+                <DataCard
+                    title="Average performance rating"
+                    value={<CountUp value={Number(state.average_performance_score) || 0} decimals={2} />}
+                    unit="out of 5"
+                    icon={<Gauge size={15} />}
+                    subtitle="Across every recorded review"
+                />
+            </div>
+
+            <div style={styles.wide}>
+                <DataCard title="Overall attrition risk" icon={<ShieldAlert size={15} />} color={band.color}>
+                    <ErrorNote error={wfpError} context="the workforce risk score" />
+                    {hasRisk ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                            <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: 30, fontWeight: 640, letterSpacing: '-0.02em', color: band.color, fontVariantNumeric: 'tabular-nums' }}>
+                                    <CountUp value={riskScore * 100} decimals={1} suffix="%" />
+                                </span>
+                                <span style={{ fontSize: 13, fontWeight: 550, color: band.color }}>{band.label} risk</span>
+                            </div>
+                            <LiveMeter pct={riskScore * 100} color={band.color} height={7} />
+                            <p style={{ ...ui.hint, margin: 0 }}>{band.note}</p>
+                        </div>
+                    ) : (
+                        !wfpError && <EmptyState
+                            icon={ShieldAlert}
+                            title="The planning engine has not scored the workforce yet"
+                            action="The score appears once enough performance and tenure records have been ingested."
+                        />
+                    )}
                 </DataCard>
             </div>
 
-             {/* Governance Health */}
-            <div style={styles.card}>
-                <DataCard title="Agent Security Score" value="A+" unit="Grade" color={tokens.color?.success}>
-                    <Zap size={24} color={tokens.color?.success} />
+            <div style={styles.half}>
+                <DataCard title="Attrition risk by department" isChart minHeight="320px" icon={<TrendingUp size={15} />}>
+                    <ErrorNote error={chartsError} context="department risk" />
+                    {!chartsError && (
+                        <BarChartWidget
+                            data={attrition}
+                            minHeight="250px"
+                            color={tokens.color?.danger}
+                            label={attrition.length ? 'Ten departments carrying the most flight risk, as a percentage' : undefined}
+                        />
+                    )}
                 </DataCard>
             </div>
 
-            {/* General Alert */}
-            <div style={styles.card}>
-                <DataCard title="Open Security Alerts" value="3" unit="Alerts" color={tokens.color?.danger}>
-                    <AlertTriangle size={24} color={tokens.color?.danger} />
+            <div style={styles.half}>
+                <DataCard title="Where the people are" isChart minHeight="320px" icon={<Users size={15} />}>
+                    <ErrorNote error={chartsError} context="department headcount" />
+                    {!chartsError && (
+                        <BarChartWidget
+                            data={headcount}
+                            minHeight="250px"
+                            color={tokens.color?.['accent-primary']}
+                            label={headcount.length ? 'Ten largest departments by headcount' : undefined}
+                        />
+                    )}
                 </DataCard>
             </div>
-            
-            {/* Charts */}
-            <div style={styles.chartHalf}>
-                <DataCard title="Attrition Risk by Department" isChart minHeight="300px">
-                    <BarChartWidget data={charts?.attrition_by_department || []} minHeight="240px" color={tokens.color?.danger} />
-                </DataCard>
-            </div>
-            <div style={styles.chartHalf}>
-                <DataCard title="Compliance Decision Breakdown" isChart minHeight="300px">
-                    <PieChartWidget data={decisionBreakdown} minHeight="240px" />
+
+            <div style={styles.wide}>
+                <DataCard title="Departments short on the skills they need" icon={<ShieldAlert size={15} />} color={tokens.color?.warning}>
+                    {chartsLoading && !charts && <Loading label="Reading skill coverage" />}
+                    {skillGaps.length > 0 ? (
+                        <>
+                            <p style={{ ...ui.hint, marginTop: 0 }}>
+                                The planning engine rates the skill gap in these areas as high. They are the first places
+                                a departure will hurt.
+                            </p>
+                            <div>
+                                {skillGaps.map((d) => <span key={d} style={styles.chip}>{humanText(d)}</span>)}
+                            </div>
+                        </>
+                    ) : (
+                        !wfpLoading && <EmptyState
+                            icon={Gauge}
+                            title="No department is flagged as short on skills"
+                            action="Skill coverage is adequate everywhere the planning engine can see."
+                        />
+                    )}
                 </DataCard>
             </div>
         </div>

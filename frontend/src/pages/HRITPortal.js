@@ -1,392 +1,355 @@
-// /frontend/src/pages/HRITPortal.js - FINAL PRODUCTION-READY REPLACEMENT (Autonomous Healing Log Array Fix)
-import React, { useMemo, memo, useState, useCallback } from 'react';
+// /frontend/src/pages/HRITPortal.js - HRIT console for the HRIT_ADMIN persona.
+// Modules: agent | governance | health | models. Everything shown here is read from
+// the running platform; there are no seeded figures and no placeholder fallbacks.
+import React, { useMemo, memo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { theme as tokens } from '../theme';
 
-// CRITICAL API IMPORTS - FIX: Using absolute path aliases
 import {
-    createNewAIAgent, getHRITDashboardData, getAutonomousHealingLog,
-    getServiceNowHealth, resetHRITData, getOrchestratorDashboardData
+    getOrchestratorDashboardData, getAgentActivity, getServiceNowHealth,
+    getActiveAIProvider, getAiModels, getModelAuditLog,
 } from '../config/api';
 import { useApi } from '../hooks/useApi';
-import { useToast } from '../hooks/use-toast';
 
-// UI & NEW COMPONENTS - FIX: Using absolute path aliases
 import DataCard from '../components/DataCard';
 import BarChartWidget from '../components/charts/BarChartWidget';
 import AreaChartWidget from '../components/charts/AreaChartWidget';
 import PieChartWidget from '../components/charts/PieChartWidget';
-import { useMetricSeries } from '../components/live/LivePrimitives';
-import { countBy } from '../utils/chartData';
-// CRITICAL INTEGRATION: Live Telemetry Feed (WebSocket)
-import LiveTelemetryFeed from '../components/LiveTelemetryFeed'; 
-import { 
-    Cpu, Settings, Zap, CheckCircle, 
-    XCircle, Loader2, AlertTriangle, MessageSquare
+import { CountUp, LiveMeter, useMetricSeries } from '../components/live/LivePrimitives';
+import { objToSeries, countBy } from '../utils/chartData';
+
+import AgentManagementPanel from '../components/AgentManagementPanel';
+import ConfigurationAgentPanel from '../components/ConfigurationAgentPanel';
+import SystemHealthPanel from '../components/SystemHealthPanel';
+import LiveTelemetryFeed from '../components/LiveTelemetryFeed';
+import { PortalHeader, UnknownModule, portalShell } from '../components/admin/PortalHeader';
+import { ui, Loading, EmptyState, ErrorNote, EmployeeStyles, fmtDate } from '../components/employee/shared';
+import {
+    Cpu, Bot, ScrollText, Activity, Brain, Radio, Boxes, ListChecks,
+    Gauge, LifeBuoy, Timer, CheckCircle2,
 } from 'lucide-react';
 
+const MODULES = [
+    { key: 'agent', label: 'Agent factory', icon: Bot },
+    { key: 'governance', label: 'Governance', icon: ScrollText },
+    { key: 'health', label: 'System health', icon: Activity },
+    { key: 'models', label: 'Models', icon: Brain },
+];
 
-// --- 10.1. Sub-Module: Agent Factory ---
-/**
- * Renders the form for creating new AI agents.
- */
-const AgentFactoryModule = memo(() => {
-    const { toast } = useToast();
-    const [agentData, setAgentData] = useState({ name: '', role: 'Governance', model: 'llama3.1:8b' });
-    const [isCreating, setIsCreating] = useState(false);
+/* ------------------------------------------------------------------ */
+/* Agent factory                                                       */
+/* ------------------------------------------------------------------ */
+const AgentModule = memo(() => {
+    const { data: orch, isLoading, error } = useApi(getOrchestratorDashboardData, [], true, 15000);
+    const { data: activity, isLoading: actLoading, error: actError } = useApi(getAgentActivity, [60], true, 30000);
 
-    // Real orchestration snapshot: active agents vs active tasks.
-    const { data: orch, refetch: refetchOrch } = useApi(getOrchestratorDashboardData, [], true, 60000);
-    const agentDist = useMemo(() => ([
-        { name: 'Active Agents', value: Number(orch?.agents) || 0 },
-        { name: 'Active Tasks', value: Number(orch?.active_tasks) || 0 },
-    ]), [orch]);
-    
-    // CRITICAL: Handle Agent Creation
-    const handleCreateAgent = useCallback(async (e) => {
-        e.preventDefault();
-        if (!agentData.name || !agentData.role || isCreating) return;
-        
-        setIsCreating(true);
-        try {
-            // The agent factory is intent-driven: the backend plans the agent from a
-            // natural-language brief. Compose one from the form so the request matches
-            // the real contract ({intent}) instead of 422-ing on {name, role, model}.
-            const intent = `Create an agent named "${agentData.name}" responsible for ${agentData.role}, running on the ${agentData.model} model.`;
-            const response = await createNewAIAgent({ intent });
-
-            toast({
-                title: 'Agent deployed',
-                description: `${agentData.name} created with ID ${response.data?.agent_id || 'pending'}.`,
-                variant: 'success',
-            });
-            setAgentData({ name: '', role: 'Governance', model: 'llama3.1:8b' });
-            refetchOrch?.();
-        } catch (error) {
-            console.error("Agent creation failed:", error);
-            toast({ title: 'Deployment Failed', description: error.response?.data?.detail || error.message, variant: 'destructive' });
-        } finally {
-            setIsCreating(false);
-        }
-    }, [agentData, isCreating, toast]);
-
-    const styles = useMemo(() => ({
-        grid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: tokens.spacing?.lg },
-        card: { padding: tokens.spacing?.md, background: tokens.color?.['panel-700'], borderRadius: tokens.border?.radius?.card, minHeight: '300px' },
-        formGroup: { marginBottom: tokens.spacing?.md },
-        input: { width: '100%', padding: '10px', background: tokens.color?.['bg-input'], border: `1px solid ${tokens.color?.['border-600']}`, borderRadius: tokens.border?.radius?.input, color: tokens.color?.['text-100'], boxSizing: 'border-box' },
-        submitButton: { padding: '10px 20px', background: tokens.color?.['accent-primary'], border: 'none', borderRadius: tokens.border?.radius?.button, color: tokens.color?.['bg-deep'], cursor: 'pointer', transition: 'all 0.2s ease', display: 'flex', alignItems: 'center', gap: tokens.spacing?.xs, justifyContent: 'center' },
-    }), []);
+    const byAgent = useMemo(
+        () => (Array.isArray(activity) ? activity : []).map((a) => ({ name: a.agent_id, value: Number(a.events) || 0 })),
+        [activity],
+    );
+    const totalEvents = byAgent.reduce((n, a) => n + a.value, 0);
+    const busConnected = Boolean(orch?.message_bus_connected);
+    const healthy = String(orch?.system_health || '').toUpperCase() === 'GREEN';
 
     return (
-        <div style={styles.grid}>
-            {/* Agent Creation Form */}
-            <div style={styles.card}>
-                <h3 style={{ color: tokens.color?.['text-100'] }}>New Autonomous Agent Deployment</h3>
-                <form onSubmit={handleCreateAgent}>
-                    <div style={styles.formGroup}>
-                        <label style={{ color: tokens.color?.['text-100'], display: 'block', marginBottom: '5px' }}>Agent Name</label>
-                        <input 
-                            type="text" 
-                            style={styles.input} 
-                            value={agentData.name}
-                            onChange={(e) => setAgentData(prev => ({ ...prev, name: e.target.value }))}
-                            placeholder="e.g., Policy Auditor 7.1"
-                            required
-                        />
-                    </div>
-                    <div style={styles.formGroup}>
-                        <label style={{ color: tokens.color?.['text-100'], display: 'block', marginBottom: '5px' }}>Agent Role</label>
-                        <select 
-                            style={styles.input} 
-                            value={agentData.role}
-                            onChange={(e) => setAgentData(prev => ({ ...prev, role: e.target.value }))}
-                            required
-                        >
-                            <option value="Governance">Policy Governance</option>
-                            <option value="Remediation">Autonomous Healing</option>
-                            <option value="Integration">Data Integration</option>
-                            <option value="XAI">XAI Analyst</option>
-                        </select>
-                    </div>
-                     <div style={styles.formGroup}>
-                        <label style={{ color: tokens.color?.['text-100'], display: 'block', marginBottom: '5px' }}>Base LLM Model</label>
-                        <select 
-                            style={styles.input} 
-                            value={agentData.model}
-                            onChange={(e) => setAgentData(prev => ({ ...prev, model: e.target.value }))}
-                            required
-                        >
-                            <option value="llama3.1:8b">Llama 3.1 8B (Default)</option>
-                            <option value="qwen2.5-coder:7b">Qwen 2.5 Coder 7B</option>
-                            <option value="mistral:7b-instruct">Mistral 7B Instruct</option>
-                        </select>
-                    </div>
-                    <button 
-                        type="submit" 
-                        style={styles.submitButton} 
-                        disabled={isCreating}
-                        className="agent-deploy-hover"
-                    >
-                        {isCreating ? <Loader2 size={16} className="animate-spin" /> : <Zap size={16} />}
-                        {isCreating ? 'Deploying Agent...' : 'Deploy New Agent'}
-                    </button>
-                </form>
+        <div style={ui.grid}>
+            <div style={{ gridColumn: 'span 3' }}>
+                <DataCard title="Agents registered" value={<CountUp value={orch?.agents ?? 0} />} icon={<Boxes size={16} />} subtitle="Available to take work" />
+            </div>
+            <div style={{ gridColumn: 'span 3' }}>
+                <DataCard
+                    title="Work in progress"
+                    value={<CountUp value={orch?.active_tasks ?? 0} />}
+                    color={tokens.color?.['accent-secondary']}
+                    icon={<ListChecks size={16} />}
+                    subtitle={Number(orch?.active_tasks) > 0 ? 'Tasks running right now' : 'Nothing running right now'}
+                />
+            </div>
+            <div style={{ gridColumn: 'span 3' }}>
+                <DataCard
+                    title="Orchestrator"
+                    value={healthy ? 'Healthy' : (orch?.system_health ? 'Degraded' : 'Unknown')}
+                    color={healthy ? tokens.color?.success : tokens.color?.warning}
+                    icon={<Gauge size={16} />}
+                    footer={<LiveMeter pct={Number(orch?.metrics?.cpu) || 0} color={tokens.color?.['accent-primary']} label="Processor load" />}
+                />
+            </div>
+            <div style={{ gridColumn: 'span 3' }}>
+                <DataCard
+                    title="Message bus"
+                    value={busConnected ? 'Connected' : 'Not connected'}
+                    color={busConnected ? tokens.color?.success : tokens.color?.warning}
+                    icon={<Radio size={16} />}
+                    subtitle={busConnected ? 'Agents can hand work to each other' : 'Agents are working in isolation'}
+                />
             </div>
 
-            {/* Agent Status Overview */}
-            <div style={styles.card}>
-                <h3 style={{ color: tokens.color?.['text-100'] }}>Active Agent Landscape</h3>
-                <BarChartWidget data={agentDist} minHeight="250px" color={tokens.color?.['accent-primary']} />
-                <p style={{ color: tokens.color?.['muted-500'], fontSize: tokens.typography?.small?.fontSize, marginTop: tokens.spacing?.md }}>
-                    System health: {orch?.system_health || 'LIVE'} | Message bus: {orch?.message_bus_connected ? 'connected' : 'offline'}.
+            {error && <div style={{ gridColumn: 'span 12' }}><ErrorNote error={error} context="the orchestrator snapshot" /></div>}
+            {isLoading && !orch && <div style={{ gridColumn: 'span 12' }}><Loading label="Reading the orchestrator" /></div>}
+
+            <div style={{ gridColumn: 'span 5' }}>
+                <AgentManagementPanel />
+            </div>
+
+            <div style={{ ...ui.panel, gridColumn: 'span 7' }}>
+                <h3 style={ui.h3}>Which agents have been busy</h3>
+                <p style={ui.hint}>
+                    {actLoading && !activity ? 'Counting agent activity over the last hour.' : null}
+                    {!actLoading && totalEvents === 0
+                        ? 'No agent has done anything in the last hour.'
+                        : `${totalEvents} action${totalEvents === 1 ? '' : 's'} across ${byAgent.length} agent${byAgent.length === 1 ? '' : 's'} in the last hour.`}
                 </p>
-                <button style={{ marginTop: tokens.spacing?.md, padding: '8px 15px', background: tokens.color?.['panel-800'], border: `1px solid ${tokens.color?.['border-600']}`, borderRadius: tokens.border?.radius?.button, color: tokens.color?.['text-100'], cursor: 'pointer' }}>
-                    View Agent Logs
-                </button>
+                <ErrorNote error={actError} context="agent activity" />
+                <div style={{ marginTop: tokens.spacing?.md }}>
+                    {byAgent.length === 0 && !actLoading
+                        ? <EmptyState icon={Bot} title="No agent activity in the last hour" action="Run a command from the orchestrator console and the agent that handles it will show up here." />
+                        : <BarChartWidget data={byAgent} minHeight="260px" color={tokens.color?.['accent-primary']} />}
+                </div>
             </div>
         </div>
     );
 });
-AgentFactoryModule.displayName = 'AgentFactoryModule';
+AgentModule.displayName = 'AgentModule';
 
-// --- 10.2. Sub-Module: Autonomous Healing Governance ---
-/**
- * Monitors policy failure and autonomous remediation attempts.
- */
+/* ------------------------------------------------------------------ */
+/* Governance                                                          */
+/* ------------------------------------------------------------------ */
+const DECISION_COPY = {
+    APPROVE: 'was allowed',
+    APPROVED: 'was allowed',
+    DENY: 'was blocked',
+    DENIED: 'was blocked',
+    REJECT: 'was blocked',
+};
+
 const GovernanceModule = memo(() => {
-    // CRITICAL API INTEGRATION 2: Fetch Autonomous Healing Log (Remediation History)
-    const { 
-        data: healingLog, 
-        isLoading: isLogLoading, 
-        error: logError 
-    } = useApi(getAutonomousHealingLog, [], true, []);
-    
-    // CRITICAL API INTEGRATION 3: Fetch ServiceNow Health (Integration Health)
-    const { 
-        data: serviceNowHealth, 
-        isLoading: isHealthLoading, 
-        error: healthError 
-    } = useApi(getServiceNowHealth, [], true, {});
+    const { data: hrsd, isLoading: hrsdLoading, error: hrsdError } = useApi(getServiceNowHealth, [], true, 60000);
+    const { data: provider } = useApi(getActiveAIProvider, [], true);
+    const model = provider?.default_model || '';
+    const { data: audit, isLoading: auditLoading, error: auditError } = useApi(getModelAuditLog, [model, 40], Boolean(model));
 
-    // Genuinely live series: no historical "healing rate" endpoint exists, so we build a
-    // rolling window from the real psutil-backed agent-activity telemetry (polled every 3s).
-    const healingSeries = useMetricSeries('agent_activity', { intervalMs: 3000, scale: 100 });
-
-    // Real distribution of remediation outcomes from the healing trace log.
-    const violationDist = useMemo(() => countBy(healingLog || [], (l) => l.status), [healingLog]);
-
-    const styles = useMemo(() => ({
-        grid: { display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: tokens.spacing?.lg, marginBottom: tokens.spacing?.lg },
-        logWidget: { gridColumn: 'span 7', minHeight: '400px', background: tokens.color?.['panel-800'], borderRadius: tokens.border?.radius?.card, padding: tokens.spacing?.md, overflowY: 'auto' },
-        healthWidget: { gridColumn: 'span 5', minHeight: '400px' },
-        logItem: (status) => ({
-            padding: tokens.spacing?.xs,
-            marginBottom: tokens.spacing?.xs,
-            borderLeft: `3px solid ${status === 'RESOLVED' ? tokens.color?.success : (status === 'FAILED' ? tokens.color?.danger : tokens.color?.warning)}`,
-            background: tokens.color?.['panel-700'],
-            borderRadius: tokens.border?.radius?.input,
-            color: tokens.color?.['text-100'],
-            fontSize: tokens.typography?.small?.fontSize, // Added optional chaining
-        }),
-    }), []);
+    const lifecycle = useMemo(() => objToSeries(hrsd?.tickets_by_status), [hrsd]);
+    const rows = useMemo(() => (Array.isArray(audit) ? audit : []), [audit]);
+    const decisions = useMemo(() => countBy(rows, (r) => (String(r.decision).toUpperCase().startsWith('APPROV') ? 'Allowed' : 'Blocked')), [rows]);
+    const autoResolved = Number(hrsd?.tickets_by_status?.RESOLVED_BY_AGENT) || 0;
+    const agentOnline = String(hrsd?.agent_status || '').toLowerCase() === 'online';
 
     return (
-        <div style={styles.grid}>
-            {/* ServiceNow Health Card */}
+        <div style={ui.grid}>
             <div style={{ gridColumn: 'span 3' }}>
-                <DataCard 
-                    title="ServiceNow Integration" 
-                    value={serviceNowHealth?.status === 'UP' ? 'ONLINE' : 'DOWN'} 
-                    unit="Status" 
-                    color={serviceNowHealth?.status === 'UP' ? tokens.color?.success : tokens.color?.danger}
-                >
-                    <MessageSquare size={24} color={serviceNowHealth?.status === 'UP' ? tokens.color?.success : tokens.color?.danger} />
-                </DataCard>
+                <DataCard
+                    title="Resolution agent"
+                    value={agentOnline ? 'Online' : (hrsd?.agent_status || 'Unknown')}
+                    color={agentOnline ? tokens.color?.success : tokens.color?.warning}
+                    icon={<LifeBuoy size={16} />}
+                    subtitle={agentOnline ? 'Picking up cases without a human' : 'Not currently picking up cases'}
+                />
             </div>
-             {/* Key Metrics */}
             <div style={{ gridColumn: 'span 3' }}>
-                <DataCard 
-                    title="Successful Auto-Fixes" 
-                    value={serviceNowHealth?.successful_fixes || 'N/A'} 
-                    unit="Count" 
+                <DataCard
+                    title="Closed by an agent"
+                    value={<CountUp value={autoResolved} />}
                     color={tokens.color?.['accent-primary']}
-                >
-                    <CheckCircle size={24} color={tokens.color?.['accent-primary']} />
-                </DataCard>
+                    icon={<CheckCircle2 size={16} />}
+                    subtitle="Cases resolved with no human touch"
+                />
             </div>
-             <div style={{ gridColumn: 'span 6' }}>
-                <DataCard title="Live Autonomous Agent Activity" isChart minHeight="150px">
-                    <AreaChartWidget data={healingSeries} minHeight="150px" color={tokens.color?.success} label="Rolling agent-activity telemetry (live)" />
+            <div style={{ gridColumn: 'span 3' }}>
+                <DataCard
+                    title="Cases still open"
+                    value={<CountUp value={hrsd?.active_tickets ?? 0} />}
+                    color={tokens.color?.warning}
+                    icon={<ListChecks size={16} />}
+                    subtitle={`${hrsd?.total_tickets ?? 0} raised in total`}
+                />
+            </div>
+            <div style={{ gridColumn: 'span 3' }}>
+                <DataCard
+                    title="Past their deadline"
+                    value={<CountUp value={hrsd?.sla_breaches ?? 0} />}
+                    color={Number(hrsd?.sla_breaches) > 0 ? tokens.color?.danger : tokens.color?.success}
+                    icon={<Timer size={16} />}
+                    subtitle={Number(hrsd?.sla_breaches) > 0 ? 'These need a human today' : 'Everything is inside its deadline'}
+                />
+            </div>
+
+            {hrsdError && <div style={{ gridColumn: 'span 12' }}><ErrorNote error={hrsdError} context="the service delivery posture" /></div>}
+            {hrsdLoading && !hrsd && <div style={{ gridColumn: 'span 12' }}><Loading label="Reading the service delivery posture" /></div>}
+
+            <div style={{ gridColumn: 'span 5' }}>
+                <DataCard title="Where open work is sitting" isChart minHeight="360px">
+                    <PieChartWidget data={lifecycle} minHeight="310px" />
                 </DataCard>
             </div>
 
-            {/* Autonomous Healing Log */}
-            <div style={styles.logWidget}>
-                <h3 style={{ color: tokens.color?.['text-100'], borderBottom: `1px solid ${tokens.color?.['border-600']}`, paddingBottom: tokens.spacing?.xs, marginBottom: tokens.spacing?.md }}>
-                    Autonomous Healing Trace Log
-                </h3>
-                {isLogLoading && <p style={{textAlign: 'center'}}><Loader2 size={20} className="animate-spin" /> Loading healing log...</p>}
-                {logError && <p style={{ color: tokens.color?.danger }}>Error loading log.</p>}
-
-                {/* FIX: Ensure healingLog defaults to an empty array for mapping and slicing (Prevents TypeError: reading 'slice') */}
-                {(healingLog || []).slice(0, 10).map((log, index) => (
-                    <div key={index} style={styles.logItem(log.status)}>
-                        <span style={{ color: tokens.color?.warning }}>[{log.timestamp}]</span> 
-                        <span style={{ fontWeight: 'bold', marginLeft: tokens.spacing?.xs }}>{log.audit_id}</span> 
-                        - Attempted fix: {log.action_taken} ({log.status})
+            <div style={{ ...ui.panel, gridColumn: 'span 7' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: tokens.spacing?.sm }}>
+                    <div style={{ minWidth: 0 }}>
+                        <h3 style={ui.h3}>Every decision the policy engine made</h3>
+                        <p style={ui.hint}>
+                            {model
+                                ? `Recorded while ${model} was the active model. Each line says what was attempted, what the engine decided and why.`
+                                : 'Waiting to learn which model the platform is running.'}
+                        </p>
                     </div>
-                ))}
-            </div>
-            
-            <div style={styles.healthWidget}>
-                <DataCard title="Remediation Outcome Distribution" isChart minHeight="100%">
-                    <PieChartWidget data={violationDist} minHeight="340px" />
-                </DataCard>
+                    {decisions.length > 0 && (
+                        <div style={{ width: 150, flexShrink: 0 }}>
+                            <BarChartWidget data={decisions} minHeight="90px" color={tokens.color?.success} />
+                        </div>
+                    )}
+                </div>
+                <div style={{ marginTop: tokens.spacing?.sm }}>
+                    {auditLoading && rows.length === 0 && <Loading label="Reading the decision log" />}
+                    <ErrorNote error={auditError} context="the policy decision log" />
+                    {!auditLoading && !auditError && rows.length === 0 && (
+                        <EmptyState icon={ScrollText} title="No decisions recorded yet" action="As soon as the policy engine allows or blocks something, it will be written here." />
+                    )}
+                    <div style={ui.scroller('340px')} className="emp-scroll">
+                        {rows.map((r) => {
+                            const allowed = String(r.decision).toUpperCase().startsWith('APPROV');
+                            const verb = DECISION_COPY[String(r.decision).toUpperCase()] || `ended as ${String(r.decision).toLowerCase()}`;
+                            return (
+                                <div key={r.audit_id} style={ui.listRow}>
+                                    <div style={{ display: 'flex', gap: 10, minWidth: 0, alignItems: 'flex-start' }}>
+                                        <span style={{
+                                            marginTop: 6, width: 6, height: 6, borderRadius: 999, flexShrink: 0,
+                                            background: allowed ? tokens.color?.success : tokens.color?.danger,
+                                        }} />
+                                        <div style={ui.rowMain}>
+                                            <span style={{ ...ui.rowTitle, whiteSpace: 'normal' }}>
+                                                {String(r.action || 'An action').replace(/_/g, ' ')} {verb}
+                                            </span>
+                                            <span style={ui.rowMeta}>{r.reason || 'No reason was recorded.'}</span>
+                                            <span style={ui.rowMeta}>
+                                                {fmtDate(r.timestamp)}
+                                                {r.policy_version ? ` · judged by the ${String(r.policy_version).replace(/_/g, ' ').toLowerCase()} rule set` : ''}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
             </div>
         </div>
     );
 });
 GovernanceModule.displayName = 'GovernanceModule';
 
+/* ------------------------------------------------------------------ */
+/* System health                                                       */
+/* ------------------------------------------------------------------ */
+const HealthModule = memo(() => {
+    const cpuSeries = useMetricSeries('cpu_load', { intervalMs: 3000 });
+    const activitySeries = useMetricSeries('agent_activity', { intervalMs: 3000, scale: 100 });
 
-// --- 10.3. Sub-Module: Telemetry ---
-/**
- * Renders the Live Telemetry Feed (WebSocket) and System Health Checks.
- */
-const TelemetryModule = memo(() => {
-    const { toast } = useToast();
-    
-    // CRITICAL API INTEGRATION 4: Fetch Admin Dashboard/System Data
-    const { 
-        data: hritData, 
-        isLoading: isHritLoading, 
-        error: hritError 
-    } = useApi(getHRITDashboardData, [], true, 60000); // CRITICAL FIX: Set polling to 60 seconds (60000ms)
-
-    // CRITICAL: Handle System Reset
-    const handleSystemReset = useCallback(async () => {
-        if (!window.confirm("WARNING: Are you sure you want to trigger a hard data reset? This action is irreversible.")) return;
-        
-        try {
-            await resetHRITData(); // CRITICAL FIX: Use the specific resetHRITData API function
-            toast({ title: 'System Reset Initiated', description: 'Data purge and system re-initialization is starting.', variant: 'danger' });
-        } catch (error) {
-            toast({ title: 'Reset Failed', description: error.response?.data?.detail || error.message, variant: 'destructive' });
-        }
-    }, [toast]);
-    
-    const styles = useMemo(() => ({
-        grid: { display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: tokens.spacing?.lg, marginBottom: tokens.spacing?.lg },
-        telemetryWidget: { gridColumn: 'span 12', minHeight: '500px' }, // Full width for the feed
-        controlPanel: { gridColumn: 'span 12', padding: tokens.spacing?.md, background: tokens.color?.['panel-700'], borderRadius: tokens.border?.radius?.card, display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
-    }), []);
-    
     return (
-        <div style={styles.grid}>
-            {/* CRITICAL INTEGRATION 5: Live Telemetry Feed (WebSocket) */}
-            <div style={styles.telemetryWidget}>
-                <LiveTelemetryFeed />
+        <div style={ui.grid}>
+            <div style={{ gridColumn: 'span 5' }}>
+                <SystemHealthPanel />
             </div>
-
-            {/* System Control Panel */}
-            <div style={styles.controlPanel}>
-                <div style={{ color: tokens.color?.['muted-500'], display: 'flex', alignItems: 'center', gap: tokens.spacing?.md }}>
-                    <Cpu size={24} color={tokens.color?.['accent-primary']} />
-                    <p style={{ margin: 0 }}>
-                        {hritData?.integrity_score != null
-                            ? <>Platform integrity <strong style={{ color: 'var(--text-primary)' }}>{hritData.integrity_score}%</strong>
-                               {hritData.critical_alerts ? `, ${hritData.critical_alerts} critical alert${hritData.critical_alerts === 1 ? '' : 's'} open` : ', no critical alerts'}</>
-                            : 'Reading platform integrity from the governance ledger'}
-                    </p>
-                </div>
-                <button 
-                    onClick={handleSystemReset} 
-                    style={{ padding: '10px 20px', background: tokens.color?.danger, border: 'none', borderRadius: tokens.border?.radius?.button, color: tokens.color?.['text-100'], cursor: 'pointer' }}
-                    className="hrit-reset-hover"
-                >
-                    <AlertTriangle size={16} style={{ marginRight: tokens.spacing?.xs }} />
-                    Trigger Hard System Reset (DANGER)
-                </button>
+            <div style={{ gridColumn: 'span 7' }}>
+                <DataCard title="Agent workload, live" isChart minHeight="240px">
+                    <AreaChartWidget data={activitySeries} minHeight="190px" color={tokens.color?.success} label="How busy the agent layer is, sampled every three seconds" />
+                </DataCard>
+            </div>
+            <div style={{ gridColumn: 'span 12' }}>
+                <DataCard title="Processor load, live" isChart minHeight="220px">
+                    <AreaChartWidget data={cpuSeries} minHeight="170px" color={tokens.color?.['accent-primary']} label="Host processor load, sampled every three seconds" />
+                </DataCard>
+            </div>
+            <div style={{ gridColumn: 'span 12' }}>
+                <LiveTelemetryFeed />
             </div>
         </div>
     );
 });
-TelemetryModule.displayName = 'TelemetryModule';
+HealthModule.displayName = 'HealthModule';
 
-
-// --- MAIN HRIT PORTAL COMPONENT ---
-export const HRITPortalComponent = memo(() => {
-    const location = useLocation();
-    const query = new URLSearchParams(location.search);
-    // CRITICAL FIX: Get the module name from the URL, default to 'agent'
-    const module = query.get('module') || 'agent'; 
-
-    const getModuleComponent = (mod) => {
-        switch (mod) {
-            case 'agent':
-                return <AgentFactoryModule />;
-            case 'governance':
-                return <GovernanceModule />;
-            case 'health':
-                return <TelemetryModule />;
-            default:
-                return (
-                    <div style={{ textAlign: 'center', color: tokens.color?.danger, padding: tokens.spacing?.xl }}>
-                        <AlertTriangle size={32} />
-                        <h3 style={{ margin: tokens.spacing?.md }}>Module Not Found</h3>
-                        <p>The requested HRIT portal module "{mod}" could not be loaded.</p>
-                    </div>
-                );
-        }
-    };
-
-    const moduleTitleMap = {
-        agent: 'AI Agent Factory & Deployment',
-        governance: 'Autonomous Healing Governance',
-        health: 'Live Telemetry & System Health',
-    };
-    
-    const styles = useMemo(() => ({
-        container: { minHeight: '100%', display: 'flex', flexDirection: 'column' },
-        header: {
-            color: tokens.color?.['text-100'],
-            marginBottom: tokens.spacing?.lg,
-            borderBottom: `1px solid ${tokens.color?.['border-600']}`,
-            paddingBottom: tokens.spacing?.md,
-        },
-        title: {
-            fontSize: tokens.typography?.h1?.fontSize, // Added optional chaining
-            margin: 0,
-            display: 'flex',
-            alignItems: 'center',
-            gap: tokens.spacing?.sm,
-        },
-    }), []);
+/* ------------------------------------------------------------------ */
+/* Models                                                              */
+/* ------------------------------------------------------------------ */
+const ModelsModule = memo(() => {
+    const { data: provider, isLoading: provLoading, error: provError } = useApi(getActiveAIProvider, [], true, 60000);
+    const { data: modelsResp } = useApi(getAiModels, [], true);
+    const models = useMemo(() => modelsResp?.models || [], [modelsResp]);
+    const active = String(provider?.status || '').toLowerCase() === 'active';
 
     return (
-        <div style={styles.container} className="portal-container">
-            <div style={styles.header}>
-                <h1 style={styles.title}>
-                    <Cpu size={32} color={tokens.color?.['accent-primary']} />
-                    HRIT Portal: {moduleTitleMap[module] || 'Unknown Module'}
-                </h1>
+        <div style={ui.grid}>
+            <div style={{ gridColumn: 'span 4' }}>
+                <DataCard
+                    title="Model answering right now"
+                    value={provider?.default_model || 'Not reported'}
+                    color={active ? tokens.color?.success : tokens.color?.warning}
+                    icon={<Brain size={16} />}
+                    subtitle={provider ? `Served by ${provider.provider} from ${provider.base_url}` : 'Reading the active model'}
+                />
             </div>
-            
-            {/* Render the dynamically selected module component */}
-            {getModuleComponent(module)}
-            
-            <style>{`
-                .agent-deploy-hover:hover {
-                    box-shadow: 0 0 10px ${tokens.color?.['accent-primary']}77;
-                    transform: translateY(-1px);
-                }
-                .hrit-reset-hover:hover {
-                    background: ${tokens.color?.['danger-700']} !important;
-                    box-shadow: 0 0 10px ${tokens.color?.danger} !important;
-                    transform: translateY(-1px);
-                }
-            `}</style>
+            <div style={{ gridColumn: 'span 4' }}>
+                <DataCard
+                    title="Models installed locally"
+                    value={<CountUp value={models.length} />}
+                    icon={<Boxes size={16} />}
+                    subtitle="Available to switch to without downloading anything"
+                />
+            </div>
+            <div style={{ gridColumn: 'span 4' }}>
+                <DataCard
+                    title="Inference"
+                    value={active ? 'Running on this machine' : 'Not reported as active'}
+                    color={active ? tokens.color?.success : tokens.color?.warning}
+                    icon={<Cpu size={16} />}
+                    subtitle="No prompt or personal data leaves the host"
+                />
+            </div>
+
+            {provError && <div style={{ gridColumn: 'span 12' }}><ErrorNote error={provError} context="the active model configuration" /></div>}
+            {provLoading && !provider && <div style={{ gridColumn: 'span 12' }}><Loading label="Reading the active model" /></div>}
+
+            <div style={{ gridColumn: 'span 12' }}>
+                <ConfigurationAgentPanel />
+            </div>
+        </div>
+    );
+});
+ModelsModule.displayName = 'ModelsModule';
+
+/* ------------------------------------------------------------------ */
+/* Shell                                                               */
+/* ------------------------------------------------------------------ */
+const SUBTITLES = {
+    agent: 'Build a new agent from a plain English brief and see what the existing ones have been doing.',
+    governance: 'How much work agents are closing on their own, and every decision the policy engine has made.',
+    health: 'Live readings from the platform and the services it depends on.',
+    models: 'The model answering prompts right now, what else is installed, and the agent that drafts rules.',
+};
+
+export const HRITPortalComponent = memo(() => {
+    const location = useLocation();
+    const module = new URLSearchParams(location.search).get('module') || 'agent';
+
+    const body = {
+        agent: <AgentModule />,
+        governance: <GovernanceModule />,
+        health: <HealthModule />,
+        models: <ModelsModule />,
+    }[module] || <UnknownModule name={module} />;
+
+    return (
+        <div style={portalShell.page}>
+            <PortalHeader
+                icon={Cpu}
+                accent={tokens.color?.['accent-primary']}
+                title="HRIT console"
+                subtitle={SUBTITLES[module] || 'HR technology operations.'}
+                basePath="/hrit-portal"
+                modules={MODULES}
+                active={module}
+            />
+            <div style={portalShell.body} className="emp-scroll">{body}</div>
+            <EmployeeStyles />
         </div>
     );
 });

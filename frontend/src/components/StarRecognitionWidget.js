@@ -1,130 +1,156 @@
-// /frontend/src/components/StarRecognitionWidget.js - FINAL PRODUCTION-READY REPLACEMENT
+// Recognition: give a star to a direct report and watch the live leaderboard.
+// The picker reads the manager's own team roster; /admin/users is HR IT only and
+// returns 403 for a manager, so it is never called from here.
 import React, { useMemo, memo, useState, useCallback } from 'react';
 import { theme as tokens } from '../theme';
 import { useApi } from '../hooks/useApi';
 import { useToast } from '../hooks/use-toast';
-import { useAuth } from '../contexts/AuthContext';
-import { getRecognitionLeaderboard, giveRecognitionStar, getAllUsers } from '../config/api'; 
-import { Star, Loader2, AlertTriangle, Send, User } from 'lucide-react';
+import { getRecognitionLeaderboard, giveRecognitionStar } from '../config/api';
+import { ui, Btn, Loading, EmptyState, ErrorNote } from './employee/shared';
+import { useRoster, RosterSelect, resolveUsername } from './manager/roster';
+import { CountUp, LiveMeter } from './live/LivePrimitives';
+import { Star, Award, Send } from 'lucide-react';
 
 const StarRecognitionWidget = memo(() => {
-    const { user } = useAuth();
     const { toast } = useToast();
-    const [targetUserId, setTargetUserId] = useState('');
+    const roster = useRoster();
+    const [targetId, setTargetId] = useState('');
     const [reason, setReason] = useState('');
     const [isSending, setIsSending] = useState(false);
-    
-    // CRITICAL API INTEGRATION 1: Fetch Leaderboard (Polling)
-    const { 
-        data: leaderboard, 
-        isLoading: isLeaderboardLoading, 
-        error: leaderboardError, 
-        refetch: refetchLeaderboard
+
+    // Leaderboard refreshes on its own so a star given elsewhere shows up here too.
+    const {
+        data: board,
+        isLoading: boardLoading,
+        error: boardError,
+        refetch: refetchBoard,
     } = useApi(getRecognitionLeaderboard, [], true, 30000, []);
-    
-    // CRITICAL API INTEGRATION 2: Fetch all users for selection (one time fetch)
-    const { 
-        data: allUsers, 
-        isLoading: isUsersLoading 
-    } = useApi(getAllUsers, [], true, []);
-    
-    const usersForSelect = useMemo(() => {
-        return allUsers.filter(u => u.id !== user.id); // Cannot recognize self
-    }, [allUsers, user.id]);
 
+    const rows = useMemo(() => (Array.isArray(board) ? board : []), [board]);
+    const topStars = rows.length ? Math.max(...rows.map((r) => Number(r.stars) || 0), 1) : 1;
+    const totalStars = rows.reduce((sum, r) => sum + (Number(r.stars) || 0), 0);
 
-    // CRITICAL: Handle Giving a Star
+    const selected = roster.people.find((p) => p.id === targetId);
+
     const handleGiveStar = useCallback(async (e) => {
         e.preventDefault();
-        if (!targetUserId || !reason || isSending) return;
-
+        if (!targetId || !reason.trim() || isSending) return;
         setIsSending(true);
+        const displayName = selected?.name || targetId;
+
         try {
-            // CRITICAL API INTEGRATION 3: Give Recognition Star
-            await giveRecognitionStar(targetUserId, reason); 
-            
-            toast({ title: 'Star Given!', description: `Recognition sent to ${targetUserId}.`, variant: 'success' });
-            setTargetUserId('');
+            // Stars are keyed by login username, the roster by employee id.
+            const username = await resolveUsername(targetId);
+            if (!username) throw new Error(`No login account is linked to ${displayName}, so a star cannot be recorded.`);
+
+            await giveRecognitionStar(username, reason.trim());
+            toast({
+                title: 'Recognition sent',
+                description: `${displayName} now has one more star from you.`,
+                variant: 'success',
+            });
+            setTargetId('');
             setReason('');
-            refetchLeaderboard();
+            refetchBoard();
         } catch (error) {
-            console.error("Recognition failed:", error);
-            toast({ title: 'Recognition Failed', description: error.response?.data?.detail || error.message, variant: 'destructive' });
+            toast({
+                title: 'Recognition not recorded',
+                description: error.response?.data?.detail || error.message,
+                variant: 'destructive',
+            });
         } finally {
             setIsSending(false);
         }
-    }, [targetUserId, reason, isSending, toast, refetchLeaderboard]);
-
+    }, [targetId, reason, isSending, selected, toast, refetchBoard]);
 
     const styles = useMemo(() => ({
-        container: { padding: tokens.spacing?.md, background: tokens.color?.['panel-800'], borderRadius: tokens.border?.radius?.card, minHeight: '450px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: tokens.spacing?.lg },
-        section: { display: 'flex', flexDirection: 'column' },
-        input: { padding: '8px 12px', background: tokens.color?.['bg-input'], border: `1px solid ${tokens.color?.['border-600']}`, borderRadius: tokens.border?.radius?.input, color: tokens.color?.['text-100'], width: '100%', boxSizing: 'border-box', marginBottom: tokens.spacing?.sm },
-        button: (bgColor) => ({ padding: '10px 15px', background: bgColor, border: 'none', borderRadius: tokens.border?.radius?.button, color: tokens.color?.['bg-deep'], cursor: 'pointer', transition: 'all 0.2s ease', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: tokens.spacing?.xs, width: '100%' }),
-        item: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: `1px dotted ${tokens.color?.['border-700']}` },
+        grid: { ...ui.grid },
+        left: { ...ui.panel, gridColumn: 'span 5', display: 'flex', flexDirection: 'column', gap: tokens.spacing?.md },
+        right: { ...ui.panel, gridColumn: 'span 7', display: 'flex', flexDirection: 'column', gap: tokens.spacing?.sm },
+        row: {
+            display: 'flex', alignItems: 'center', gap: tokens.spacing?.sm,
+            padding: '9px 0', borderBottom: `1px solid ${tokens.color?.['border-600']}`,
+        },
+        rank: {
+            width: 26, flexShrink: 0, textAlign: 'center', fontSize: 12, fontWeight: 600,
+            color: tokens.color?.['muted-600'], fontVariantNumeric: 'tabular-nums',
+        },
     }), []);
 
     return (
-        <div style={styles.container}>
-            {/* Recognition Form */}
-            <div style={styles.section}>
-                <h3 style={{ color: tokens.color?.['text-100'] }}>Give a Star!</h3>
-                <form onSubmit={handleGiveStar} style={{ flexGrow: 1 }}>
-                    <label style={{ color: tokens.color?.['muted-500'], fontSize: tokens.typography.small.fontSize }}>Recognize Colleague:</label>
-                    <select 
-                        value={targetUserId} 
-                        onChange={e => setTargetUserId(e.target.value)} 
-                        style={styles.input} 
-                        disabled={isUsersLoading || isSending}
-                        required
-                    >
-                        <option value="">{isUsersLoading ? 'Loading users...' : 'Select Employee'}</option>
-                        {usersForSelect.map(u => (
-                            <option key={u.id} value={u.id}>{u.full_name || u.username}</option>
-                        ))}
-                    </select>
-                    
-                    <label style={{ color: tokens.color?.['muted-500'], fontSize: tokens.typography.small.fontSize }}>Reason:</label>
-                    <textarea 
-                        value={reason} 
-                        onChange={e => setReason(e.target.value)} 
-                        placeholder="e.g., Policy verification on Q4 adjustments" 
-                        style={{...styles.input, minHeight: '80px'}} 
-                        disabled={isSending}
-                        required
-                    />
-                    
-                    <button 
-                        type="submit" 
-                        style={styles.button(tokens.color?.warning)} 
-                        disabled={isSending || !targetUserId || !reason}
-                        className="star-send-hover"
-                    >
-                        {isSending ? <Loader2 size={16} className="animate-spin" /> : <Star size={16} />}
-                        Send Recognition Star
-                    </button>
+        <div style={styles.grid}>
+            <div style={styles.left}>
+                <div>
+                    <h3 style={ui.h3}>Give a star</h3>
+                    <p style={ui.hint}>
+                        Recognition is permanent and visible on the company leaderboard. Say what the person actually did.
+                    </p>
+                </div>
+
+                <ErrorNote error={roster.error} context="your team roster" />
+
+                <form onSubmit={handleGiveStar} style={{ display: 'flex', flexDirection: 'column', gap: tokens.spacing?.md }}>
+                    <RosterSelect roster={roster} value={targetId} onChange={setTargetId} label="Who deserves it" />
+
+                    <div>
+                        <label style={ui.label}>Why they deserve it</label>
+                        <textarea
+                            value={reason}
+                            onChange={(e) => setReason(e.target.value)}
+                            placeholder="Rebuilt the quarterly close so it runs in a day instead of a week"
+                            style={{ ...ui.input, minHeight: 92, resize: 'vertical', lineHeight: 1.5 }}
+                            disabled={isSending}
+                            required
+                        />
+                    </div>
+
+                    <Btn type="submit" icon={Send} loading={isSending} disabled={!targetId || !reason.trim()}>
+                        Send recognition
+                    </Btn>
                 </form>
             </div>
-            
-            {/* Leaderboard */}
-            <div style={styles.section}>
-                <h3 style={{ color: tokens.color?.['text-100'] }}>Star Leaderboard</h3>
-                {isLeaderboardLoading && <p><Loader2 size={16} className="animate-spin" /></p>}
-                {leaderboardError && <p style={{ color: tokens.color?.danger }}>Error loading leaderboard.</p>}
-                
-                <div style={{ flexGrow: 1, overflowY: 'auto' }}>
-                    {leaderboard.slice(0, 5).map((item, index) => (
-                        <div key={item.user_id} style={styles.item}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: tokens.spacing?.xs }}>
-                                <span style={{ fontWeight: 'bold', color: tokens.color?.['accent-secondary'] }}>#{index + 1}</span>
-                                <span style={{ color: tokens.color?.['text-100'] }}>{item.user_name}</span>
+
+            <div style={styles.right}>
+                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: tokens.spacing?.sm }}>
+                    <h3 style={ui.h3}>Star leaderboard</h3>
+                    <span style={{ fontSize: '11.5px', color: tokens.color?.['muted-600'] }}>
+                        <CountUp value={totalStars} /> stars given company wide
+                    </span>
+                </div>
+
+                <ErrorNote error={boardError} context="the recognition leaderboard" />
+                {boardLoading && rows.length === 0 && <Loading label="Reading the leaderboard" />}
+
+                {!boardLoading && rows.length === 0 && !boardError && (
+                    <EmptyState
+                        icon={Award}
+                        title="Nobody has been recognised yet"
+                        action="Give the first star and this board starts filling up."
+                    />
+                )}
+
+                <div style={ui.scroller('340px')} className="emp-scroll">
+                    {rows.map((r, i) => (
+                        <div key={r.user_id} style={styles.row}>
+                            <span style={styles.rank}>{i + 1}</span>
+                            <div style={{ flexGrow: 1, minWidth: 0 }}>
+                                <div style={ui.rowTitle}>{r.user_name || r.user_id}</div>
+                                <LiveMeter
+                                    pct={((Number(r.stars) || 0) / topStars) * 100}
+                                    color={tokens.color?.warning}
+                                    height={4}
+                                />
                             </div>
-                            <span style={{ color: tokens.color?.warning, fontWeight: 'bold' }}>{item.stars} <Star size={16} /></span>
+                            <span style={{
+                                flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 5,
+                                color: tokens.color?.warning, fontWeight: 600, fontVariantNumeric: 'tabular-nums',
+                            }}>
+                                <CountUp value={Number(r.stars) || 0} /> <Star size={14} />
+                            </span>
                         </div>
                     ))}
                 </div>
             </div>
-            <style>{`.star-send-hover:hover { box-shadow: 0 0 10px ${tokens.color?.warning}77; transform: translateY(-1px); }`}</style>
         </div>
     );
 });
