@@ -7,10 +7,12 @@ import { theme as tokens } from '../theme';
 import {
     getActivePolicy, getPolicyHistory, submitPolicyDraft,
     getComplianceDashboardData, getHRSDTickets, getEmployeeCompensation,
+    updateEmployeeCompensation,
     uploadIngestionFile, getAnalyticsCharts, getTeamPerformanceTrend,
     getWFPProjections
 } from '../config/api';
 import { useApi } from '../hooks/useApi';
+import { useToast } from '../hooks/use-toast';
 
 // UI COMPONENTS (Assume these exist and are stable)
 import DataCard from '../components/DataCard';
@@ -18,9 +20,9 @@ import AreaChartWidget from '../components/charts/AreaChartWidget';
 import BarChartWidget from '../components/charts/BarChartWidget';
 import PieChartWidget from '../components/charts/PieChartWidget';
 import { countBy, skillGapSeries, readinessSeries, toArray } from '../utils/chartData';
-import { 
-    BookOpen, DollarSign, Users, FileText, Briefcase, 
-    Search, Loader2, ArrowLeft, AlertTriangle, CheckCircle
+import {
+    BookOpen, DollarSign, Users, FileText, Briefcase,
+    Search, Loader2, ArrowLeft, AlertTriangle, CheckCircle, Shield
 } from 'lucide-react';
 import PolicyGovernanceDashboard from '../components/PolicyGovernanceDashboard'; // Assumed complex component for Policy tab
 
@@ -126,62 +128,111 @@ const PolicyModule = memo(() => {
 });
 PolicyModule.displayName = 'PolicyModule';
 
-// --- 7.2. Sub-Module: Compensation Workbench (Mocked) ---
+// --- 7.2. Sub-Module: Compensation Workbench ---
+// Real HRBP workflow: look up an employee, read their decrypted compensation
+// from the PII vault, and record an adjustment.
 const CompensationModule = memo(() => {
-    // CRITICAL API INTEGRATION 2: Fetch Employee Compensation Data (No polling for sensitivity)
-    const { 
-        data: compensationData, 
-        isLoading, 
-        error 
-    } = useApi(getEmployeeCompensation, [], true, 0);
+    const { toast } = useToast();
+    const [employeeId, setEmployeeId] = useState('');
+    const [record, setRecord] = useState(null);
+    const [isLooking, setIsLooking] = useState(false);
+    const [adjust, setAdjust] = useState({ new_salary: '', new_grade: '', effective_date: '' });
+    const [isSaving, setIsSaving] = useState(false);
 
     // Real headcount distribution across departments from the employee UDM.
     const { data: charts } = useApi(getAnalyticsCharts, [], true);
 
-    const styles = useMemo(() => ({
+    const lookup = useCallback(async (e) => {
+        e?.preventDefault();
+        const id = employeeId.trim();
+        if (!id) return toast({ title: 'Enter an employee ID', description: 'For example EMP-001.', variant: 'warning' });
+        setIsLooking(true);
+        setRecord(null);
+        try {
+            const res = await getEmployeeCompensation(id);
+            setRecord(res.data);
+            setAdjust((p) => ({ ...p, new_salary: res.data?.base_salary ?? '' }));
+        } catch (err) {
+            toast({
+                title: 'Could not load compensation',
+                description: err.response?.data?.detail || err.message,
+                variant: 'destructive',
+            });
+        } finally {
+            setIsLooking(false);
+        }
+    }, [employeeId, toast]);
+
+    const save = useCallback(async (e) => {
+        e.preventDefault();
+        if (!record) return;
+        setIsSaving(true);
+        try {
+            await updateEmployeeCompensation({
+                employee_id: employeeId.trim(),
+                new_salary: parseFloat(adjust.new_salary),
+                new_grade: adjust.new_grade || 'UNCHANGED',
+                effective_date: adjust.effective_date || new Date().toISOString().slice(0, 10),
+            });
+            toast({ title: 'Compensation updated', description: `Saved for ${employeeId}.`, variant: 'success' });
+            lookup();
+        } catch (err) {
+            toast({
+                title: 'Update failed',
+                description: err.response?.data?.detail || err.message,
+                variant: 'destructive',
+            });
+        } finally {
+            setIsSaving(false);
+        }
+    }, [record, employeeId, adjust, toast, lookup]);
+
+    const s = {
+        row: { display: 'flex', gap: 10, marginBottom: 18, flexWrap: 'wrap' },
+        input: { padding: '9px 12px', background: 'var(--bg-input)', border: '1px solid var(--border-subtle)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13.5, minWidth: 160 },
+        btn: { padding: '9px 16px', background: 'var(--accent-primary)', border: 'none', borderRadius: 8, color: '#fff', fontSize: 13, fontWeight: 550, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7 },
         grid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: tokens.spacing?.lg, marginBottom: tokens.spacing?.lg },
-        card: { gridColumn: 'span 1' },
-    }), []);
+        hint: { color: 'var(--text-tertiary)', fontSize: 12.5, marginBottom: 14 },
+    };
 
     return (
         <div className="compensation-module">
-            <h2 style={{ color: tokens.color?.['accent-primary'], marginBottom: tokens.spacing?.lg }}>Compensation Workbench</h2>
-            
-            {isLoading && <p style={{textAlign: 'center'}}><Loader2 size={20} className="animate-spin" /> Loading compensation data...</p>}
-            {error && <p style={{ color: tokens.color?.danger }}>Error loading compensation data.</p>}
+            <h2 style={{ color: tokens.color?.['accent-primary'], marginBottom: 6 }}>Compensation Workbench</h2>
+            <p style={s.hint}>Look up an employee to see their current compensation and record an adjustment.</p>
 
-            <div style={styles.grid}>
-                <div style={styles.card}>
-                    <DataCard 
-                        title="Avg Compa-Ratio" 
-                        value={compensationData?.avg_compa_ratio?.toFixed(2) || 'N/A'} 
-                        unit="" 
-                        color={tokens.color?.success}
-                    >
-                        <DollarSign size={24} color={tokens.color?.success} />
-                    </DataCard>
-                </div>
-                <div style={styles.card}>
-                    <DataCard 
-                        title="Budget Utilization" 
-                        value={(compensationData?.budget_utilization * 100).toFixed(1) || 'N/A'} 
-                        unit="%" 
-                        color={tokens.color?.['accent-secondary']}
-                    >
-                        <Users size={24} color={tokens.color?.['accent-secondary']} />
-                    </DataCard>
-                </div>
-                <div style={styles.card}>
-                    <DataCard 
-                        title="Pending Salary Actions" 
-                        value={compensationData?.pending_actions || 0} 
-                        unit="Count" 
-                        color={tokens.color?.warning}
-                    >
-                        <Search size={24} color={tokens.color?.warning} />
-                    </DataCard>
-                </div>
-            </div>
+            <form onSubmit={lookup} style={s.row}>
+                <input style={s.input} placeholder="Employee ID (e.g. EMP-001)" value={employeeId}
+                       onChange={(e) => setEmployeeId(e.target.value)} />
+                <button type="submit" style={s.btn} disabled={isLooking}>
+                    {isLooking ? <Loader2 size={15} className="animate-spin" /> : <Search size={15} />} Look up
+                </button>
+            </form>
+
+            {record && (
+                <>
+                    <div style={s.grid}>
+                        <DataCard title="Base salary" value={record.base_salary ?? 'Not set'} color={tokens.color?.success}
+                                  icon={<DollarSign size={22} color={tokens.color?.success} />} />
+                        <DataCard title="Bonus target" value={record.bonus_target ?? 'Not set'} color={tokens.color?.['accent-secondary']}
+                                  icon={<Users size={22} color={tokens.color?.['accent-secondary']} />} />
+                        <DataCard title="Accessed as" value={record.retrieved_by_role || 'unknown'} color={tokens.color?.warning}
+                                  icon={<Shield size={22} color={tokens.color?.warning} />} />
+                    </div>
+
+                    <form onSubmit={save} style={{ ...s.row, alignItems: 'center' }}>
+                        <input style={s.input} type="number" step="0.01" placeholder="New salary"
+                               value={adjust.new_salary} onChange={(e) => setAdjust((p) => ({ ...p, new_salary: e.target.value }))} required />
+                        <input style={s.input} placeholder="New grade" value={adjust.new_grade}
+                               onChange={(e) => setAdjust((p) => ({ ...p, new_grade: e.target.value }))} />
+                        <input style={s.input} type="date" value={adjust.effective_date}
+                               onChange={(e) => setAdjust((p) => ({ ...p, effective_date: e.target.value }))} />
+                        <button type="submit" style={s.btn} disabled={isSaving}>
+                            {isSaving ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle size={15} />} Save adjustment
+                        </button>
+                    </form>
+                </>
+            )}
+
             <DataCard title="Headcount Distribution by Department" isChart minHeight="400px">
                 <BarChartWidget data={charts?.headcount_by_department || []} minHeight="340px" color={tokens.color?.['accent-primary']} />
             </DataCard>
