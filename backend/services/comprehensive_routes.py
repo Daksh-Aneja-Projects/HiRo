@@ -952,12 +952,20 @@ async def delete_employee_document(req: Request, document_id: str, payload: Dict
     return await _hr(req).delete_document(document_id)
 
 @hr_router.post("/doc/ingestion/{employee_id}/{doc_type}")
-async def upload_employee_document(req: Request, employee_id: str, doc_type: str, file: UploadFile = File(...), payload: Dict=Depends(manager_role_required)):
+async def upload_employee_document(req: Request, employee_id: str, doc_type: str, file: UploadFile = File(...), payload: Dict=Depends(employee_role_required)):
+    """Employees may upload their own documents; manager+ may upload for anyone."""
+    role = (payload.get("role") or "").lower()
+    if role == "employee":
+        employee_id = _self_uuid(payload)
     contents = await file.read()
     return await _hr(req).upload_document(employee_id, doc_type, file.filename, size=len(contents))
 
 @hr_router.get("/doc/employee-documents")
-async def get_employee_documents(req: Request, employee_id: Optional[str] = Query(None), payload: Dict = Depends(manager_role_required)):
+async def get_employee_documents(req: Request, employee_id: Optional[str] = Query(None), payload: Dict = Depends(employee_role_required)):
+    """Employees see their own documents; manager+ may request any employee's."""
+    role = (payload.get("role") or "").lower()
+    if role == "employee":
+        employee_id = _self_uuid(payload)  # employees are scoped to themselves
     return await _hr(req).get_employee_documents(employee_id)
 
 @hr_router.post("/offboarding/upload")

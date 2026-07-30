@@ -19,9 +19,15 @@ const STATUS_TEXT = {
     PENDING_EMPLOYEE: 'Waiting on the employee',
     CLOSED: 'Closed',
     RESOLVED: 'Resolved',
+    RESOLVED_BY_AGENT: 'Resolved by an agent',
 };
-export const ticketStatusText = (raw) => STATUS_TEXT[String(raw || '').toUpperCase()]
-    || (raw ? String(raw).replace(/_/g, ' ').toLowerCase() : 'Unknown');
+export const ticketStatusText = (raw) => {
+    const key = String(raw || '').toUpperCase();
+    if (STATUS_TEXT[key]) return STATUS_TEXT[key];
+    if (!raw) return 'Unknown';
+    const words = String(raw).replace(/_/g, ' ').toLowerCase();
+    return words.charAt(0).toUpperCase() + words.slice(1);
+};
 
 const HRSDMonitoringDashboard = memo(() => {
     const { toast } = useToast();

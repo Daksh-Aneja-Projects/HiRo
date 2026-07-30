@@ -283,7 +283,7 @@ const TalentExperienceHub = memo(() => {
                             <LiveMeter pct={riskPct} color={riskPct > 60 ? tokens.color?.warning : tokens.color?.success} label="Modelled retention risk" />
                         </div>
                         <p style={ui.hint}>
-                            Model <strong style={{ color: tokens.color?.['text-100'] }}>{xai.model_type}</strong>, generated {fmtDate(xai.generated_at)}.
+                            Scored by the <strong style={{ color: tokens.color?.['text-100'] }}>{humanise(xai.model_type)}</strong> model on {fmtDate(xai.generated_at)}.
                         </p>
                         <div className="emp-scroll" style={{ ...ui.scroller('170px'), marginTop: tokens.spacing?.sm }}>
                             {(xai.feature_contributions || []).map((f, i) => (

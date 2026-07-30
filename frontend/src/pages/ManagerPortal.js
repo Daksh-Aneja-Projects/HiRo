@@ -10,6 +10,7 @@ import {
     getDigitalTwinHistory, getAnalyticsCharts
 } from '../config/api';
 import { useApi } from '../hooks/useApi';
+import { useToast } from '../hooks/use-toast';
 
 // UI & NEW COMPONENTS
 import DataCard from '../components/DataCard';
@@ -229,8 +230,10 @@ ApprovalsQueueModule.displayName = 'ApprovalsQueueModule';
 
 // --- 8.3. Sub-Module: Attrition Simulation ---
 const AttritionSimulationModule = memo(() => {
-    const [employeeId, setEmployeeId] = useState('emp990'); // Example ID for simulation
+    const { toast } = useToast();
+    const [employeeId, setEmployeeId] = useState('EMP-005');
     const [simulationResult, setSimulationResult] = useState(null);
+    const [simulationError, setSimulationError] = useState(null);
     const [isLoading, setIsLoading] = useState(false);
     const [adjustments, setAdjustments] = useState({ 
         'training_sessions': 1, 
@@ -245,32 +248,46 @@ const AttritionSimulationModule = memo(() => {
         setSimulationResult(null);
 
         try {
-            // CRITICAL API INTEGRATION 4: Call the specific runSimulation API function
             const response = await runAttritionSimulation(employeeId, adjustments);
-            
-            // Assuming response.data contains: { original_risk: 0.82, simulated_risk: 0.35, mitigation_factors: [...] }
-            setSimulationResult(response.data); 
-            
-            // Success feedback
-            alert(`Simulation complete for ${employeeId}. Risk assessed.`);
-        } catch (error) {
-            console.error("Simulation failed:", error);
-            alert(`Simulation failed: ${error.response?.data?.detail || error.message}`);
-            // Fallback to mock data on error
+            // Real engine shape: { metrics: { risk_score_delta, attrition_probability_change,
+            // productivity_impact, cost_implication }, prescriptive_recommendation, confidence_score }
+            const d = response.data || {};
+            const m = d.metrics || {};
+            // The engine reports risk_score_delta; attrition_probability_change can be 0
+            // when the model has no probability head, so fall back to the score delta.
+            const delta = Number(m.attrition_probability_change) || Number(m.risk_score_delta) || 0;
+            const baseline = Number(d.baseline_attrition_risk ?? m.baseline ?? 0);
+            // prescriptive_recommendation may be a string or {type, message}.
+            const rec = d.prescriptive_recommendation;
+            const recommendation = typeof rec === 'string' ? rec : rec?.message || '';
             setSimulationResult({
-                 original_risk: 0.85,
-                 simulated_risk: 0.65,
-                 mitigation_factors: [{ feature: 'Compensation Increase', impact: -0.15 }, { feature: 'New Project Assignment', impact: -0.05 }]
+                simulation_id: d.simulation_id,
+                original_risk: baseline,
+                simulated_risk: Math.max(0, baseline + delta),
+                risk_delta: delta,
+                productivity_impact: m.productivity_impact,
+                cost_implication: m.cost_implication,
+                confidence: d.confidence_score,
+                recommendation,
+                adjustments_applied: d.adjustments_applied,
+            });
+            toast({
+                title: 'Simulation complete',
+                description: `Modelled impact for ${employeeId}.`,
+                variant: 'success',
+            });
+        } catch (error) {
+            // No fabricated fallback: surface the failure and leave the panel empty.
+            setSimulationError(error.response?.data?.detail || error.message);
+            toast({
+                title: 'Simulation failed',
+                description: error.response?.data?.detail || error.message,
+                variant: 'destructive',
             });
         } finally {
             setIsLoading(false);
         }
-    }, [employeeId, adjustments]);
-
-    // Initial load/run for demo purpose
-    React.useEffect(() => {
-        handleRunSimulation();
-    }, [handleRunSimulation]);
+    }, [employeeId, adjustments, toast]);
 
     const styles = useMemo(() => ({
         grid: { display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: tokens.spacing?.lg, marginBottom: tokens.spacing?.lg },
@@ -322,15 +339,46 @@ const AttritionSimulationModule = memo(() => {
             {/* CRITICAL INTEGRATION 5: Digital Twin Risk Chart */}
             <div style={styles.chartContainer}>
                 {simulationResult ? (
-                    <DigitalTwinRiskChart 
-                        originalRisk={simulationResult.original_risk}
-                        simulatedRisk={simulationResult.simulated_risk}
-                        mitigationFactors={simulationResult.mitigation_factors}
-                    />
+                    <>
+                        <DigitalTwinRiskChart
+                            originalRisk={simulationResult.original_risk}
+                            simulatedRisk={simulationResult.simulated_risk}
+                            mitigationFactors={simulationResult.adjustments_applied}
+                        />
+                        <div style={{ marginTop: tokens.spacing?.md, display: 'flex', flexWrap: 'wrap', gap: tokens.spacing?.lg }}>
+                            <div>
+                                <div style={{ fontSize: 11.5, color: 'var(--text-tertiary)' }}>Change in attrition probability</div>
+                                <div style={{ fontSize: 19, fontWeight: 640, color: simulationResult.risk_delta <= 0 ? tokens.color?.success : tokens.color?.danger }}>
+                                    {simulationResult.risk_delta > 0 ? '+' : ''}{(simulationResult.risk_delta * 100).toFixed(1)}%
+                                </div>
+                            </div>
+                            {simulationResult.productivity_impact != null && (
+                                <div>
+                                    <div style={{ fontSize: 11.5, color: 'var(--text-tertiary)' }}>Productivity impact</div>
+                                    <div style={{ fontSize: 19, fontWeight: 640, color: 'var(--text-primary)' }}>{simulationResult.productivity_impact}</div>
+                                </div>
+                            )}
+                            {simulationResult.confidence != null && (
+                                <div>
+                                    <div style={{ fontSize: 11.5, color: 'var(--text-tertiary)' }}>Confidence</div>
+                                    <div style={{ fontSize: 19, fontWeight: 640, color: 'var(--text-primary)' }}>{Math.round(simulationResult.confidence * 100)}%</div>
+                                </div>
+                            )}
+                        </div>
+                        {simulationResult.recommendation && (
+                            <p style={{ marginTop: tokens.spacing?.md, color: 'var(--text-secondary)', fontSize: 13.5, lineHeight: 1.55 }}>
+                                {simulationResult.recommendation}
+                            </p>
+                        )}
+                    </>
                 ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: '300px', gap: tokens.spacing?.sm, color: tokens.color?.['muted-500'], textAlign: 'center' }}>
-                        <TrendingDown size={28} color={tokens.color?.['accent-primary']} />
-                        <p style={{ margin: 0 }}>Run a what-if simulation to see the projected attrition-risk change for this employee.</p>
+                        <TrendingDown size={28} color={simulationError ? tokens.color?.danger : tokens.color?.['accent-primary']} />
+                        <p style={{ margin: 0 }}>
+                            {simulationError
+                                ? `The simulation could not run: ${simulationError}`
+                                : 'Run a what-if simulation to see the projected attrition-risk change for this employee.'}
+                        </p>
                     </div>
                 )}
             </div>
