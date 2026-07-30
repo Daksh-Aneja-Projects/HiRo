@@ -91,6 +91,10 @@ class Settings:
     MONGO_DB_NAME: str = get_env_variable("MONGO_DB_NAME", "ahcm_db")
     
     def mongo_url(self) -> str:
+        # A full override wins (e.g. an auth-free local mongod: mongodb://localhost:27017).
+        override = get_env_variable("MONGO_URI", "")
+        if override:
+            return override
         try:
             password_value = self.MONGO_PASSWORD.get_secret_value()
         except Exception:

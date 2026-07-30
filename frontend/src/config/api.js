@@ -190,6 +190,7 @@ export const executeOrchestratorCommand = (payload) => api.post('/command/execut
 export const aggregateMetrics = (payload) => api.post('/advanced-analytics/metrics/aggregate', payload);
 export const legacyAiCommand = (payload) => api.post('/ai/command', payload);
 export const getProcessExecutionHistory = (processId) => api.get(`/orchestrator/history/${encodeURIComponent(processId)}`);
+export const getOrchestratorDashboardData = () => api.get('/orchestrator/dashboard');
 
 
 /* -------------------------------------------------------------------------- */

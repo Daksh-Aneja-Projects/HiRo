@@ -4,7 +4,7 @@
 import React, { memo, useMemo } from 'react';
 import { theme as tokens } from '../theme';
 
-const DataCard = memo(({ title, value, unit, color, icon, subtitle, isChart, minHeight, children }) => {
+const DataCard = memo(({ title, value, unit, color, icon, subtitle, footer, isChart, minHeight, children }) => {
     const accent = color || tokens.color?.['accent-primary'];
     // Stat mode (value present): children is the header icon (backward compatible).
     // Content/chart mode (no value): children is the body.
@@ -49,6 +49,7 @@ const DataCard = memo(({ title, value, unit, color, icon, subtitle, isChart, min
                         {unit && <span style={s.unit}>{unit}</span>}
                     </div>
                     {subtitle && <div style={s.subtitle}>{subtitle}</div>}
+                    {footer && <div style={{ marginTop: 8 }}>{footer}</div>}
                 </div>
             ) : (
                 <div style={s.body}>{bodyNode}</div>
