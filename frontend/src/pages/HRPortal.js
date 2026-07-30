@@ -17,7 +17,7 @@ import DataCard from '../components/DataCard';
 import AreaChartWidget from '../components/charts/AreaChartWidget';
 import BarChartWidget from '../components/charts/BarChartWidget';
 import PieChartWidget from '../components/charts/PieChartWidget';
-import { countBy, skillGapSeries, readinessSeries } from '../utils/chartData';
+import { countBy, skillGapSeries, readinessSeries, toArray } from '../utils/chartData';
 import { 
     BookOpen, DollarSign, Users, FileText, Briefcase, 
     Search, Loader2, ArrowLeft, AlertTriangle, CheckCircle
@@ -289,15 +289,18 @@ IngestionModule.displayName = 'IngestionModule';
 // --- 7.5. Sub-Module: HRSD Case Management (Mocked) ---
 const CasesModule = memo(() => {
     // CRITICAL API INTEGRATION 4: Fetch HRSD Tickets (Polling for live updates)
-    const { 
-        data: tickets, 
-        isLoading: isTicketsLoading, 
-        error: ticketsError, 
+    const {
+        data: ticketsResp,
+        isLoading: isTicketsLoading,
+        error: ticketsError,
     } = useApi(getHRSDTickets, [], true, 60000); // Polling every 60 seconds
 
+    // Backend returns { tickets: [...], count }; normalize to an array.
+    const tickets = useMemo(() => toArray(ticketsResp), [ticketsResp]);
+
     // Real distributions derived from the live ticket set (no fabricated series).
-    const byAssignee = useMemo(() => countBy(tickets || [], (t) => t.assigned_to), [tickets]);
-    const byPriority = useMemo(() => countBy(tickets || [], (t) => t.priority), [tickets]);
+    const byAssignee = useMemo(() => countBy(tickets, (t) => t.assigned_agent || t.assigned_to), [tickets]);
+    const byPriority = useMemo(() => countBy(tickets, (t) => t.priority), [tickets]);
 
     const styles = useMemo(() => ({
         grid: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: tokens.spacing?.lg },

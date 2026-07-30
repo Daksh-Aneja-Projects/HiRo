@@ -131,11 +131,16 @@ const ApprovalsQueueModule = memo(() => {
     // CRITICAL: Action Approval (Approve/Reject)
     const handleAction = useCallback(async (item, action) => {
         try {
+            // Send the decision as an explicit boolean. The backend reads
+            // `approved`; a bare uppercase action string was always falsy,
+            // which made every "Approve" click silently reject the request.
+            const approved = String(action).toUpperCase() === 'APPROVE';
             const payload = {
                 request_id: item.request_id,
-                action: action, // 'APPROVE' or 'REJECT'
+                approved,
+                action: approved ? 'approve' : 'reject',
                 actor_id: userContext.userId,
-                comments: `Actioned by Manager ${userContext.userId}` // Simplistic comment for now
+                comments: `${approved ? 'Approved' : 'Rejected'} by ${userContext.userId}`,
             };
             
             await actionApproval(payload);

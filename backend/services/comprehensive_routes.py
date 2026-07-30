@@ -1730,6 +1730,33 @@ async def execute_orchestrator_command(req: Request, prompt: str = Body(..., emb
         })
     return {"status": "COMPLETED", "agent": agent, "summary": summary, "result_id": result_id}
 
+# /history MUST be declared before /status/{result_id}, or the path-param route
+# captures "history" as a result_id and this 404s.
+@command_router.get("/history")
+async def get_command_history(req: Request, limit: int = Query(50), payload: Dict = Depends(employee_role_required)):
+    """Recent orchestrator command history for the command console."""
+    mongo_client = getattr(req.app.state, "mongo_client", None)
+    if not mongo_client:
+        return []
+    lim = max(1, min(int(limit or 50), 200))
+    cursor = mongo_client[settings.MONGO_DB_NAME]["orchestrator_commands"].find(
+        {}, {"_id": 0}
+    ).sort("created_at", -1).limit(lim)
+    return await cursor.to_list(length=lim)
+
+@command_router.get("/status/{result_id}")
+async def get_command_status(req: Request, result_id: str, payload: Dict = Depends(employee_role_required)):
+    """Real status/result lookup for a previously executed orchestrator command."""
+    mongo_client = getattr(req.app.state, "mongo_client", None)
+    if not mongo_client:
+        raise HTTPException(status_code=503, detail="Command store unavailable.")
+    doc = await mongo_client[settings.MONGO_DB_NAME]["orchestrator_commands"].find_one(
+        {"result_id": result_id}, {"_id": 0}
+    )
+    if not doc:
+        raise HTTPException(status_code=404, detail="Command not found.")
+    return doc
+
 # ======================================
 # 20. SI INTEGRATION: SIMULATION, REMEDIATION, TELEMETRY (Fixed/Complete)
 # ======================================

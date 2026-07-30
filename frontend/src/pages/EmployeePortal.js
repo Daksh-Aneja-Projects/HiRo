@@ -148,8 +148,16 @@ const LeaveModule = memo(() => {
         
         setIsSubmitting(true);
         try {
-            // CRITICAL FIX: Pass required data including user ID if needed by backend, and the form data
-            const payload = { ...leaveData, employee_id: user?.id, type: 'PTO' };
+            // Backend contract is { start_date, end_date, hours } — derive hours
+            // from the requested date range (8h per working day, min 1 day).
+            const start = new Date(leaveData.start_date);
+            const end = new Date(leaveData.end_date);
+            const days = Math.max(1, Math.round((end - start) / 86400000) + 1);
+            const payload = {
+                start_date: leaveData.start_date,
+                end_date: leaveData.end_date,
+                hours: days * 8,
+            };
             await submitLeaveRequest(payload);
             
             toast({ title: 'Leave Submitted', description: 'Your request has been sent for manager approval.', variant: 'success' });

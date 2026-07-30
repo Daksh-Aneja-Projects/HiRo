@@ -170,21 +170,22 @@ export const getTestUsers = () => api.get('/auth/test-users');
 /* -------------------------------------------------------------------------- */
 
 /**
- * CRITICAL NEW CONTRACT (ID 1): Executes an asynchronous orchestration command.
- * Used by: AI_UI_Commander.js
- * Backend Route: POST /api/orchestrate/command
+ * Executes a natural-language orchestration command.
+ * Backend Route: POST /api/command/execute
  */
-export const runOrchestrationCommand = (prompt, userContext) => api.post('/orchestrate/command', { 
-    command_prompt: prompt, 
-    user_context: userContext 
+export const runOrchestrationCommand = (prompt, userContext) => api.post('/command/execute', {
+    prompt,
+    user_id: userContext?.user_id || userContext?.username || 'user',
 });
 
 /**
- * CRITICAL NEW CONTRACT (ID 2): Polls for the status of an orchestration command.
- * Used by: OrchestratorResultWidget.js
- * Backend Route: GET /api/orchestrate/status/{result_id}
+ * Fetches the stored result of a previously executed orchestration command.
+ * Backend Route: GET /api/command/status/{result_id}
  */
-export const getOrchestrationResultStatus = (resultId) => api.get(`/orchestrate/status/${encodeURIComponent(resultId)}`);
+export const getOrchestrationResultStatus = (resultId) => api.get(`/command/status/${encodeURIComponent(resultId)}`);
+
+/** Recent orchestrator command history. Backend Route: GET /api/command/history */
+export const getCommandHistory = (limit = 50) => api.get('/command/history', { params: { limit } });
 
 export const executeOrchestratorCommand = (payload) => api.post('/command/execute', payload);
 export const aggregateMetrics = (payload) => api.post('/advanced-analytics/metrics/aggregate', payload);
@@ -198,21 +199,17 @@ export const getOrchestratorDashboardData = () => api.get('/orchestrator/dashboa
 /* -------------------------------------------------------------------------- */
 
 /**
- * CRITICAL NEW CONTRACT (ID 8): Sends a message to the digital twin for a specific reportee.
- * Used by: DigitalTwinChat.js
- * Backend Route: POST /api/management/digital-twin/chat (Consolidated to one path)
+ * Sends a message to a reportee's digital twin and returns the twin's AI reply.
+ * Backend Route: POST /api/ai/twin/message/{reportee_id}
  */
-export const sendDigitalTwinMessage = (reporteeId, message) => api.post(`/management/digital-twin/chat`, { 
-    target_user_id: reporteeId, // Ensure the key matches the backend
-    message: message 
-});
+export const sendDigitalTwinMessage = (reporteeId, message) =>
+    api.post(`/ai/twin/message/${encodeURIComponent(reporteeId)}`, { message });
 
 /**
- * CRITICAL NEW CONTRACT (ID 7): Fetches the chat history for a specific reportee's digital twin.
- * Used by: DigitalTwinChat.js
- * Backend Route: GET /api/management/digital-twin/history/{targetUserId}
+ * Fetches the persisted conversation with a reportee's digital twin.
+ * Backend Route: GET /api/ai/twin/history/{user_id}
  */
-export const getDigitalTwinHistory = (userId) => api.get(`/management/digital-twin/history/${encodeURIComponent(userId)}`);
+export const getDigitalTwinHistory = (userId) => api.get(`/ai/twin/history/${encodeURIComponent(userId)}`);
 
 
 export const getDigitalTwinXai = () => api.get('/talent-exp/digital-twin/xai');
@@ -273,7 +270,7 @@ export const getAgentActivity = (timeWindowMinutes = 60) => api.get(`/telemetry/
 // CRITICAL FIX: Export the stream function correctly
 export const streamSelfCorrectingAgent = (nlPrompt, onChunk, onComplete, onError) => streamAgentConfiguration(nlPrompt, onChunk, onComplete, onError);
 export const streamAgentConfig = (prompt, onChunk, onComplete, onError) => streamAgentConfiguration(prompt, onChunk, onComplete, onError);
-export const getCurrentTelemetry = () => api.get('/telemetry/current');
+export const getCurrentTelemetry = () => api.get('/telemetry/metrics/live');
 
 /* -------------------------------------------------------------------------- */
 /* --- POLICY & GOVERNANCE (Live) --- */

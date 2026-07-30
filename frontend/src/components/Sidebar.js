@@ -1,46 +1,28 @@
-// Sidebar — Linear-style left navigation rail. Role-aware, keyed on the real
-// backend role strings (hrit_admin / hrbp / manager / employee).
+// Sidebar — Linear-style left navigation rail.
+// Driven by config/portalAccess.SIDEBAR_NAV, which is the SAME source hasAccess()
+// uses to authorize routes. Keeping one source of truth means a link can never
+// appear that the route guard would reject, and sub-modules are reachable by
+// clicking instead of only by hand-typing ?module=.
 import React, { memo, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import {
-    LayoutDashboard, User, Users, Briefcase, Settings,
-    ShieldCheck, Activity, MessagesSquare, Cpu
-} from 'lucide-react';
+import { SIDEBAR_NAV, hasAccess } from '../config/portalAccess';
+import { LayoutDashboard } from 'lucide-react';
 import BrandLogo from './BrandLogo';
-
-const COMMON_TOP = [{ icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' }];
-const COMMON_BOTTOM = [
-    { icon: MessagesSquare, label: 'Collaboration', path: '/social-feed' },
-    { icon: User, label: 'Profile', path: '/user-profile' },
-];
-
-const BY_ROLE = {
-    employee: [{ icon: Users, label: 'My Portal', path: '/employee-portal' }],
-    manager: [{ icon: Briefcase, label: 'My Team', path: '/manager-portal' }],
-    hrbp: [
-        { icon: Users, label: 'HR Operations', path: '/hr-portal' },
-        { icon: Activity, label: 'Analytics', path: '/advanced-analytics' },
-    ],
-    hrit_admin: [
-        { icon: Settings, label: 'HRIT Console', path: '/hrit-portal' },
-        { icon: Activity, label: 'Analytics', path: '/advanced-analytics' },
-        { icon: Cpu, label: 'Orchestrator', path: '/ultimate-orchestrator' },
-        { icon: ShieldCheck, label: 'Admin', path: '/admin-portal' },
-    ],
-};
 
 const Sidebar = memo(() => {
     const { userRole, user } = useAuth();
     const location = useLocation();
     const navigate = useNavigate();
+    const search = location.search;
 
-    const items = useMemo(() => {
-        const mid = BY_ROLE[userRole] || [];
-        return [...COMMON_TOP, ...mid, ...COMMON_BOTTOM];
-    }, [userRole]);
+    const items = useMemo(
+        () => SIDEBAR_NAV.filter((item) => hasAccess(userRole, item.path)),
+        [userRole]
+    );
 
     const roleLabel = (userRole || 'guest').replace(/_/g, ' ');
+    const activeModule = new URLSearchParams(search).get('module');
 
     return (
         <aside style={s.rail}>
@@ -50,15 +32,45 @@ const Sidebar = memo(() => {
 
             <nav style={s.nav}>
                 {items.map((it) => {
-                    const active = location.pathname === it.path || (it.path !== '/dashboard' && location.pathname.startsWith(it.path));
+                    const Icon = it.icon || LayoutDashboard;
+                    const onPage = location.pathname === it.path;
+                    const subs = it.subModules || [];
                     return (
-                        <button key={it.path} onClick={() => navigate(it.path)}
-                                style={{ ...s.item, ...(active ? s.itemActive : null) }}
-                                className="nav-item" aria-current={active ? 'page' : undefined}>
-                            {active && <span style={s.activeBar} />}
-                            <it.icon size={17} strokeWidth={2} style={{ flexShrink: 0 }} />
-                            <span>{it.label}</span>
-                        </button>
+                        <div key={it.path}>
+                            <button
+                                onClick={() => navigate(it.path)}
+                                style={{ ...s.item, ...(onPage ? s.itemActive : null) }}
+                                className="nav-item"
+                                aria-current={onPage ? 'page' : undefined}
+                            >
+                                {onPage && <span style={s.activeBar} />}
+                                <Icon size={17} strokeWidth={2} style={{ flexShrink: 0 }} />
+                                <span>{it.label}</span>
+                            </button>
+
+                            {/* Sub-modules appear once you are on the parent page, so
+                                every screen the portal can render is reachable. */}
+                            {onPage && subs.length > 0 && (
+                                <div style={s.subList}>
+                                    {subs.map((sub) => {
+                                        const subModule = new URLSearchParams(sub.path.split('?')[1] || '').get('module');
+                                        const subActive = activeModule
+                                            ? activeModule === subModule
+                                            : sub === subs[0];
+                                        return (
+                                            <button
+                                                key={sub.path}
+                                                onClick={() => navigate(sub.path)}
+                                                style={{ ...s.subItem, ...(subActive ? s.subItemActive : null) }}
+                                                className="nav-subitem"
+                                            >
+                                                {sub.label}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
                     );
                 })}
             </nav>
@@ -73,6 +85,7 @@ const Sidebar = memo(() => {
 
             <style>{`
                 .nav-item:hover { background: rgba(255,255,255,0.04); color: var(--text-primary); }
+                .nav-subitem:hover { color: var(--text-primary); background: rgba(255,255,255,0.03); }
             `}</style>
         </aside>
     );
@@ -85,7 +98,7 @@ const s = {
         display: 'flex', flexDirection: 'column', padding: '18px 12px', boxSizing: 'border-box',
     },
     brand: { padding: '6px 8px 20px' },
-    nav: { display: 'flex', flexDirection: 'column', gap: 2, flexGrow: 1 },
+    nav: { display: 'flex', flexDirection: 'column', gap: 2, flexGrow: 1, overflowY: 'auto', minHeight: 0 },
     item: {
         position: 'relative', display: 'flex', alignItems: 'center', gap: 11,
         padding: '9px 12px', borderRadius: 8, border: 'none', background: 'transparent',
@@ -94,6 +107,13 @@ const s = {
     },
     itemActive: { background: 'rgba(94,106,210,0.14)', color: 'var(--text-primary)' },
     activeBar: { position: 'absolute', left: -12, top: '50%', transform: 'translateY(-50%)', width: 3, height: 18, borderRadius: 999, background: 'var(--accent-bright)' },
+    subList: { display: 'flex', flexDirection: 'column', gap: 1, margin: '2px 0 6px', paddingLeft: 28, borderLeft: '1px solid var(--border-subtle)', marginLeft: 20 },
+    subItem: {
+        border: 'none', background: 'transparent', color: 'var(--text-tertiary)',
+        fontSize: 12.5, padding: '6px 10px', borderRadius: 6, cursor: 'pointer',
+        textAlign: 'left', width: '100%', fontFamily: 'inherit', transition: 'all 0.14s ease',
+    },
+    subItemActive: { color: 'var(--accent-bright)', fontWeight: 550 },
     userCard: {
         display: 'flex', alignItems: 'center', gap: 10, padding: '10px 8px', marginTop: 8,
         borderTop: '1px solid var(--border-subtle)',
@@ -106,4 +126,5 @@ const s = {
     userRole: { fontSize: 11.5, color: 'var(--text-tertiary)', textTransform: 'capitalize' },
 };
 
+Sidebar.displayName = 'Sidebar';
 export default Sidebar;

@@ -4,9 +4,18 @@
 export const objToSeries = (obj = {}) =>
   Object.entries(obj || {}).map(([name, value]) => ({ name, value: Number(value) || 0 }));
 
-export const countBy = (arr = [], keyFn) => {
+// Accepts a bare array, or a wrapped payload like { tickets: [...] } / { items: [...] },
+// because different endpoints return different envelopes.
+export const toArray = (input) => {
+  if (Array.isArray(input)) return input;
+  if (!input || typeof input !== 'object') return [];
+  const key = Object.keys(input).find((k) => Array.isArray(input[k]));
+  return key ? input[key] : [];
+};
+
+export const countBy = (arr, keyFn) => {
   const acc = {};
-  (arr || []).forEach((x) => {
+  toArray(arr).forEach((x) => {
     const k = keyFn(x) || 'Unknown';
     acc[k] = (acc[k] || 0) + 1;
   });
