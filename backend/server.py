@@ -61,6 +61,7 @@ try:
     )
 except ImportError:
     class UserDetails(BaseModel):
+        id: Optional[str] = None
         user_id: Optional[str] = None
         username: str
         email: str
@@ -552,6 +553,7 @@ async def login_user(request: Request):
                 
         user_id_str = str(user.get("_id", "")) if user.get("_id") else user.get("username", "") 
         user_response = {
+            "id": user_id_str,
             "user_id": user_id_str,
             "username": user.get("username", ""),
             "email": user.get("email", ""),
@@ -559,7 +561,7 @@ async def login_user(request: Request):
             "role": user.get("role", "employee"),
             "is_active": user.get("is_active", True),
             "created_at": user.get("created_at", datetime.now(timezone.utc).isoformat())
-        }       
+        }
         
         access_token = auth_service.create_access_token(
             data={
@@ -616,8 +618,9 @@ async def get_current_user(request: Request, payload: SchemaAuthPayload = Depend
                 
         user_id_str = str(user.get("_id", "")) if user.get("_id") else user.get("username", "") 
         return UserDetails(
+            id=user_id_str,
             user_id=user_id_str,
-            username=user.get("username", ""),          
+            username=user.get("username", ""),
             email=user.get("email", ""),
             full_name=user.get("full_name", ""),
             role=user.get("role", "employee"),

@@ -66,6 +66,7 @@ class LoginRequest(BaseModel):
 # CRITICAL FIX: Use EmailStr for strong typing (but keep previous fields)
 class UserDetails(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
+    id: Optional[str] = None          # frontend reads user.id (mirrors user_id)
     user_id: Optional[str] = None
     username: str
     email: Optional[EmailStr] = None # FIXED: Use imported EmailStr
