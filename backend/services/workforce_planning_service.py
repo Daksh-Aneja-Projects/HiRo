@@ -4,9 +4,14 @@ import asyncio
 import logging
 from typing import Dict, Any, List
 from datetime import datetime, timezone
-from services.event_publisher_service import EventPublisherService 
+from services.event_publisher_service import EventPublisherService
+from services.postgres_client import pg_client
 
 logger = logging.getLogger(__name__)
+
+# Roles considered business-critical for succession/continuity planning.
+CRITICAL_ROLES = ('manager', 'hrit_manager', 'hrit_admin', 'hrbp')
+
 
 class WorkforcePlanningService:
     def __init__(self, publisher: EventPublisherService):
@@ -14,19 +19,59 @@ class WorkforcePlanningService:
         logger.info("WorkforcePlanningService Initialized")
 
     async def get_current_projections(self) -> Dict[str, Any]:
-        """Fetches current workforce state and skill gap projections (Mocked DB call)."""
+        """Real workforce state aggregated from the employee UDM (Postgres).
+
+        Feeds the digital-twin risk simulation, which reads current_state
+        (notably overall_risk_score + average_performance_score) as its base.
+        """
+        row = await pg_client.fetchrow(
+            f"""
+            SELECT
+              COUNT(*)                                              AS total_employees,
+              COUNT(*) FILTER (WHERE role IN {CRITICAL_ROLES})      AS critical_roles,
+              ROUND(AVG(tenure_months))                             AS average_tenure_months,
+              ROUND(AVG(dtla_risk_score)::numeric, 3)               AS overall_risk_score
+            FROM public.employee_pii
+            """
+        ) or {}
+        perf = await pg_client.fetchrow(
+            "SELECT ROUND(AVG(overall_rating)::numeric, 2) AS avg_perf FROM public.performance_reviews"
+        ) or {}
+
+        total = int(row.get('total_employees') or 0)
+
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "current_state": {
-                "total_employees": 15000,
-                "critical_roles": 1200,
-                "average_tenure_months": 36,
-                "global_compliance_index": 0.985,
-                "average_performance_score": 3.8, 
-                "open_requisitions": 45
+                "total_employees": total,
+                "critical_roles": int(row.get('critical_roles') or 0),
+                "average_tenure_months": int(row.get('average_tenure_months') or 0),
+                "average_performance_score": float(perf.get('avg_perf') or 0.0),
+                "overall_risk_score": float(row.get('overall_risk_score') or 0.0),
             },
-            "skill_gaps": {"LLM_Ops": "HIGH", "Cyber_Security": "MEDIUM", "Leadership": "LOW"}
+            "skill_gaps": await self._derive_skill_gaps(total),
         }
+
+    async def _derive_skill_gaps(self, total_employees: int) -> Dict[str, str]:
+        """Derives skill-gap severity from real department under-representation.
+
+        Departments below their fair share of headcount are flagged as higher gap.
+        """
+        if not total_employees:
+            return {}
+        rows = await pg_client.fetch(
+            "SELECT department, COUNT(*) AS c FROM public.employee_pii GROUP BY department"
+        )
+        if not rows:
+            return {}
+        fair_share = total_employees / len(rows)
+        gaps: Dict[str, str] = {}
+        for r in rows:
+            ratio = (r['c'] or 0) / fair_share
+            gaps[r['department'] or 'Unknown'] = (
+                "HIGH" if ratio < 0.75 else "MEDIUM" if ratio < 1.0 else "LOW"
+            )
+        return gaps
 
     async def predict_attrition_risk(self, employee_data: Dict[str, Any]) -> Dict[str, Any]:
         tenure = employee_data.get('tenure_months', 12)
