@@ -385,14 +385,22 @@ class HRModulesService:
         cursor = self.documents.find(q, {"_id": 0}).sort("uploaded_at", -1).limit(200)
         return await cursor.to_list(length=200)
 
-    async def get_document_details(self, document_id: str) -> Dict[str, Any]:
-        doc = await self.documents.find_one({"document_id": document_id}, {"_id": 0})
+    async def get_document_details(self, document_id: str, owner_uuid: Optional[str] = None) -> Dict[str, Any]:
+        """`owner_uuid` restricts the lookup to that employee's own documents."""
+        query = {"document_id": document_id}
+        if owner_uuid:
+            query["employee_uuid"] = owner_uuid
+        doc = await self.documents.find_one(query, {"_id": 0})
         if not doc:
             raise HTTPException(status_code=404, detail="Document not found.")
         return doc
 
-    async def delete_document(self, document_id: str) -> Dict[str, Any]:
-        res = await self.documents.delete_one({"document_id": document_id})
+    async def delete_document(self, document_id: str, owner_uuid: Optional[str] = None) -> Dict[str, Any]:
+        """`owner_uuid` prevents an employee from deleting a colleague's document."""
+        query = {"document_id": document_id}
+        if owner_uuid:
+            query["employee_uuid"] = owner_uuid
+        res = await self.documents.delete_one(query)
         if res.deleted_count == 0:
             raise HTTPException(status_code=404, detail="Document not found.")
         return {"status": "DELETED", "document_id": document_id}
@@ -524,14 +532,54 @@ class HRModulesService:
         return {"status": "SUBMITTED", "entry_id": doc["entry_id"]}
 
     async def get_career_path(self, employee_id: str) -> Dict[str, Any]:
-        """Derive a forward career ladder from the employee's current job title."""
-        query = "SELECT job_title, role FROM employee_pii WHERE employee_uuid = $1"
+        """Career progression grounded in the titles that actually exist in this
+        organisation and in the employee's own department.
+
+        A single generic ladder told a Chief Architect their next step was
+        "Analyst". Instead we read the real distinct titles in their department,
+        ordered by observed seniority, and position the employee within them.
+        """
+        query = "SELECT job_title, department, role FROM employee_pii WHERE employee_uuid = $1"
         rows = await self.vault.execute_pii_query(query, "employee_pii", "HRModulesService", None, employee_id)
-        current = (rows[0].get("job_title") if rows else None) or "Analyst"
-        ladder = ["Analyst", "Senior Analyst", "Team Lead", "Manager", "Senior Manager", "Director", "VP"]
-        lc = current.lower()
-        idx = next((i for i, step in enumerate(ladder) if step.lower() in lc or lc in step.lower()), 0)
-        return {"employee_id": employee_id, "current": current, "path": ladder[idx:idx + 4]}
+        if not rows:
+            return {"employee_id": employee_id, "current": None, "path": [],
+                    "note": "No employee record is linked to this account."}
+
+        current = rows[0].get("job_title")
+        department = rows[0].get("department")
+
+        # Rank real titles by how senior they read, then by how common they are.
+        SENIORITY = [
+            ("chief", 9), ("vp", 8), ("head", 8), ("director", 7), ("principal", 7),
+            ("senior manager", 6), ("manager", 5), ("lead", 5), ("senior", 4),
+            ("specialist", 3), ("analyst", 2), ("associate", 2), ("assistant", 1), ("junior", 1),
+        ]
+
+        def rank(title: str) -> int:
+            t = (title or "").lower()
+            return max((score for word, score in SENIORITY if word in t), default=3)
+
+        try:
+            peers = await pg_client.fetch(
+                "SELECT DISTINCT job_title FROM employee_pii WHERE department = $1 AND job_title IS NOT NULL",
+                department,
+            )
+        except Exception as e:
+            logger.warning(f"career path peer-title query failed: {e}")
+            peers = []
+
+        titles = sorted({r["job_title"] for r in peers if r["job_title"]}, key=rank)
+        current_rank = rank(current)
+        ahead = [t for t in titles if rank(t) > current_rank]
+
+        return {
+            "employee_id": employee_id,
+            "current": current,
+            "department": department,
+            # Next steps that genuinely exist in this department, most immediate first.
+            "path": ahead[:4],
+            "note": None if ahead else "You are at the most senior title recorded in this department.",
+        }
 
     async def get_payslips(self, employee_id: str, limit: int = 12) -> list:
         """Payslip history derived from the real comp_history ledger."""

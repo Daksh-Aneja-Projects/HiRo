@@ -2,14 +2,14 @@
 // The employee self-service portal. Every number on every module is read from a
 // real backend endpoint; where an endpoint returns nothing, the module says so
 // plainly instead of inventing a figure.
-import React, { useMemo, memo, useState, useCallback } from 'react';
+import React, { useMemo, memo, useState, useCallback, useRef, useEffect } from 'react';
 import { useLocation, Link } from 'react-router-dom';
 import { theme as tokens } from '../theme';
 import { useAuth } from '../contexts/AuthContext';
 
 import {
     getEmployeeDashboard, submitLeaveRequest, getLeaveBalance, getLeaveHistory,
-    getPersonalInfo, recordConsentChange, getUnmaskedPII, getRecognitionLeaderboard,
+    getPersonalInfo, recordConsentChange, revealOwnPII, getRecognitionLeaderboard,
     getTimesheets, getRetentionPreference, saveRetentionPreference, submitFeedback,
 } from '../config/api';
 import { useApi } from '../hooks/useApi';
@@ -361,6 +361,9 @@ const PIISecurityModule = memo(() => {
 
     const [unmasked, setUnmasked] = useState(null);
     const [isRevealing, setIsRevealing] = useState(false);
+    // Clearing the auto-hide timer on unmount avoids a setState on a dead component.
+    const hideTimerRef = useRef(null);
+    useEffect(() => () => clearTimeout(hideTimerRef.current), []);
     const [consentBusy, setConsentBusy] = useState(null);
     const [preference, setPreference] = useState('');
     const [isSavingPref, setIsSavingPref] = useState(false);
@@ -382,10 +385,11 @@ const PIISecurityModule = memo(() => {
         if (unmasked) { setUnmasked(null); return; }
         setIsRevealing(true);
         try {
-            const res = await getUnmaskedPII();
-            setUnmasked(res.data || {});
+            const res = await revealOwnPII();
+            setUnmasked(res.data?.fields || {});
             toast({ title: 'Sensitive fields revealed', description: 'They will hide again in thirty seconds. This reveal is written to the audit log.', variant: 'warning' });
-            setTimeout(() => setUnmasked(null), 30000);
+            // Tracked so it can be cleared if the module unmounts first.
+            hideTimerRef.current = setTimeout(() => setUnmasked(null), 30000);
         } catch (err) {
             toast({ title: 'Could not reveal your details', description: err.response?.data?.detail || err.message, variant: 'destructive' });
         } finally {

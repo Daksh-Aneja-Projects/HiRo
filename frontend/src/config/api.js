@@ -40,6 +40,10 @@ const api = axios.create({
     timeout: 30000,
 });
 
+// Calls that run the local language model finish in tens of seconds on CPU, well past
+// the instance default above. Those call sites pass this explicitly.
+export const LLM_TIMEOUT_MS = 300000;
+
 api.interceptors.request.use(
     (config) => {
         try {
@@ -173,10 +177,12 @@ export const getTestUsers = () => api.get('/auth/test-users');
  * Executes a natural-language orchestration command.
  * Backend Route: POST /api/command/execute
  */
+// LLM-backed: the local model runs on CPU and routinely needs well over the 30s
+// instance default, so this call carries its own timeout.
 export const runOrchestrationCommand = (prompt, userContext) => api.post('/command/execute', {
     prompt,
     user_id: userContext?.user_id || userContext?.username || 'user',
-});
+}, { timeout: LLM_TIMEOUT_MS });
 
 /**
  * Fetches the stored result of a previously executed orchestration command.
@@ -372,7 +378,13 @@ export const submitLeaveRequest = (data) => api.post('/ess/leave/submit', data);
 export const getPersonalInfo = () => api.get('/ess/profile/personal-info');
 export const submitPersonalInfoUpdate = (payload) => api.post('/ess/profile/update-request', payload);
 export const recordConsentChange = (consentData) => api.post('/pii/update_consent', consentData);
-export const getUnmaskedPII = () => api.post('/pii/unmask', { reason: 'User requested reveal' });
+// Decrypts a specific ciphertext token (both are written to the PII access log).
+export const getUnmaskedPII = (token, reason = 'Token reveal requested') =>
+    api.post('/pii/unmask', { token, reason });
+// Employee-facing: decrypts the caller's OWN protected fields server-side.
+// A browser never holds a ciphertext token, so this is what the portal uses.
+export const revealOwnPII = (reason = 'Employee viewed their own protected fields') =>
+    api.post('/pii/reveal-self', { reason });
 export const checkUserConsent = (purposeId) => api.get(`/pii/check_consent?purpose_id=${encodeURIComponent(purposeId)}`);
 
 /* -------------------------------------------------------------------------- */
@@ -399,8 +411,9 @@ export const getHRSDTickets = (params = {}) => api.get('/hrsd/tickets', { params
 /* -------------------------------------------------------------------------- */
 /* --- ADMIN (Live) --- */
 /* -------------------------------------------------------------------------- */
-export const createNewAIAgent = (data) => api.post('/admin/agent/create', data);
-export const executeRLFFCommand = (command) => api.post('/admin/rlff/command', { command });
+// Both plan their work with the local model, so both need the long LLM timeout.
+export const createNewAIAgent = (data) => api.post('/admin/agent/create', data, { timeout: LLM_TIMEOUT_MS });
+export const executeRLFFCommand = (command) => api.post('/admin/rlff/command', { command }, { timeout: LLM_TIMEOUT_MS });
 export const getAdminDashboardData = () => api.get('/admin/dashboard');
 export const getAllUsers = (params = {}) => api.get('/admin/users', { params });
 export const createUserAccount = (userData) => api.post('/admin/users/create', userData);

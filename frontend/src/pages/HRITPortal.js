@@ -114,6 +114,16 @@ AgentModule.displayName = 'AgentModule';
 /* ------------------------------------------------------------------ */
 /* Governance                                                          */
 /* ------------------------------------------------------------------ */
+// Case lifecycle keys are backend enums. Never surface them raw.
+const CASE_STAGE_COPY = {
+    NEW: 'Just raised',
+    IN_TRIAGE: 'Being triaged',
+    IN_RESOLUTION: 'Being worked on',
+    RESOLVED_BY_AGENT: 'Closed by an agent',
+    RESOLVED: 'Resolved',
+    CLOSED: 'Closed',
+};
+
 const DECISION_COPY = {
     APPROVE: 'was allowed',
     APPROVED: 'was allowed',
@@ -128,7 +138,13 @@ const GovernanceModule = memo(() => {
     const model = provider?.default_model || '';
     const { data: audit, isLoading: auditLoading, error: auditError } = useApi(getModelAuditLog, [model, 40], Boolean(model));
 
-    const lifecycle = useMemo(() => objToSeries(hrsd?.tickets_by_status), [hrsd]);
+    const lifecycle = useMemo(
+        () => objToSeries(hrsd?.tickets_by_status).map((s) => ({
+            ...s,
+            name: CASE_STAGE_COPY[s.name] || String(s.name).replace(/_/g, ' ').toLowerCase(),
+        })),
+        [hrsd],
+    );
     const rows = useMemo(() => (Array.isArray(audit) ? audit : []), [audit]);
     const decisions = useMemo(() => countBy(rows, (r) => (String(r.decision).toUpperCase().startsWith('APPROV') ? 'Allowed' : 'Blocked')), [rows]);
     const autoResolved = Number(hrsd?.tickets_by_status?.RESOLVED_BY_AGENT) || 0;

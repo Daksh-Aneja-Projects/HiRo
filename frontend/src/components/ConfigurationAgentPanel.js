@@ -25,6 +25,7 @@ const ConfigurationAgentPanel = memo(() => {
     const [switching, setSwitching] = useState(false);
     const sourceRef = useRef(null);
     const outRef = useRef(null);
+    const silenceRef = useRef(null);
 
     const { data: modelsResp, isLoading: modelsLoading, error: modelsError } = useApi(getAiModels, [], true);
     const { data: provider, refetch: refetchProvider } = useApi(getActiveAIProvider, [], true);
@@ -35,10 +36,11 @@ const ConfigurationAgentPanel = memo(() => {
         if (provider?.default_model && !selectedModel) setSelectedModel(provider.default_model);
     }, [provider, selectedModel]);
 
-    useEffect(() => () => sourceRef.current?.close(), []);
+    useEffect(() => () => { sourceRef.current?.close(); clearTimeout(silenceRef.current); }, []);
     useEffect(() => { if (outRef.current) outRef.current.scrollTop = outRef.current.scrollHeight; }, [lines]);
 
     const stop = useCallback(() => {
+        clearTimeout(silenceRef.current);
         sourceRef.current?.close();
         sourceRef.current = null;
         setIsStreaming(false);
@@ -52,7 +54,22 @@ const ConfigurationAgentPanel = memo(() => {
         setLines([]);
         setIsStreaming(true);
 
+        // If the connection opens but nothing ever arrives, say so rather than
+        // spinning forever behind a silent proxy or a stalled model.
+        const armSilenceTimer = () => {
+            clearTimeout(silenceRef.current);
+            silenceRef.current = setTimeout(() => {
+                sourceRef.current?.close();
+                sourceRef.current = null;
+                setIsStreaming(false);
+                setLines((p) => [...p, { kind: 'step', stage: 'stalled', text: 'The agent stopped sending updates. Nothing arrived for 90 seconds, so the connection was closed.' }]);
+                toast({ title: 'The agent went quiet', description: 'No updates arrived for 90 seconds. The connection was closed, try again.', variant: 'destructive' });
+            }, 90000);
+        };
+        armSilenceTimer();
+
         const onChunk = (chunk) => {
+            armSilenceTimer();
             try {
                 const d = JSON.parse(chunk);
                 const stage = clean(d.stage);
@@ -64,11 +81,13 @@ const ConfigurationAgentPanel = memo(() => {
             }
         };
         const onComplete = () => {
+            clearTimeout(silenceRef.current);
             setIsStreaming(false);
             sourceRef.current = null;
             toast({ title: 'The agent finished', description: 'The rule it drafted is shown on the right.', variant: 'success' });
         };
         const onError = () => {
+            clearTimeout(silenceRef.current);
             setIsStreaming(false);
             sourceRef.current = null;
             setLines((p) => [...p, { kind: 'step', stage: 'stopped', text: 'The connection to the agent dropped before it finished.' }]);

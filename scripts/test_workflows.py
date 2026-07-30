@@ -181,6 +181,58 @@ def wf_rbac():
     call("GET", "/advanced-analytics/charts", emp, expect=403)
 
 
+def wf_pii_scoping():
+    """An employee must never reach a colleague's record.
+
+    Regression guard: /hr/profile/{id} once served any employee's decrypted name,
+    email, job title and role to any employee who put their id in the path.
+    """
+    emp = login("employee")  # own record is EMP-005
+    call("GET", "/hr/profile/EMP-005", emp)                    # own: allowed
+    call("GET", "/hr/profile/EMP-001", emp, expect=403)        # colleague: denied
+    call("GET", "/hr/career/path/EMP-001", emp, expect=403)
+    call("GET", "/hr/feedback/peer/EMP-001", emp, expect=403)
+
+    # A line manager may only see compensation for their own direct reports.
+    mgr = login("manager")
+    call("GET", "/hr/comp/EMP-002", mgr, expect=403)
+
+
+def wf_no_fabricated_data():
+    """Endpoints that used to invent content must now be honest."""
+    mgr, emp, admin = login("manager"), login("employee"), login("hritmanager")
+
+    # Used to return a hardcoded "SIM-001 / Risk Reduced by 25%" row for everyone.
+    history = call("GET", "/simulation/history/EMP-999-NOBODY", mgr)
+    assert history == [], f"simulation history fabricated a row: {history}"
+
+    # Used to claim every dependency was UP regardless of reality.
+    health = call("GET", "/admin/health", admin)
+    bus = call("GET", "/admin/system/message-bus/status", admin)
+    nats_up = health["checks"].get("nats") == "UP"
+    bus_up = bus["status"] == "Connected"
+    assert nats_up == bus_up, f"health disagrees with the message bus: {health['checks']} vs {bus}"
+
+    # Used to invent a health plan and a retirement match.
+    benefits = call("GET", "/hr/benefits", emp)
+    assert benefits["health_plan"] is None, "benefits invented a health plan"
+
+
+def wf_consent_is_recorded():
+    """A privacy control must not report success while storing the opposite."""
+    emp = login("employee")
+    call("POST", "/pii/update_consent", emp, {"purpose_id": "wf-test", "consent_granted": True})
+    state = call("GET", "/pii/check_consent?purpose_id=wf-test", emp)
+    assert state["consent"] is True, f"consent was not persisted: {state}"
+
+    call("POST", "/pii/update_consent", emp, {"purpose_id": "wf-test", "granted": False})
+    state = call("GET", "/pii/check_consent?purpose_id=wf-test", emp)
+    assert state["consent"] is False, f"consent revocation was not persisted: {state}"
+
+    # A request with no decision at all must be rejected, not defaulted to False.
+    call("POST", "/pii/update_consent", emp, {"purpose_id": "wf-test"}, expect=400)
+
+
 def main():
     print("HiRo persona workflow tests\n")
     check("employee -> manager leave approval round trip", wf_leave_approval)
@@ -192,6 +244,9 @@ def main():
     check("document ingestion persists a real job", wf_ingestion)
     check("analytics derive from the real workforce", wf_analytics_real)
     check("RBAC denies cross-role access", wf_rbac)
+    check("employees cannot reach a colleague's PII", wf_pii_scoping)
+    check("no endpoint fabricates content", wf_no_fabricated_data)
+    check("consent is recorded as chosen", wf_consent_is_recorded)
 
     print()
     if _failures:

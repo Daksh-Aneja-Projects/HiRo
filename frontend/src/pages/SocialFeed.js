@@ -112,7 +112,7 @@ const FeedList = memo(({ posts, isLoading, error }) => {
                         <span style={styles.meta}>{new Date(post.timestamp).toLocaleString()}</span>
                     </div>
                     <p style={styles.content}>{post.content}</p>
-                    <div style={{ display: 'flex', gap: tokens.spacing?.md, fontSize: tokens.typography?.small?.fontSize, color: tokens.color?.['muted-500'] }}> // Added optional chaining
+                    <div style={{ display: 'flex', gap: tokens.spacing?.md, fontSize: tokens.typography?.small?.fontSize, color: tokens.color?.['muted-500'] }}>
                         <span><ArrowUp size={14} style={{ marginRight: '4px' }} /> {post.upvotes || 0}</span>
                         <span><ArrowDown size={14} style={{ marginRight: '4px' }} /> {post.downvotes || 0}</span>
                     </div>

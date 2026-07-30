@@ -711,18 +711,13 @@ const SimulationModule = memo(() => {
                                     </strong>
                                     {result.riskDelta === 0 ? ', which is no change at all.' : (result.riskDelta < 0 ? ', a genuine improvement.' : ', which makes things worse.')}
                                 </p>
-                                <div>
-                                    <span style={styles.metricLabel}>Where they are today</span>
-                                    <LiveMeter pct={baseline * 100} color={tokens.color?.['muted-500']} height={9} />
-                                </div>
-                                <div>
-                                    <span style={styles.metricLabel}>Where this change would put them</span>
-                                    <LiveMeter
-                                        pct={projected * 100}
-                                        color={result.riskDelta <= 0 ? tokens.color?.success : tokens.color?.danger}
-                                        height={9}
-                                    />
-                                </div>
+                                <LiveMeter label="Where they are today" pct={baseline * 100} color={tokens.color?.['muted-500']} height={9} />
+                                <LiveMeter
+                                    label="Where this change would put them"
+                                    pct={projected * 100}
+                                    color={result.riskDelta <= 0 ? tokens.color?.success : tokens.color?.danger}
+                                    height={9}
+                                />
                             </div>
                         ) : (
                             <p style={{ ...ui.hint, marginTop: 0 }}>
@@ -768,7 +763,9 @@ const SimulationModule = memo(() => {
 
                         {Object.keys(result.applied).length > 0 && (
                             <p style={{ ...ui.hint, marginTop: 0 }}>
-                                Based on {Object.entries(result.applied).map(([k, v]) => `${humanText(k)} set to ${v}`).join(', ')}.
+                                Based on {Object.entries(result.applied)
+                                    .map(([k, v]) => `${(LEVERS.find((l) => l.key === k)?.label || humanText(k)).toLowerCase()} set to ${v}`)
+                                    .join(', ')}.
                             </p>
                         )}
                     </>

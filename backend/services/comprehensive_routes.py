@@ -382,13 +382,50 @@ async def sync_servicenow(req: Request, payload: Dict=Depends(policy_admin_role_
 # ======================================
 @admin_router.get("/health")
 async def get_system_health(req: Request, payload: Dict=Depends(hrit_admin_role_required)):
-    upgrade_agent: AutonomousUpgradeAgent = getattr(req.app.state, "autonomous_upgrade_agent", None)
-    if not upgrade_agent: raise HTTPException(status_code=503, detail="Autonomous Upgrade Agent unavailable.")
-    
-    if hasattr(upgrade_agent, 'run_environment_health_check'):
-        return await upgrade_agent.run_environment_health_check()
-    else:
-        return {"status": "HEALTHY", "checks": {"postgres": "UP", "nats": "UP", "ai_primary": "UP"}, "timestamp": datetime.now(timezone.utc).isoformat()}
+    """Probe each dependency for real. This previously returned a hardcoded
+    all-green literal, so the console reported NATS as UP on a server where the
+    message bus was demonstrably disconnected."""
+    checks: Dict[str, str] = {}
+
+    try:
+        await pg_client.fetchrow("SELECT 1")
+        checks["postgres"] = "UP"
+    except Exception as e:
+        logger.warning(f"health: postgres down: {e}")
+        checks["postgres"] = "DOWN"
+
+    mongo_client = getattr(req.app.state, "mongo_client", None)
+    try:
+        if mongo_client:
+            await mongo_client.admin.command("ping")
+            checks["mongodb"] = "UP"
+        else:
+            checks["mongodb"] = "DOWN"
+    except Exception:
+        checks["mongodb"] = "DOWN"
+
+    publisher = getattr(req.app.state, "event_publisher", None)
+    checks["nats"] = "UP" if getattr(getattr(publisher, "nc", None), "is_connected", False) else "DOWN"
+
+    redis_client = getattr(req.app.state, "redis_client", None)
+    if redis_client:
+        try:
+            await redis_client.ping()
+            checks["redis"] = "UP"
+        except Exception:
+            checks["redis"] = "DOWN"
+
+    ai_service = getattr(req.app.state, "ai_service", None)
+    try:
+        models = await ai_service.get_ai_models() if ai_service else []
+        checks["ai_primary"] = "UP" if models else "DOWN"
+    except Exception:
+        checks["ai_primary"] = "DOWN"
+
+    # Only the datastores and the model are required for the platform to function.
+    critical = ("postgres", "mongodb", "ai_primary")
+    status = "HEALTHY" if all(checks.get(c) == "UP" for c in critical) else "DEGRADED"
+    return {"status": status, "checks": checks, "timestamp": datetime.now(timezone.utc).isoformat()}
 
 @admin_router.post("/agent/create")
 async def create_agent(req: Request, data: AgentCreationRequest, payload: Dict=Depends(hrit_admin_role_required)):
@@ -772,8 +809,25 @@ async def security_scan_bpcl(req: Request, code: Dict[str, Any], payload: Dict=D
 # ======================================
 @hr_router.get("/comp/{employee_id}")
 async def get_comp(req: Request, employee_id: str, payload: Dict=Depends(manager_role_required)):
+    """Salary is among the most sensitive fields we hold. HR roles may look up
+    anyone; a line manager may only see their own direct reports."""
     hr_modules_service: HRModulesService = getattr(req.app.state, "hr_modules_service", None)
     if not hr_modules_service: raise HTTPException(status_code=503, detail="HR Modules Service unavailable.")
+
+    role = (payload.get("role") or "").lower()
+    if role == "manager":
+        manager_uuid = payload.get("employee_uuid")
+        try:
+            row = await pg_client.fetchrow(
+                "SELECT 1 AS ok FROM employee_pii WHERE employee_uuid = $1 AND manager_id = $2",
+                employee_id, manager_uuid,
+            )
+        except Exception as e:
+            logger.error(f"comp reporting-line check failed: {e}")
+            raise HTTPException(status_code=500, detail="Could not verify the reporting line.")
+        if not row:
+            raise HTTPException(status_code=403, detail="You can only view compensation for your own direct reports.")
+
     return await hr_modules_service.get_employee_compensation(employee_id, payload['role'])
 
 @hr_router.post("/comp/update")
@@ -883,11 +937,11 @@ async def submit_review(req: Request, data: Dict, payload: Dict=Depends(manager_
 
 @hr_router.get("/career/path/{employee_id}")
 async def get_career_path(req: Request, employee_id: str, payload: Dict=Depends(employee_role_required)):
-    return await _hr(req).get_career_path(employee_id)
+    return await _hr(req).get_career_path(_scoped_employee_id(payload, employee_id))
 
 @hr_router.get("/feedback/peer/{employee_id}")
 async def get_peer_feedback(req: Request, employee_id: str, payload: Dict=Depends(employee_role_required)):
-    return await _hr(req).get_peer_feedback(employee_id)
+    return await _hr(req).get_peer_feedback(_scoped_employee_id(payload, employee_id))
 
 @hr_router.get("/profile/skills")
 async def get_skills(req: Request, payload: Dict=Depends(employee_role_required)):
@@ -903,15 +957,24 @@ async def get_payslips(req: Request, month: Optional[str] = Query(None), year: O
 
 @hr_router.get("/benefits")
 async def get_benefits(req: Request, payload: Dict=Depends(employee_role_required)):
-    """Benefits derived from the employee's leave policy + comp band."""
+    """Benefits the platform actually holds for this employee.
+
+    Only the leave entitlement is a real record today. Health cover and
+    retirement matching are not stored anywhere, so they are reported as
+    unavailable rather than invented.
+    """
     hr = _hr(req)
     employee_uuid = _self_uuid(payload)
     balance = await hr.get_employee_leave_balance(employee_uuid)
     return {
+        "employee_id": employee_uuid,
         "leave_policy": balance.get("policy"),
         "annual_leave_hours": balance.get("balance_hours"),
-        "health_plan": "Employer-sponsored (PPO)",
-        "retirement_match_pct": 5,
+        "used_leave_hours": balance.get("used_hours"),
+        "health_plan": None,
+        "retirement_match_pct": None,
+        "unavailable": ["health_plan", "retirement_match_pct"],
+        "note": "Health cover and retirement matching are administered outside HiRo.",
     }
 
 @hr_router.post("/feedback")
@@ -1000,13 +1063,26 @@ async def scan_expense_receipt(req: Request, file: UploadFile = File(...), paylo
 async def submit_offboarding_knowledge(req: Request, data: Dict, payload: Dict=Depends(employee_role_required)):
     return await _hr(req).submit_offboarding_knowledge(_self_uuid(payload), data)
 
+def _scoped_employee_id(payload: Dict, requested: str) -> str:
+    """Employees may only ever act on their own record.
+
+    Without this an `employee` token could read or modify any colleague's
+    PII by putting their id in the path. Manager+ may target anyone.
+    """
+    if (payload.get("role") or "").lower() == "employee":
+        own = _self_uuid(payload)
+        if requested and requested != own:
+            raise HTTPException(status_code=403, detail="You can only access your own record.")
+        return own
+    return requested
+
 @hr_router.get("/profile/{employee_id}")
 async def get_employee_profile(req: Request, employee_id: str, payload: Dict=Depends(employee_role_required)):
-    return await _hr(req).get_employee_profile(employee_id)
+    return await _hr(req).get_employee_profile(_scoped_employee_id(payload, employee_id))
 
 @hr_router.put("/profile/{employee_id}")
 async def update_employee_profile(req: Request, employee_id: str, data: Dict, payload: Dict=Depends(employee_role_required)):
-    return await _hr(req).update_employee_profile(employee_id, data)
+    return await _hr(req).update_employee_profile(_scoped_employee_id(payload, employee_id), data)
 
 @hr_router.get("/payslips/download/{file_key}")
 async def download_payslip(req: Request, file_key: str, payload: Dict=Depends(employee_role_required)):
@@ -1026,13 +1102,17 @@ async def download_payslip(req: Request, file_key: str, payload: Dict=Depends(em
     return Response(content=body.encode(), media_type="text/plain",
                     headers={"Content-Disposition": f"attachment; filename=payslip-{file_key}.txt"})
 
+def _owner_scope(payload: Dict) -> Optional[str]:
+    """Employees are scoped to their own records; manager+ are not."""
+    return _self_uuid(payload) if (payload.get("role") or "").lower() == "employee" else None
+
 @hr_router.get("/doc/details/{document_id}")
 async def get_document_details(req: Request, document_id: str, payload: Dict=Depends(employee_role_required)):
-    return await _hr(req).get_document_details(document_id)
+    return await _hr(req).get_document_details(document_id, owner_uuid=_owner_scope(payload))
 
 @hr_router.delete("/doc/delete/{document_id}")
 async def delete_employee_document(req: Request, document_id: str, payload: Dict=Depends(employee_role_required)):
-    return await _hr(req).delete_document(document_id)
+    return await _hr(req).delete_document(document_id, owner_uuid=_owner_scope(payload))
 
 @hr_router.post("/doc/ingestion/{employee_id}/{doc_type}")
 async def upload_employee_document(req: Request, employee_id: str, doc_type: str, file: UploadFile = File(...), payload: Dict=Depends(employee_role_required)):
@@ -1491,7 +1571,15 @@ async def update_user_consent(req: Request, consent_data: Dict, payload: Dict=De
     purpose_id = consent_data.get("purpose_id")
     if not purpose_id:
         raise HTTPException(status_code=400, detail="purpose_id is required.")
-    granted = bool(consent_data.get("granted", consent_data.get("consent", False)))
+    # Accept the field under any of the names callers reasonably use, and REQUIRE
+    # one of them. Silently defaulting to False meant the UI could report
+    # "consent granted" while the record said the opposite.
+    for key in ("granted", "consent_granted", "consent"):
+        if key in consent_data:
+            granted = bool(consent_data[key])
+            break
+    else:
+        raise HTTPException(status_code=400, detail="A consent decision (granted) is required.")
     await _consents(req).update_one(
         {"employee_uuid": employee_uuid, "purpose_id": purpose_id},
         {"$set": {"granted": granted, "updated_by": payload.get("sub"),
@@ -1524,6 +1612,44 @@ async def get_unmasked_pii(req: Request, token: str = Body(..., embed=True), rea
     if plaintext is None:
         raise HTTPException(status_code=400, detail="Invalid token; access denied and logged.")
     return {"unmasked_value": plaintext, "reason": reason, "outcome": outcome}
+
+@pii_router.post("/reveal-self")
+async def reveal_own_pii(req: Request, reason: str = Body("Employee viewed their own protected fields", embed=True),
+                         payload: Dict=Depends(employee_role_required)):
+    """Decrypt the caller's OWN protected fields and log the access.
+
+    The generic /pii/unmask endpoint takes a ciphertext token, which a browser
+    never has. This is the employee-facing equivalent: it decrypts server-side,
+    only ever for the caller's own record, and writes an audit entry.
+    """
+    employee_uuid = payload.get("employee_uuid")
+    if not employee_uuid:
+        raise HTTPException(status_code=404, detail="No employee record linked to this account.")
+
+    hr = _hr(req)
+    # Only the columns that actually exist on employee_pii.
+    query = "SELECT full_name_encrypted, email_encrypted FROM employee_pii WHERE employee_uuid = $1"
+    rows = await hr.vault.execute_pii_query(query, "employee_pii", "SelfService", None, employee_uuid)
+    if not rows:
+        raise HTTPException(status_code=404, detail="No protected fields are held for your record.")
+
+    row = rows[0]
+    fields = {
+        "Full name": row.get("full_name"),
+        "Email": row.get("email"),
+    }
+    revealed = {k: v for k, v in fields.items() if v}
+
+    mongo_client = getattr(req.app.state, "mongo_client", None)
+    if mongo_client:
+        await mongo_client[settings.MONGO_DB_NAME]["pii_access_log"].insert_one({
+            "actor": payload.get("sub"), "employee_uuid": employee_uuid,
+            "reason": (reason or "").strip() or "Self service reveal",
+            "outcome": "GRANTED_SELF", "fields": list(revealed.keys()),
+            "accessed_at": datetime.now(timezone.utc).isoformat(),
+        })
+
+    return {"fields": revealed, "reason": reason, "outcome": "GRANTED"}
 
 @pii_router.get("/check_consent")
 async def check_user_consent(req: Request, purpose_id: str = Query(...), payload: Dict=Depends(employee_role_required)):
@@ -1936,7 +2062,7 @@ async def run_synthetic_simulation(req: Request, data: SimulationRequest, payloa
         recs[0] if isinstance(recs, list) and recs
         else (recs if isinstance(recs, str) else f"Review the simulated impact for {data.employee_id}.")
     )
-    return {
+    response = {
         "status": "Simulation Complete",
         "employee_id": data.employee_id,
         "simulation_id": result.get("simulation_id"),
@@ -1951,11 +2077,29 @@ async def run_synthetic_simulation(req: Request, data: SimulationRequest, payloa
         "adjustments_applied": result.get("adjustments_applied", data.synthetic_adjustments),
     }
 
+    # Persist the run so /simulation/history returns real past runs.
+    mongo_client = getattr(req.app.state, "mongo_client", None)
+    if mongo_client:
+        await mongo_client[settings.MONGO_DB_NAME]["simulation_runs"].insert_one({
+            **response,
+            "type": data.simulation_type,
+            "run_by": payload.get("sub"),
+            "run_at": datetime.now(timezone.utc).isoformat(),
+        })
+    return response
+
 @simulation_router.get("/history/{employee_id}")
-async def get_simulation_history(req: Request, employee_id: str, payload: Dict = Depends(manager_role_required)):
-    return [
-        {"sim_id": "SIM-001", "date": "2025-10-20", "type": "What-If", "result": "Risk Reduced by 25%"},
-    ]
+async def get_simulation_history(req: Request, employee_id: str, limit: int = Query(20), payload: Dict = Depends(manager_role_required)):
+    """Simulations actually run for this employee. Returns [] when there are none,
+    rather than the fabricated row this used to serve for everybody."""
+    mongo_client = getattr(req.app.state, "mongo_client", None)
+    if not mongo_client:
+        return []
+    lim = max(1, min(int(limit or 20), 100))
+    cursor = mongo_client[settings.MONGO_DB_NAME]["simulation_runs"].find(
+        {"employee_id": employee_id}, {"_id": 0}
+    ).sort("run_at", -1).limit(lim)
+    return await cursor.to_list(length=lim)
 
 @remediation_router.post("/audit-fail")
 async def remediate_audit_failure(req: Request, data: RemediationRequest, payload: Dict = Depends(hrit_admin_role_required)):
