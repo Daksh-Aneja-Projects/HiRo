@@ -119,7 +119,7 @@ class DigitalTwinAgent:
         if risk >= self.risk_threshold:
              await self.publisher.publish_event(
                 topic=DTLA_CRITICAL_RISK_TOPIC,
-                event_data={
+                payload={
                     "alert_id": f"ALERT_{uuid.uuid4().hex[:8].upper()}",
                     "risk_score": risk,
                     "recommendation": rec,
@@ -155,7 +155,7 @@ class DigitalTwinAgent:
                     logger.warning(f"DTLA Critical Risk Detected: {risk:.2f}")
                     await self.publisher.publish_event(
                         topic=DTLA_CRITICAL_RISK_TOPIC,
-                        event_data={
+                        payload={
                             "alert_id": f"ALERT_{uuid.uuid4().hex[:8].upper()}",
                             "risk_score": risk,
                             "recommendation": recommendation,

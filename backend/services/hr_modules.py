@@ -225,7 +225,7 @@ class HRModulesService:
         if decision in ["STOP", "BLOCK", "ERROR"]:
             await self.pub.publish_event(
                 topic=self.pub.TOPIC_POLICY_VIOLATION,
-                event_data={
+                payload={
                     "employee_id": employee_id,
                     "action": "TIMESHEET_SUBMIT",
                     "reason": enforcer_result.get("reason", "Unknown Policy Block"),

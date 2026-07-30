@@ -194,7 +194,7 @@ class DigitalTwinAgent:
                         if self.publisher and hasattr(self.publisher, 'publish_event'):
                             await self.publisher.publish_event(
                                 topic=self.publisher.TOPIC_DTLA_SCENARIO, 
-                                event_data={
+                                payload={
                                     "event_type": "PROACTIVE_RISK_DETECTED",
                                     "scenario_id": scenario['scenario_id'],
                                     "impact_magnitude": risk_score,

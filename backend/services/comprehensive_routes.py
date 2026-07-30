@@ -980,10 +980,15 @@ async def ess_dash(req: Request, employee_id: str, payload: Dict=Depends(employe
     return await ess_service.get_employee_dashboard_data(emp_uuid, payload['role'])
 
 @ess_router.post("/leave/submit")
-async def ess_leave(req: Request, data: LeaveRequestSubmit, payload: Dict=Depends(employee_role_required)): 
+async def ess_leave(req: Request, data: LeaveRequestSubmit, payload: Dict=Depends(employee_role_required)):
     ess_service: ESSService = getattr(req.app.state, "ess_service", None)
     if not ess_service: raise HTTPException(status_code=503, detail="ESS Service unavailable.")
-    return await ess_service.submit_leave_request(payload['sub'], data.model_dump())
+    # Store against the Postgres employee_uuid, not the login name, so the request
+    # joins to employee_pii and shows up in the employee's own leave history.
+    employee_uuid = payload.get("employee_uuid")
+    if not employee_uuid:
+        raise HTTPException(status_code=404, detail="No employee record linked to this account.")
+    return await ess_service.submit_leave_request(employee_uuid, data.model_dump())
 
 @ess_router.get("/profile/personal-info")
 async def get_personal_info(req: Request, payload: Dict=Depends(employee_role_required)):

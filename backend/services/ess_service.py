@@ -18,6 +18,16 @@ from services.agent_spec_dsl import TriggerType
 
 logger = logging.getLogger(__name__)
 
+
+def _as_date(value):
+    """Coerce an ISO date string to a date object for asyncpg DATE columns."""
+    if isinstance(value, str):
+        return datetime.strptime(value[:10], "%Y-%m-%d").date()
+    if isinstance(value, datetime):
+        return value.date()
+    return value
+
+
 # --- Configuration Constants ---
 ESS_AGENT_ID = "ESS_Service"
 # CRITICAL FIX: Import the PII Purpose constant used by the policy engine
@@ -109,21 +119,24 @@ class ESSService:
             VALUES 
             ($1, $2, $3, $4, $5, $6, $7)
             """
+            # start_date/end_date arrive as ISO strings but the columns are DATE,
+            # and asyncpg requires real date objects.
             await pg_client.execute(
                 insert_query,
                 request_id,
-                employee_id, 
-                request_data['start_date'],
-                request_data['end_date'],
-                requested_hours, 
+                employee_id,
+                _as_date(request_data['start_date']),
+                _as_date(request_data['end_date']),
+                requested_hours,
                 "PENDING",
                 current_time
             )
             
             # 3. Publish NATS event (The external action outside the DB)
+            # publish_event(topic, payload, key) - the second parameter is `payload`.
             event_success = await self.publisher.publish_event(
-                topic="HR.LEAVE_REQUEST_SUBMITTED", 
-                event_data={
+                "HR.LEAVE_REQUEST_SUBMITTED",
+                {
                     "request_id": request_id,
                     "employee_id": employee_id,
                     "requested_hours": requested_hours,

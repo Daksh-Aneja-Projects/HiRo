@@ -216,7 +216,7 @@ class MultiAgentHRSDSystem:
         # CRITICAL FIX: Publish to the ServiceNow Facade 
         await self.publisher.publish_event(
             topic="HRSD_TICKET_RESOLVED",
-            event_data={
+            payload={
                 "ticket_id": ticket_id, 
                 "status": TicketStatus.RESOLVED_BY_AGENT.value,
                 "resolution_summary": resolution_summary,

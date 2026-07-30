@@ -130,8 +130,16 @@ CREATE TABLE IF NOT EXISTS public.leave_requests (
     end_date DATE,
     hours NUMERIC,
     status VARCHAR(20),
-    submitted_at TEXT
+    submitted_at TEXT,
+    -- Written by MSSService.approve_leave when a manager decides.
+    approved_by VARCHAR(50),
+    decided_at TEXT,
+    denial_reason TEXT
 );
+-- Idempotent upgrade for clusters created before the approval columns existed.
+ALTER TABLE public.leave_requests ADD COLUMN IF NOT EXISTS approved_by VARCHAR(50);
+ALTER TABLE public.leave_requests ADD COLUMN IF NOT EXISTS decided_at TEXT;
+ALTER TABLE public.leave_requests ADD COLUMN IF NOT EXISTS denial_reason TEXT;
 
 -- CRITICAL FIX: TRUNCATE ALL TABLES TO ENSURE IDEMPOTENCY AND CLEAR DUPLICATE KEYS
 TRUNCATE public.performance_reviews, public.leave_balance, public.hrsd_tickets, public.employee_pii RESTART IDENTITY CASCADE;
