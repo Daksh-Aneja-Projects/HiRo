@@ -57,12 +57,14 @@ class HRModulesService:
         # Query intentionally selects the ENCRYPTED field
         query = "SELECT base_salary_encrypted, bonus_target_encrypted FROM employee_pii WHERE employee_uuid = $1"
         try:
+            # execute_pii_query(query, table_name, agent_id, auth=None, *args):
+            # trailing positional args are the SQL bind parameters ($1, ...).
             sensitive_data = await self.vault.execute_pii_query(
-                query=query, 
-                table_name="employee_pii",
-                agent_id="HRModulesService",
-                employee_id=employee_id,
-                purpose=POLICY_ESS_PURPOSE # Example purpose, assuming HR requires this access
+                query,
+                "employee_pii",
+                "HRModulesService",
+                None,
+                employee_id,
             )
             if not sensitive_data:
                 raise HTTPException(status_code=404, detail="Employee not found or PII data missing.")
@@ -83,6 +85,87 @@ class HRModulesService:
             logger.error(f"Error fetching compensation: {e}")
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal data retrieval error.")
 
+
+    async def get_timesheets(self, username: str, limit: int = 50, offset: int = 0) -> list:
+        """Real timesheet history for the logged-in employee from Mongo."""
+        ctx = await self._get_user_context(username)
+        employee_id = (ctx or {}).get("employee_id")
+        if not employee_id:
+            return []
+        limit = max(1, min(int(limit or 50), 500))
+        cursor = (
+            self.timesheets.find({"user_id": employee_id}, {"_id": 0})
+            .sort("submitted_at", -1)
+            .skip(max(0, int(offset or 0)))
+            .limit(limit)
+        )
+        rows = await cursor.to_list(length=limit)
+        return [
+            {
+                "id": r.get("timesheet_id"),
+                "week": r.get("week_ending"),
+                "hours": r.get("total_hours", 0),
+                "status": r.get("status", "SUBMITTED"),
+                "submitted_at": r.get("submitted_at"),
+            }
+            for r in rows
+        ]
+
+    async def get_team_performance_trend(self) -> list:
+        """Monthly average performance rating across the workforce, from Postgres."""
+        query = """
+            SELECT to_char(date_trunc('month', review_period_end), 'Mon YYYY') AS name,
+                   date_trunc('month', review_period_end) AS bucket,
+                   ROUND(AVG(overall_rating)::numeric, 2) AS value
+            FROM public.performance_reviews
+            GROUP BY bucket
+            ORDER BY bucket ASC
+        """
+        try:
+            rows = await pg_client.fetch(query)
+        except Exception as e:
+            logger.error(f"Team performance trend query failed: {e}")
+            return []
+        return [{"name": r["name"], "value": float(r["value"])} for r in rows]
+
+    async def get_leave_history(self, employee_id: str, limit: int = 50) -> list:
+        """Real leave-request history from the Postgres UDM."""
+        query = """
+            SELECT request_id, start_date, end_date, hours, status, submitted_at
+            FROM leave_requests WHERE employee_uuid = $1
+            ORDER BY submitted_at DESC LIMIT $2
+        """
+        try:
+            rows = await pg_client.fetch(query, employee_id, max(1, min(int(limit or 50), 500)))
+        except Exception as e:
+            logger.error(f"Leave history query failed: {e}")
+            return []
+        return [
+            {
+                "request_id": r["request_id"],
+                "start_date": str(r["start_date"]),
+                "end_date": str(r["end_date"]),
+                "hours": float(r["hours"]) if r["hours"] is not None else 0.0,
+                "status": r["status"],
+                "submitted_at": str(r["submitted_at"]),
+            }
+            for r in rows
+        ]
+
+    async def get_employee_profile(self, employee_id: str) -> Dict[str, Any]:
+        """Employee profile assembled from the users directory + PII vault."""
+        user = await self.users.find_one({"employee_uuid": employee_id}, {"_id": 0, "hashed_password": 0})
+        query = "SELECT full_name_encrypted, email_encrypted, job_title, role FROM employee_pii WHERE employee_uuid = $1"
+        rows = await self.vault.execute_pii_query(query, "employee_pii", "HRModulesService", None, employee_id)
+        pii = rows[0] if rows else {}
+        return {
+            "employee_id": employee_id,
+            "username": (user or {}).get("username"),
+            "full_name": pii.get("full_name") or (user or {}).get("full_name"),
+            "email": pii.get("email") or (user or {}).get("email"),
+            "job_title": pii.get("job_title"),
+            "role": pii.get("role") or (user or {}).get("role"),
+        }
 
     async def submit_timesheet(self, username: str, timesheet_data: Dict[str, Any]):
         """Submits a new timesheet, running it through Policy Enforcement."""

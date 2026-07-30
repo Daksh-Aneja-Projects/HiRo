@@ -342,6 +342,26 @@ async def lifespan(app: FastAPI):
             publisher=app.state.event_publisher
         )
         app.state.cognitive_remediation_agent = CognitiveRemediationAgent(app.state.ai_service)
+
+        # Services the API routes depend on that were previously never attached
+        # to app.state (their endpoints 503'd or fell back to stubs).
+        from services.xai_wrapper import XAIWrapper
+        from services.immersive_learning_agent import ImmersiveLearningAgent
+        from services.bpel_agent import BPELAgent
+        from services.rlff_llm_fine_tuner import RLFFLLMFineTuner
+        app.state.xai_wrapper = XAIWrapper()
+        app.state.immersive_learning_agent = ImmersiveLearningAgent(
+            pub=app.state.event_publisher, ai=app.state.ai_service
+        )
+        app.state.bpel_agent = BPELAgent(
+            ai_service=app.state.ai_service,
+            policy_versioning_service=app.state.policy_versioning_service,
+        )
+        app.state.rlff_llm_fine_tuner = RLFFLLMFineTuner(
+            ai_service=app.state.ai_service, publisher=app.state.event_publisher
+        )
+        # Alias so handlers that look up `talent_acquisition_service` resolve too.
+        app.state.talent_acquisition_service = app.state.ta_service
         logger.info(" ✅  All HiRo SI Agents initialized and wired.")
                 
         # 9. Start Background Tasks

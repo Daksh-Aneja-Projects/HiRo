@@ -26,139 +26,34 @@ from services.auth_deps import (
     get_auth_payload
 )
 
-# CRITICAL FIX 2: Consolidate all non-guaranteed service imports into one try block
-try:
-    from services.policy_versioning import PolicyVersioningService
-    from services.multi_agent_hrsd import MultiAgentHRSDSystem
-    from services.digital_twin_agent import DigitalTwinAgent
-    from services.xai_wrapper import XAIWrapper
-    from services.pqc_pii_layer import PQCEncryptionWrapper
-    from services.autonomous_upgrade_agent import AutonomousUpgradeAgent
-    from services.agent_creation_service import AgentCreationService
-    from services.bpel_agent import BPELAgent
-    from services.hr_modules import HRModulesService
-    from services.ess_service import ESSService
-    from services.mss_service import MSSService
-    from services.rlff_llm_fine_tuner import RLFFLLMFineTuner
-    from services.talent_acquisition_service import TalentAcquisitionService
-    from services.immersive_learning_agent import ImmersiveLearningAgent
-    from services.workforce_planning_service import WorkforcePlanningService as WFMService 
-    from services.ai_services import AIService 
-    from services.admin_service import AdminService 
-    from services.self_correcting_agent import SelfCorrectingAgent
-    from services.synthetic_twin_engine import SyntheticTwinEngine
-    from services.cognitive_remediation_agent import CognitiveRemediationAgent
-    from routes.streaming_routes import manager as websocket_manager 
-    from services.configuration_agent import ConfigurationAgent 
-    from services.enforcement_engine import runtime_enforcer
-except ImportError as e:
-    logger.critical(f"Placeholder import failed for a service: {e}. Using stub classes.")
-    # Define placeholder classes/functions to prevent NameError in routes
-    class PolicyVersioningService: 
-        def get_active_version(self, policy_id): return {"policy_id": policy_id, "content": {"bpcl_code": "mock_bpcl"}}
-        def get_version_history(self, policy_id): return [{"id": "v1.0"}, {"id": "v1.1"}]
-        def create_policy_version(self, *args): 
-            class MockDraft:
-                version_id = f"DRAFT-MOCK-{random.getrandbits(16)}"
-                version_number = "1.0-draft"
-            return MockDraft()
-        def update_version_content(self, *args): pass
-        def submit_for_approval(self, *args): 
-            class MockReq:
-                request_id = f"REQ-MOCK-{random.getrandbits(16)}"
-            return MockReq()
-        def approve_policy(self, *args): pass
-        def activate_version(self, *args): pass
-        def rollback_to_version(self, *args): pass
-    class MultiAgentHRSDSystem: 
-        async def list_tickets(self, employee_id: Optional[str]): return {"tickets": [], "is_mock": True}
-        async def create_ticket(self, employee_id, subject, description):
-            class MockTicket:
-                ticket_id = f"T-MOCK-{random.getrandbits(16)}"
-            return MockTicket()
-        async def resolve_ticket_by_agent(self, ticket_id, summary, user): pass
-    class DigitalTwinAgent: 
-        async def execute_dtla_command(self, data): return {"status": f"Mocked DTLA command executed: {data.get('command_type')}"}
-        async def send_message_to_twin(self, *args): return {"response": "Twin acknowledged."}
-        async def get_history(self, user_id): return [{"message": "History Mock"}]
-    class XAIWrapper: 
-        def explain_prediction(self, data): return {"explanation": "Mock XAI explanation."}
-    class PQCEncryptionWrapper: 
-        async def rotate_keys(self): pass
-        def encrypt_data(self, plaintext): return {"ciphertext": "MOCK_CIPHER"}
-        def decrypt_data(self, ciphertext): return {"plaintext": "MOCK_PLAINTEXT"}
-    class AutonomousUpgradeAgent: 
-        async def run_environment_health_check(self):
-            return {"status": "HEALTHY", "checks": {"postgres": "UP", "nats": "UP", "ai_primary": "UP"}, "timestamp": datetime.now(timezone.utc).isoformat()}
-    class AgentCreationService: 
-        async def create_and_deploy_agent(self, intent, user): return {"agent_id": f"AGNT-MOCK-{random.getrandbits(16)}"}
-    class BPELAgent: 
-        async def generate_bpmn_from_description(self, *args): return {"bpmn": "<xml>Mock BPMN</xml>"}
-    class HRModulesService: 
-        async def get_employee_compensation(self, id, role): return {"employee_id": id, "base_salary": 120000}
-        async def update_compensation(self, *args): return {"status": "Updated"}
-        async def get_employee_performance(self, id, role): return {"score": 4.0}
-        async def get_team_performance_trend(self): return [{"month": "Jan", "score": 3.5}]
-        async def get_profile(self, employee_id): return {"id": employee_id, "name": "Mock Employee"}
-        async def update_profile(self, employee_id, data): return {"status": "Updated"}
-        async def get_document_details(self, doc_id): return {"doc_id": doc_id, "filename": "mock.pdf"}
-        async def delete_document(self, doc_id): return {"status": "Deleted"}
-        async def submit_timesheet(self, user, data): return {"id": "TS-MOCK-2", "status": "PENDING"}
-    class ESSService: 
-        async def get_employee_dashboard_data(self, id, role): return {"employee_id": id, "status": "ACTIVE"}
-        async def submit_leave_request(self, user, data): return {"status": "SUBMITTED"}
-        async def get_personal_info(self): return {"email": "user@hiro.com"}
-        async def submit_personal_info_update(self, payload): return {"status": "Update Requested"}
-    class MSSService: 
-        async def get_manager_team_data(self, id, role): return {"team": []}
-        async def approve_leave(self, req_id, user, approved): return {"status": "Processed"}
-        async def get_approval_queue(self): return []
-        async def action_approval(self, payload): return {"status": "Actioned"}
-    class RLFFLLMFineTuner: pass
-    class TalentAcquisitionService: 
-        async def get_talent_pool_snapshot(self): return {"pools": {"Engineering": {"size": 420}}}
-        async def predict_risk(self, data): return {"risk_score": 0.5, "message": "Risk predicted."}
-        async def generate_job_description(self, data): return {"draft_id": "JD-MOCK-1", "title": data['role_title']}
-    class ImmersiveLearningAgent: 
-        async def synthesize_curriculum(self, *args): return {"modules": ["Module A", "Module B"]}
-    class WorkforcePlanningService: 
-        async def predict_attrition_risk(self, data): return {'feature_vector_used': data, 'risk_score': 0.78}
-        async def get_current_projections(self): return []
-    class AIService: 
-        async def generate_text(self, *args): return {"text": "Mock AI generated text."}
-        async def generate_embedding(self, *args): return [0.1, 0.2, 0.3]
-        async def get_ai_models(self): return ["GPT-4", "Mistral"]
-    class AdminService: 
-        async def hard_purge_system_data(self, user): return {"message": "Mock system data reset and purged successfully."}
-        async def get_all_users(self): return [{"username": "admin", "role": "admin"}]
-        async def create_user(self, data): return {"status": "Created"}
-        async def update_role(self, *args): return {"status": "Updated"}
-        async def delete_user(self, username): return {"status": "Deleted"}
-        async def get_announcements(self): return [{"id": 1, "title": "Mock Announce"}]
-        async def create_announcement(self, data): return {"status": "Published"}
-    class SelfCorrectingAgent: 
-        async def generate_and_fix_bpcl(self, nl_prompt):
-             yield json.dumps({'step': 1, 'message': 'Mock step 1: Analyzing intent.'})
-             yield "COMPLETE"
-    class SyntheticTwinEngine: 
-        async def run_simulation(self, **kwargs): return {"original_attrition_risk": 0.82, "simulated_attrition_risk": 0.50}
-    class CognitiveRemediationAgent: 
-        async def remediate_transaction_violation(self, **kwargs): return {"reasoning": "Mock fixed payload.", "confidence": 0.99}
-    class ConfigurationAgent: 
-        async def finalize_deployment_approval(self, *args): return {"status": "Mock Deployed"}
-        async def reject_deployment(self, *args): return {"status": "Mock Rejected"} 
-    def ingestion_process_stream(**kwargs): return {"status": "Mocked Ingestion"}
-    class MockManager:
-        def __init__(self): self.active_connections = {}; self.telemetry_subscribers = set()
-        async def connect(self, ws, id): pass
-        def disconnect(self, id): pass
-        def subscribe_telemetry(self, id): pass
-        async def broadcast_telemetry(self, data): pass
-    websocket_manager = MockManager()
-    class EnforcementEngineStub:
-        async def execute_dsl_check(self, *args, **kwargs): return {"decision": "PASS"}
-    runtime_enforcer = EnforcementEngineStub()
-    
+# Real service imports. These are hard dependencies — if any fails to import,
+# the app must fail loudly at boot, not silently swap in mock classes that
+# return fabricated data. (The former `except ImportError` fallback masked
+# every wrong-method bug in this file; it was verified dead and removed.)
+from services.policy_versioning import PolicyVersioningService
+from services.multi_agent_hrsd import MultiAgentHRSDSystem
+from services.digital_twin_agent import DigitalTwinAgent
+from services.xai_wrapper import XAIWrapper
+from services.pqc_pii_layer import PQCEncryptionWrapper
+from services.autonomous_upgrade_agent import AutonomousUpgradeAgent
+from services.agent_creation_service import AgentCreationService
+from services.bpel_agent import BPELAgent
+from services.hr_modules import HRModulesService
+from services.ess_service import ESSService
+from services.mss_service import MSSService
+from services.rlff_llm_fine_tuner import RLFFLLMFineTuner
+from services.talent_acquisition_service import TalentAcquisitionService
+from services.immersive_learning_agent import ImmersiveLearningAgent
+from services.workforce_planning_service import WorkforcePlanningService as WFMService
+from services.ai_services import AIService
+from services.admin_service import AdminService
+from services.self_correcting_agent import SelfCorrectingAgent
+from services.synthetic_twin_engine import SyntheticTwinEngine
+from services.cognitive_remediation_agent import CognitiveRemediationAgent
+from routes.streaming_routes import manager as websocket_manager
+from services.configuration_agent import ConfigurationAgent
+from services.enforcement_engine import runtime_enforcer
+
 
 # --- Data Models (from schemas/models.py) ---
 class PolicyUpdateRequest(BaseModel):
@@ -448,51 +343,79 @@ async def get_admin_dashboard(req: Request, payload: Dict=Depends(hrit_admin_rol
         "critical_alerts": compliance["high_severity_violations"],
     }
 
+def _require_admin_service(req: Request) -> AdminService:
+    svc = getattr(req.app.state, "admin_service", None)
+    if not svc:
+        raise HTTPException(status_code=503, detail="Admin service unavailable.")
+    return svc
+
 @admin_router.get("/users")
-async def get_admin_users(req: Request, limit: Optional[int] = Query(None), offset: Optional[int] = Query(None), auth=Depends(hrit_admin_role_required)):
-    admin_service = getattr(req.app.state, "admin_service", None)
-    if hasattr(admin_service, 'get_all_users') and admin_service:
-        return await admin_service.get_all_users()
-    return {"users": [{"username": "admin", "role": "admin", "full_name": "Admin User"}]}
+async def get_admin_users(req: Request, limit: int = Query(200), offset: int = Query(0), auth=Depends(hrit_admin_role_required)):
+    users = await _require_admin_service(req).get_all_users(limit=limit, offset=offset)
+    return {"users": users, "count": len(users)}
 
 @admin_router.post("/users/create")
-async def admin_create_user(req: Request, data: Dict, auth=Depends(hrit_admin_role_required)):
-    admin_service = getattr(req.app.state, "admin_service", None)
-    if hasattr(admin_service, 'create_user') and admin_service:
-        return await admin_service.create_user(data)
-    return {"status": "Created"}
+async def admin_create_user(req: Request, data: Dict[str, Any], auth=Depends(hrit_admin_role_required)):
+    try:
+        return await _require_admin_service(req).create_user(data)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @admin_router.put("/users/{username}/role")
-async def admin_update_role(req: Request, username: str, data: Dict, auth=Depends(hrit_admin_role_required)):
-    admin_service = getattr(req.app.state, "admin_service", None)
-    if hasattr(admin_service, 'update_role') and admin_service:
-        return await admin_service.update_role(username, data.get("role"))
-    return {"status": "Updated", "username": username, "new_role": data.get("role")}
+async def admin_update_role(req: Request, username: str, data: Dict[str, Any], auth=Depends(hrit_admin_role_required)):
+    try:
+        return await _require_admin_service(req).update_role(username, data.get("role"))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @admin_router.delete("/users/{username}")
 async def admin_delete_user(req: Request, username: str, auth=Depends(hrit_admin_role_required)):
-    admin_service = getattr(req.app.state, "admin_service", None)
-    if hasattr(admin_service, 'delete_user') and admin_service:
-        return await admin_service.delete_user(username)
-    return {"status": "Deleted", "username": username}
+    try:
+        return await _require_admin_service(req).delete_user(username)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @admin_router.post("/system/integrity-check")
 async def integrity_check(req: Request, service: str = Body(..., embed=True), payload: Dict=Depends(hrit_admin_role_required)):
-    return {"service": service, "status": "INTEGRITY_VERIFIED"}
+    """Live integrity probe: confirms the named subsystem is reachable right now."""
+    service = (service or "").lower()
+    ok, detail = True, "Reachable"
+    try:
+        if service in ("postgres", "db", "database"):
+            pg = getattr(req.app.state, "pg_client", None)
+            ok = pg is not None
+            detail = "Postgres pool active" if ok else "Postgres client not initialized"
+        elif service in ("redis", "cache"):
+            r = getattr(req.app.state, "redis_client", None)
+            if r:
+                await r.ping()
+                detail = "Redis PONG"
+            else:
+                ok, detail = False, "Redis not connected"
+        elif service in ("mongo", "mongodb"):
+            m = getattr(req.app.state, "mongo_client", None)
+            if m:
+                await m.admin.command("ping")
+                detail = "MongoDB ping ok"
+            else:
+                ok, detail = False, "Mongo client not initialized"
+        else:
+            detail = "No specific probe; process is live"
+    except Exception as e:
+        ok, detail = False, f"{type(e).__name__}: {e}"
+    return {"service": service, "status": "INTEGRITY_VERIFIED" if ok else "INTEGRITY_FAILED", "detail": detail}
 
 @admin_router.get("/announcement")
-async def get_announcements(req: Request, limit: Optional[int] = Query(None), offset: Optional[int] = Query(None), payload: Dict=Depends(hrit_admin_role_required)):
-    admin_service = getattr(req.app.state, "admin_service", None)
-    if hasattr(admin_service, 'get_announcements') and admin_service:
-        return await admin_service.get_announcements()
-    return {"announcements": [{"id": 1, "title": "Mock Announce", "content": "Welcome to HiRo!"}]}
+async def get_announcements(req: Request, limit: int = Query(50), offset: int = Query(0), payload: Dict=Depends(hrit_admin_role_required)):
+    items = await _require_admin_service(req).get_announcements(limit=limit, offset=offset)
+    return {"announcements": items, "count": len(items)}
 
 @admin_router.post("/announcement")
 async def create_announcement(req: Request, data: Dict[str, Any], payload: Dict=Depends(hrit_admin_role_required)):
-    admin_service = getattr(req.app.state, "admin_service", None)
-    if hasattr(admin_service, 'create_announcement') and admin_service:
-        return await admin_service.create_announcement(data)
-    return {"status": "Published", "id": "ANN-MOCK"}
+    try:
+        return await _require_admin_service(req).create_announcement(data, author=payload.get("sub", "system"))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @admin_router.post("/system/cache/clear")
 async def clear_cache(req: Request, payload: Dict=Depends(hrit_admin_role_required)):
@@ -581,13 +504,18 @@ async def dtla_command(req: Request, command_type: str = Body(...), data: Dict =
 async def test_pqc_encrypt(req: Request, plaintext: str = Body(..., embed=True), payload: Dict=Depends(hrit_admin_role_required)):
     pqc_wrapper: PQCEncryptionWrapper = getattr(req.app.state, "pqc_wrapper", None)
     if not pqc_wrapper: raise HTTPException(status_code=503, detail="PQC Wrapper unavailable.")
-    return pqc_wrapper.encrypt_data(plaintext)
+    # encrypt() returns (ciphertext_str, metadata_dict)
+    ciphertext, metadata = pqc_wrapper.encrypt(plaintext)
+    return {"ciphertext": ciphertext, "metadata": metadata}
 
 @dev_router.post("/pqc/decrypt")
 async def test_pqc_decrypt(req: Request, ciphertext: str = Body(..., embed=True), payload: Dict=Depends(hrit_admin_role_required)):
     pqc_wrapper: PQCEncryptionWrapper = getattr(req.app.state, "pqc_wrapper", None)
     if not pqc_wrapper: raise HTTPException(status_code=503, detail="PQC Wrapper unavailable.")
-    return pqc_wrapper.decrypt_data(ciphertext)
+    try:
+        return {"plaintext": pqc_wrapper.decrypt(ciphertext)}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @dev_router.post("/policy/generate_tree")
 async def generate_policy_execution_tree(req: Request, policy_version_id: str = Body(..., embed=True), payload: Dict=Depends(hrit_admin_role_required)):
@@ -637,33 +565,25 @@ async def update_comp(req: Request, data: CompensationUpdateRequest, payload: Di
         payload['sub']
     )
 
+# team-trend MUST be declared before /performance/{employee_id}, or the path
+# param route captures "team-trend" as an employee_id.
+@hr_router.get("/performance/team-trend")
+async def get_team_performance(req: Request, month: Optional[str] = Query(None), year: Optional[int] = Query(None), payload: Dict=Depends(manager_role_required)):
+    hr_modules_service: HRModulesService = getattr(req.app.state, "hr_modules_service", None)
+    if not hr_modules_service: raise HTTPException(status_code=503, detail="HR Modules Service unavailable.")
+    return await hr_modules_service.get_team_performance_trend()
+
 @hr_router.get("/performance/{employee_id}")
 async def get_perf(req: Request, employee_id: str, payload: Dict=Depends(manager_role_required)):
     hr_modules_service: HRModulesService = getattr(req.app.state, "hr_modules_service", None)
     if not hr_modules_service: raise HTTPException(status_code=503, detail="HR Modules Service unavailable.")
     return await hr_modules_service.get_employee_performance(employee_id, payload['role'])
 
-@hr_router.get("/performance/team-trend")
-async def get_team_performance(req: Request, month: Optional[str] = Query(None), year: Optional[int] = Query(None), payload: Dict=Depends(manager_role_required)):
-    """FIX: Added missing endpoint for team performance trend."""
+@hr_router.get("/timesheets")
+async def get_timesheets(req: Request, limit: int = Query(50), offset: int = Query(0), payload: Dict=Depends(employee_role_required)):
     hr_modules_service: HRModulesService = getattr(req.app.state, "hr_modules_service", None)
     if not hr_modules_service: raise HTTPException(status_code=503, detail="HR Modules Service unavailable.")
-    return await hr_modules_service.get_team_performance_trend()
-
-@hr_router.get("/timesheets")
-async def get_timesheets(req: Request, limit: Optional[int] = Query(None), offset: Optional[int] = Query(None), payload: Dict=Depends(employee_role_required)): 
-    mongo_client = getattr(req.app.state, "mongo_client", None)
-    if not mongo_client: return [{"id": "TS-001", "week": "2023-W40", "hours": 40}]
-    
-    timesheets = [
-        {"timesheet_id": "TS-001", "week_ending": "2023-W40", "total_hours": 40},
-        {"timesheet_id": "TS-002", "week_ending": "2023-W41", "total_hours": 38}
-    ]
-    
-    return [
-        {"id": ts.get("timesheet_id", "N/A"), "week": ts.get("week_ending", "N/A"), "hours": ts.get("total_hours", 0)}
-        for ts in timesheets
-    ]
+    return await hr_modules_service.get_timesheets(payload['sub'], limit=limit, offset=offset)
 
 @hr_router.post("/timesheets")
 async def submit_timesheet(req: Request, data: Dict, payload: Dict=Depends(employee_role_required)): 
@@ -691,12 +611,22 @@ async def run_timesheet_pre_check(req: Request, data: Dict, payload: Dict=Depend
         }
 
 @hr_router.get("/leave/balance")
-async def get_leave_balance(req: Request, payload: Dict=Depends(employee_role_required)): 
-    return {"annual": 15, "sick": 5}
+async def get_leave_balance(req: Request, payload: Dict=Depends(employee_role_required)):
+    hr_modules_service: HRModulesService = getattr(req.app.state, "hr_modules_service", None)
+    if not hr_modules_service: raise HTTPException(status_code=503, detail="HR Modules Service unavailable.")
+    employee_uuid = payload.get("employee_uuid")
+    if not employee_uuid:
+        raise HTTPException(status_code=404, detail="No employee record linked to this account.")
+    return await hr_modules_service.get_employee_leave_balance(employee_uuid)
 
 @hr_router.get("/leave/requests")
-async def get_leave_history(req: Request, limit: Optional[int] = Query(None), offset: Optional[int] = Query(None), payload: Dict=Depends(employee_role_required)): 
-    return []
+async def get_leave_history(req: Request, limit: int = Query(50), offset: Optional[int] = Query(None), payload: Dict=Depends(employee_role_required)):
+    hr_modules_service: HRModulesService = getattr(req.app.state, "hr_modules_service", None)
+    if not hr_modules_service: raise HTTPException(status_code=503, detail="HR Modules Service unavailable.")
+    employee_uuid = payload.get("employee_uuid")
+    if not employee_uuid:
+        return []
+    return await hr_modules_service.get_leave_history(employee_uuid, limit=limit)
 
 @hr_router.post("/performance/review")
 async def submit_review(req: Request, data: Dict, payload: Dict=Depends(manager_role_required)):

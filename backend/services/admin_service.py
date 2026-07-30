@@ -8,8 +8,12 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from contextlib import asynccontextmanager # CRITICAL FIX: Import for Stub
 
 from config.settings import settings
+from services.auth_service import PasswordHasher
 
 logger = logging.getLogger(__name__)
+
+VALID_ROLES = {"hrit_admin", "hrbp", "manager", "employee"}
+PUBLIC_USER_FIELDS = {"_id": 0, "hashed_password": 0}
 
 DEFAULT_DB_NAME = settings.MONGO_DB_NAME if hasattr(settings, 'MONGO_DB_NAME') else "ahcm_db"
 MAX_USER_FETCH_LIMIT = 5000
@@ -36,6 +40,79 @@ class AdminService:
         self.users = self.db.users
         self.pg_client = pg_client 
     
+    async def get_all_users(self, limit: int = 200, offset: int = 0) -> List[Dict[str, Any]]:
+        """Real user directory from Mongo (never the password hash)."""
+        limit = max(1, min(int(limit or 200), MAX_USER_FETCH_LIMIT))
+        offset = max(0, int(offset or 0))
+        cursor = self.users.find({}, PUBLIC_USER_FIELDS).sort("username", 1).skip(offset).limit(limit)
+        return await cursor.to_list(length=limit)
+
+    async def create_user(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        username = (data.get("username") or "").strip().lower()
+        role = (data.get("role") or "").strip().lower()
+        if not username:
+            raise ValueError("username is required")
+        if role not in VALID_ROLES:
+            raise ValueError(f"role must be one of {sorted(VALID_ROLES)}")
+        if await self.users.find_one({"username": username}):
+            raise ValueError(f"user '{username}' already exists")
+
+        # Default password == username, matching the dev-login convention.
+        password = data.get("password") or username
+        doc = {
+            "username": username,
+            "email": (data.get("email") or f"{username}@hiro.ai").strip(),
+            "full_name": (data.get("full_name") or username.title()).strip(),
+            "role": role,
+            "employee_uuid": data.get("employee_uuid"),
+            "is_active": bool(data.get("is_active", True)),
+            "hashed_password": PasswordHasher.hash_password(password),
+            "user_id": str(secrets.randbits(64)),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await self.users.insert_one(doc)
+        doc.pop("_id", None)
+        doc.pop("hashed_password", None)
+        return {"status": "Created", "user": doc}
+
+    async def update_role(self, username: str, role: str) -> Dict[str, Any]:
+        role = (role or "").strip().lower()
+        if role not in VALID_ROLES:
+            raise ValueError(f"role must be one of {sorted(VALID_ROLES)}")
+        result = await self.users.update_one({"username": username}, {"$set": {"role": role}})
+        if result.matched_count == 0:
+            raise ValueError(f"user '{username}' not found")
+        return {"status": "Updated", "username": username, "new_role": role}
+
+    async def delete_user(self, username: str) -> Dict[str, Any]:
+        if username == "admin":
+            raise ValueError("the built-in 'admin' account cannot be deleted")
+        result = await self.users.delete_one({"username": username})
+        if result.deleted_count == 0:
+            raise ValueError(f"user '{username}' not found")
+        return {"status": "Deleted", "username": username}
+
+    async def get_announcements(self, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
+        limit = max(1, min(int(limit or 50), 500))
+        offset = max(0, int(offset or 0))
+        cursor = self.announcements.find({}, {"_id": 0}).sort("created_at", -1).skip(offset).limit(limit)
+        return await cursor.to_list(length=limit)
+
+    async def create_announcement(self, data: Dict[str, Any], author: str = "system") -> Dict[str, Any]:
+        title = (data.get("title") or "").strip()
+        content = (data.get("content") or data.get("body") or "").strip()
+        if not title or not content:
+            raise ValueError("title and content are required")
+        doc = {
+            "id": f"ANN-{secrets.token_hex(4)}",
+            "title": title,
+            "content": content,
+            "author": author,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await self.announcements.insert_one(dict(doc))
+        return {"status": "Published", "announcement": doc}
+
     async def hard_purge_system_data(self, admin_id: str) -> Dict[str, str]:
         """
         DANGEROUS: Executes a complete hard purge of non-critical system data

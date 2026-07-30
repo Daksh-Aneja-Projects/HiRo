@@ -79,3 +79,4 @@ backend/pac_engine_rs/target/
 # Internal working docs (not part of the public repo)
 HANDOFF.md
 PLAN.md
+docker-compose.override.yml

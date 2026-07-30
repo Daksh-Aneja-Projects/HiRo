@@ -18,10 +18,12 @@ class PIIVault:
         # CRITICAL FIX: Define PII fields based on actual encrypted columns in `employee_pii` DDL
         self.pii_fields = {
             "employee_pii": [
-                "full_name_encrypted", 
-                "email_encrypted", 
-                "phone_encrypted", 
-                "national_id_encrypted"
+                "full_name_encrypted",
+                "email_encrypted",
+                "phone_encrypted",
+                "national_id_encrypted",
+                "base_salary_encrypted",
+                "bonus_target_encrypted",
             ]
         }
         logger.info("✓ PII Vault Initialized.")
