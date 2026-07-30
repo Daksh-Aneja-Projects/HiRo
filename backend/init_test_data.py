@@ -7,12 +7,14 @@ database is clean and bypasses duplicate key errors from prior failed runs.
 """
 
 import asyncio
+import csv
+import json
 import sys
 import logging
 import random
 import uuid
 from pathlib import Path
-from datetime import datetime, timezone, timedelta, date 
+from datetime import datetime, timezone, timedelta, date
 from typing import List, Dict, Any, Tuple
 
 # Setup logging
@@ -329,6 +331,155 @@ async def seed_governance_and_audit():
     logger.info(f" ✅ Seeded {len(prop_rows)} DAO proposals and {len(audit_rows)} policy-audit decisions.")
 
 
+# --- EXTERNAL DATASET SEEDING (verified, license-clear public datasets) ---
+# Staged locally under backend/data/external/ (gitignored, never committed).
+EXTERNAL_DATA_DIR = Path(__file__).parent / "data" / "external"
+
+# IBM HR Analytics Employee Attrition & Performance (CC0 public domain).
+# Source: https://www.kaggle.com/datasets/yasserh/ibm-attrition-dataset
+IBM_HR_CSV = EXTERNAL_DATA_DIR / "ibm_hr_attrition.csv"
+
+# UCI Incident Management Process Enriched Event Log (CC BY 4.0).
+# Source: https://archive.ics.uci.edu/dataset/498/incident+management+process+enriched+event+log
+UCI_INCIDENT_CSV = EXTERNAL_DATA_DIR / "incident_event_log.csv"
+
+HR_TOPICS = [
+    "Leave Request", "Payroll Discrepancy", "Benefits Enrollment", "Onboarding Access",
+    "Compensation Review", "Performance Feedback", "Workplace Accommodation",
+    "IT Access Request", "Policy Clarification", "Timesheet Correction",
+]
+
+
+async def seed_ibm_hr_dataset(pqc_wrapper: PQCEncryptionWrapper):
+    """Seeds real employee records from the IBM HR Attrition dataset (CC0), alongside
+    the synthetic bulk data, so attrition/performance/comp views reflect a real-world
+    distribution rather than only generated numbers."""
+    if not IBM_HR_CSV.exists():
+        logger.info(f"IBM HR dataset not staged at {IBM_HR_CSV}, skipping (optional).")
+        return
+
+    with open(IBM_HR_CSV, encoding="utf-8-sig") as f:
+        rows = list(csv.DictReader(f))
+
+    pii_rows, leave_rows, perf_rows = [], [], []
+    for row in rows:
+        emp_num = row["EmployeeNumber"]
+        uid = f"IBM-{emp_num}"
+        years_at_company = int(row.get("YearsAtCompany") or 0)
+        hire_date = (datetime.now() - timedelta(days=years_at_company * 365)).date()
+        monthly_income = float(row.get("MonthlyIncome") or 0)
+        attrition = row.get("Attrition") == "Yes"
+        job_satisfaction = int(row.get("JobSatisfaction") or 3)
+        # Real dataset has no attrition probability score; derive one consistent with
+        # HiRo's own risk scale (0-1) from the actual attrition label + satisfaction.
+        risk = (0.65 if attrition else 0.15) + (1 - job_satisfaction / 4.0) * 0.25
+        risk = round(min(1.0, max(0.0, risk)), 2)
+
+        name_enc, _ = pqc_wrapper.encrypt(f"IBM Dataset Employee {emp_num}", data_context=f"PII_NAME_{uid}")
+        email_enc, _ = pqc_wrapper.encrypt(f"ibm.{emp_num}@hiro.com", data_context=f"PII_EMAIL_{uid}")
+        salary_enc, _ = pqc_wrapper.encrypt(str(round(monthly_income * 12, 2)), data_context=f"PII_SALARY_{uid}")
+        bonus_enc, _ = pqc_wrapper.encrypt(str(round(float(row.get("PercentSalaryHike") or 0) / 100, 2)), data_context=f"PII_BONUS_{uid}")
+
+        pii_rows.append((
+            uid, uid, None, random.choice(JURISDICTIONS), name_enc, email_enc,
+            salary_enc, bonus_enc, hire_date, row.get("Department") or "Unknown",
+            "employee", row.get("JobRole") or "Employee", risk, max(1, years_at_company * 12),
+        ))
+        leave_rows.append((uid, round(random.uniform(0, 200), 2), 0.0, "LEAVE_POLICY_DEFAULT"))
+        perf_rows.append((
+            uid, float(row.get("PerformanceRating") or 3.0),
+            (datetime.now() - timedelta(days=random.randint(30, 300))).date(), "EMP-001",
+        ))
+
+    async with pg_client.transaction("InitScript", "ibm_hr_seed"):
+        await pg_client.executemany_async(
+            """INSERT INTO public.employee_pii (
+                   employee_uuid, employee_id_str, manager_id, jurisdiction_code, full_name_encrypted,
+                   email_encrypted, base_salary_encrypted, bonus_target_encrypted, hire_date, department,
+                   role, job_title, dtla_risk_score, tenure_months)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+               ON CONFLICT (employee_uuid) DO UPDATE SET full_name_encrypted = EXCLUDED.full_name_encrypted""",
+            pii_rows,
+        )
+        await pg_client.executemany_async(
+            """INSERT INTO public.leave_balance (employee_uuid, balance_hours, used_hours, policy_id)
+               VALUES ($1,$2,$3,$4) ON CONFLICT (employee_uuid) DO UPDATE SET balance_hours = EXCLUDED.balance_hours""",
+            leave_rows,
+        )
+        await pg_client.executemany_async(
+            """INSERT INTO public.performance_reviews (employee_uuid, overall_rating, review_period_end, reviewer_id)
+               VALUES ($1,$2,$3,$4)""",
+            perf_rows,
+        )
+    logger.info(f" ✅ Seeded {len(pii_rows):,} real employees from the IBM HR Attrition dataset (CC0).")
+
+
+async def seed_uci_incident_tickets(limit: int = 800):
+    """Seeds hrsd_tickets from the UCI Incident Management event log (CC BY 4.0).
+
+    The log is an anonymized real IT-service-desk event stream (one row per state
+    change); categories are already anonymized numeric codes with no HR meaning, so
+    they're relabeled to HR topics for demo realism while the real volume, priority
+    mix, and resolution timing are preserved as-is.
+    """
+    if not UCI_INCIDENT_CSV.exists():
+        logger.info(f"UCI incident dataset not staged at {UCI_INCIDENT_CSV}, skipping (optional).")
+        return
+
+    status_map = {
+        "New": "NEW", "Active": "IN_TRIAGE", "Awaiting User Info": "IN_TRIAGE",
+        "Awaiting Vendor": "IN_TRIAGE", "Awaiting Problem": "IN_TRIAGE",
+        "Awaiting Evidence": "IN_TRIAGE", "Resolved": "IN_RESOLUTION", "Closed": "CLOSED",
+    }
+    priority_map = {"1": "CRITICAL", "2": "HIGH", "3": "MEDIUM", "4": "LOW"}
+
+    def parse_dt(s: str):
+        try:
+            return datetime.strptime(s.strip(), "%d/%m/%Y %H:%M").replace(tzinfo=timezone.utc)
+        except (ValueError, AttributeError):
+            return None
+
+    # The log is one row per state change, and every incident's LAST row is always
+    # "Closed" (it's a fully historical archive) -- sampling that would make every
+    # seeded ticket look resolved. Reservoir-sample ONE random event per incident
+    # instead, so the seeded statuses/priorities keep their natural, live-looking mix.
+    picked: Dict[str, Dict[str, Any]] = {}
+    seen_count: Dict[str, int] = {}
+    with open(UCI_INCIDENT_CSV, encoding="utf-8", errors="replace") as f:
+        for row in csv.DictReader(f):
+            num = row.get("number")
+            if not num:
+                continue
+            seen_count[num] = seen_count.get(num, 0) + 1
+            if num not in picked or random.random() < 1.0 / seen_count[num]:
+                picked[num] = row
+
+    sampled_numbers = random.sample(list(picked.keys()), min(limit, len(picked)))
+    rows = []
+    for num in sampled_numbers:
+        row = picked[num]
+        topic = HR_TOPICS[hash(row.get("category", "")) % len(HR_TOPICS)]
+        created = parse_dt(row.get("opened_at", "")) or datetime.now(timezone.utc)
+        priority = priority_map.get((row.get("priority") or "").split(" - ")[0], "MEDIUM")
+        status = status_map.get(row.get("incident_state"), "NEW")
+        group = (row.get("assignment_group") or "").replace("Group ", "HR_Team_") or None
+        meta = {"employee_id": None, "resolution_summary": None, "resolved_at": None,
+                "source": "uci_incident_log", "original_ticket": num}
+        rows.append((
+            f"UCI-{num}", created, status, group, priority,
+            f"{topic} ({num})", f"Auto-imported from a real service-desk log, relabeled as {topic.lower()}.",
+            json.dumps(meta),
+        ))
+
+    await pg_client.executemany_async(
+        """INSERT INTO public.hrsd_tickets (ticket_id, created_at, status, assigned_agent, priority, subject, description, metadata)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb)
+           ON CONFLICT (ticket_id) DO NOTHING""",
+        rows,
+    )
+    logger.info(f" ✅ Seeded {len(rows):,} HRSD tickets from the UCI incident-log dataset (CC BY 4.0).")
+
+
 # --- MAIN EXECUTION LOGIC ---
 async def initialize_data_and_users():
     logger.info("Initializing Postgres schema and extensive test data.")
@@ -394,6 +545,16 @@ async def initialize_data_and_users():
         await seed_governance_and_audit()
     except Exception as e:
         logger.warning(f" ⚠️ Governance/audit seeding failed (non-critical): {e}")
+
+    # 7. Seed real external datasets (optional - only if staged under data/external/)
+    try:
+        await seed_ibm_hr_dataset(pqc_wrapper)
+    except Exception as e:
+        logger.warning(f" ⚠️ IBM HR dataset seeding failed (non-critical): {e}")
+    try:
+        await seed_uci_incident_tickets()
+    except Exception as e:
+        logger.warning(f" ⚠️ UCI incident-log seeding failed (non-critical): {e}")
 
 
 if __name__ == "__main__":

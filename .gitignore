@@ -11,6 +11,9 @@ backend/.env
 frontend/.env
 frontend/.env.production.txt
 
+# External seed datasets (staged locally, not committed - see backend/data/external/)
+backend/data/external/
+
 # Dependencies
 node_modules/
 __pycache__/
