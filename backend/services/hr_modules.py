@@ -50,13 +50,14 @@ class HRModulesService:
         # NOTE: Fetching PII data should happen via PII Vault in a separate call
         # Mock Postgres call for non-PII attributes needed for Policy Enforcement context
         pg_data = await pg_client.fetchrow(
-            "SELECT employee_uuid, jurisdiction_code FROM employee_pii WHERE employee_id_str = $1", 
+            "SELECT employee_uuid, jurisdiction_code FROM employee_pii WHERE employee_id_str = $1",
             user_data.get("employee_id_str", user_data.get("user_id")) # Use one of the potential IDs
-        )
-        
+        ) or {}
+
         return {
             **user_data,
-            "employee_id": pg_data.get("employee_uuid", user_data.get("user_id", "UNKNOWN")), 
+            # Prefer the employee_uuid the auth layer already put on the user record.
+            "employee_id": pg_data.get("employee_uuid") or user_data.get("employee_uuid") or user_data.get("user_id", "UNKNOWN"),
             "jurisdiction": pg_data.get("jurisdiction_code", "GLOBAL"),
             "current_hours_week": user_data.get("current_hours_week", 40.0),
         }

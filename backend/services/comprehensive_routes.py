@@ -1500,8 +1500,9 @@ async def get_governance_dashboard_data(req: Request, payload: Dict = Depends(em
     return await chaincode.get_governance_stats()
 
 @compliance_router.get("/dashboard")
-async def get_compliance_dashboard_data(req: Request, payload: Dict = Depends(hrit_admin_role_required)):
-    """Real compliance aggregates from the policy_audit_log table."""
+async def get_compliance_dashboard_data(req: Request, payload: Dict = Depends(policy_admin_role_required)):
+    """Real compliance aggregates from the policy_audit_log table.
+    HRBP owns policy/compliance, so policy_admin (hrbp + hrit_admin) can view."""
     from services.enforcement_engine import get_compliance_overview
     return await get_compliance_overview()
 

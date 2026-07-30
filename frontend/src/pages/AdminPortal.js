@@ -15,13 +15,15 @@ import { settings } from '../config/settings';
 
 // UI COMPONENTS
 import DataCard from '../components/DataCard';
-import ChartPlaceholder from '../components/ChartPlaceholder';
-import { 
+import AreaChartWidget from '../components/charts/AreaChartWidget';
+import { useMetricSeries } from '../components/live/LivePrimitives';
+import {
     Users, Shield, Settings, AlertTriangle, 
     CheckCircle, XCircle, Loader2, Key, Trash2 
 } from 'lucide-react';
 
-const availableRoles = Object.values(settings.ROLES).filter(r => r !== settings.ROLES.GUEST);
+// Dedupe: SUPER_ADMIN and HRIT_MANAGER share the value 'hrit_admin'.
+const availableRoles = [...new Set(Object.values(settings.ROLES).filter(r => r !== settings.ROLES.GUEST))];
 
 // --- 11.1. Sub-Module: User Management ---
 /**
@@ -31,12 +33,14 @@ const UserManagementModule = memo(() => {
     const { toast } = useToast();
     
     // CRITICAL API INTEGRATION 1: Fetch All Users
-    const { 
-        data: users, 
-        isLoading: isUsersLoading, 
-        error: usersError, 
+    const {
+        data: usersResp,
+        isLoading: isUsersLoading,
+        error: usersError,
         refetch: refetchUsers
-    } = useApi(getAllUsers, [], true, 300000); // FIX: Polling interval set to 5 minutes (300000ms)
+    } = useApi(getAllUsers, [], true, 300000); // poll every 5 minutes
+    // Backend returns { users: [...], count }; normalize to an array for rendering.
+    const users = Array.isArray(usersResp) ? usersResp : (usersResp?.users || []);
 
     const [newUserData, setNewUserData] = useState({ 
         full_name: '', 
@@ -172,6 +176,11 @@ const SystemHealthModule = memo(() => {
         refetch: refetchDashboard
     } = useApi(getAdminDashboardData, [], true, 0); // Polling disabled
 
+    // Genuinely live telemetry series (no historical trend endpoint exists): rolling
+    // windows built from the real psutil-backed metrics feed, polled every 3s.
+    const cpuSeries = useMetricSeries('cpu_load', { intervalMs: 3000 });
+    const memSeries = useMetricSeries('memory_load', { intervalMs: 3000 });
+
     const { toast } = useToast();
     const [isRotating, setIsRotating] = useState(false);
     const [isClearing, setIsClearing] = useState(false);
@@ -289,12 +298,16 @@ const SystemHealthModule = memo(() => {
                     </DataCard>
                 </div>
 
-                {/* Charts */}
+                {/* Charts — live rolling telemetry */}
                 <div style={styles.chart}>
-                    <ChartPlaceholder label="System Health Score Trend" minHeight="100%" />
+                    <DataCard title="Live CPU Load (%)" isChart minHeight="260px">
+                        <AreaChartWidget data={cpuSeries} minHeight="220px" color={tokens.color?.['accent-primary']} />
+                    </DataCard>
                 </div>
                 <div style={styles.chart}>
-                    <ChartPlaceholder label="PQC Rotation History" minHeight="100%" />
+                    <DataCard title="Live Memory Load (%)" isChart minHeight="260px">
+                        <AreaChartWidget data={memSeries} minHeight="220px" color={tokens.color?.['accent-secondary']} />
+                    </DataCard>
                 </div>
                 
                 {/* Action Buttons */}
