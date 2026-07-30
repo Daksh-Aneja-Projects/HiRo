@@ -1,115 +1,179 @@
-// /frontend/src/pages/EmployeePortal.js - FINAL PRODUCTION-READY REPLACEMENT (Digital Twin Widget Fixed)
+// /frontend/src/pages/EmployeePortal.js
+// The employee self-service portal. Every number on every module is read from a
+// real backend endpoint; where an endpoint returns nothing, the module says so
+// plainly instead of inventing a figure.
 import React, { useMemo, memo, useState, useCallback } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, Link } from 'react-router-dom';
 import { theme as tokens } from '../theme';
 import { useAuth } from '../contexts/AuthContext';
 
-// CRITICAL API IMPORTS
 import {
-    getEmployeeDashboard, submitLeaveRequest, getLeaveBalance,
-    getPersonalInfo, recordConsentChange, getEmployeeBenefits,
-    getUnmaskedPII, getWFPProjections, getRecognitionLeaderboard,
-    getLeaveHistory
+    getEmployeeDashboard, submitLeaveRequest, getLeaveBalance, getLeaveHistory,
+    getPersonalInfo, recordConsentChange, getUnmaskedPII, getRecognitionLeaderboard,
+    getTimesheets, getRetentionPreference, saveRetentionPreference, submitFeedback,
 } from '../config/api';
 import { useApi } from '../hooks/useApi';
 import { useToast } from '../hooks/use-toast';
 
-// UI & NEW COMPONENTS
 import DataCard from '../components/DataCard';
 import BarChartWidget from '../components/charts/BarChartWidget';
-import { skillGapSeries, countBy } from '../utils/chartData';
-import DigitalTwinChat from '../components/DigitalTwinChat'; // CRITICAL: Import DigitalTwinChat
-import { 
-    User, Calendar, Shield, CreditCard, 
-    CheckCircle, XCircle, Loader2, AlertTriangle, 
-    DollarSign, BookOpen
+import PieChartWidget from '../components/charts/PieChartWidget';
+import AreaChartWidget from '../components/charts/AreaChartWidget';
+import { CountUp, LiveMeter } from '../components/live/LivePrimitives';
+import DigitalTwinChat from '../components/DigitalTwinChat';
+
+import TimesheetSubmission from '../components/TimesheetSubmission';
+import TalentExperienceHub from '../components/TalentExperienceHub';
+import PayModule from '../components/employee/PayModule';
+import ExpenseModule from '../components/employee/ExpenseModule';
+import DocumentsModule from '../components/employee/DocumentsModule';
+import { ui, Btn, Loading, EmptyState, ErrorNote, StatusPill, fmtDate, readablePolicy, readableRole, EmployeeStyles } from '../components/employee/shared';
+
+import {
+    User, Calendar, CheckCircle, XCircle, AlertTriangle, Eye, EyeOff,
+    LayoutDashboard, Clock, Wallet, Sparkles, FileText, ReceiptText, Lock,
+    Star, Send, Award, MessageSquare, CalendarPlus,
 } from 'lucide-react';
 
+const MODULES = [
+    { key: 'dashboard', label: 'My Dashboard', title: 'My dashboard', icon: LayoutDashboard },
+    { key: 'timesheets', label: 'Timesheets', title: 'Timesheets', icon: Clock },
+    { key: 'leave', label: 'Leave', title: 'Leave and balance', icon: Calendar },
+    { key: 'pay', label: 'Pay & Benefits', title: 'Pay and benefits', icon: Wallet },
+    { key: 'growth', label: 'Growth', title: 'Skills, career and learning', icon: Sparkles },
+    { key: 'documents', label: 'Documents', title: 'My documents', icon: FileText },
+    { key: 'expenses', label: 'Expenses', title: 'Expense claims', icon: ReceiptText },
+    { key: 'pii', label: 'Privacy', title: 'Privacy, consent and feedback', icon: Lock },
+];
 
-// --- 9.1. Sub-Module: My Dashboard ---
-/**
- * Renders the personalized Employee Dashboard overview.
- */
+/* -------------------------------------------------------------------------- */
+/* Dashboard                                                                   */
+/* -------------------------------------------------------------------------- */
 const EmployeeDashboardModule = memo(() => {
     const { user } = useAuth();
-    
-    // CRITICAL API INTEGRATION 1: Fetch Employee Dashboard Data
-    const { 
-        data: dashboardData, 
-        isLoading, 
-        error 
-    } = useApi(getEmployeeDashboard, [user?.id], true, 0); // CRITICAL FIX: Polling disabled (0ms)
 
-    // Real workforce-planning skill gaps + live recognition leaderboard.
-    const { data: wfp } = useApi(getWFPProjections, [], true);
+    const { data: dash, isLoading: dashLoading, error: dashError } = useApi(getEmployeeDashboard, [user?.id], !!user?.id);
+    const { data: balance, isLoading: balanceLoading } = useApi(getLeaveBalance, [], true);
+    const { data: rawHistory } = useApi(getLeaveHistory, [], true);
+    const { data: rawSheets } = useApi(getTimesheets, [], true);
     const { data: leaderboard } = useApi(getRecognitionLeaderboard, [], true);
-    const skillGaps = useMemo(() => skillGapSeries(wfp?.skill_gaps || {}), [wfp]);
+
+    const sheets = useMemo(() => (Array.isArray(rawSheets) ? rawSheets : []), [rawSheets]);
+    const history = useMemo(
+        () => (Array.isArray(rawHistory) ? rawHistory : (rawHistory?.requests || [])),
+        [rawHistory]
+    );
+
+    const balanceHours = Number(balance?.balance_hours) || 0;
+    const usedHours = Number(balance?.used_hours) || 0;
+    const entitlement = balanceHours + usedHours;
+    const usedPct = entitlement > 0 ? (usedHours / entitlement) * 100 : 0;
+
+    const totalHours = sheets.reduce((sum, s) => sum + (Number(s.hours) || 0), 0);
+    const pendingLeave = history.filter((r) => String(r.status || '').toUpperCase().startsWith('PEND')).length;
+
+    const myStars = useMemo(() => {
+        const row = (leaderboard || []).find(
+            (u) => u.user_id === user?.username || u.user_id === user?.id || u.user_name === user?.full_name
+        );
+        return Number(row?.stars) || 0;
+    }, [leaderboard, user]);
+
     const recognition = useMemo(
         () => (leaderboard || []).map((u) => ({ name: u.user_name, value: Number(u.stars) || 0 })),
         [leaderboard]
     );
 
-    const styles = useMemo(() => ({
-        grid: { display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: tokens.spacing?.lg, marginBottom: tokens.spacing?.lg },
-        card: { gridColumn: 'span 3' },
-        chart: { gridColumn: 'span 6', minHeight: '350px' },
-        full: { gridColumn: 'span 12', minHeight: '350px' },
-    }), []);
+    const hoursTrend = useMemo(
+        () => sheets.slice().reverse().map((s) => ({ name: fmtDate(s.week), value: Number(s.hours) || 0 })),
+        [sheets]
+    );
 
     return (
-        <div style={styles.grid}>
-            {isLoading && <p style={{ gridColumn: 'span 12', textAlign: 'center' }}><Loader2 size={24} className="animate-spin" /> Loading personalized dashboard...</p>}
-            {error && <p style={{ gridColumn: 'span 12', color: tokens.color?.danger }}>Error loading dashboard data: {error.message}</p>}
-            
-            <div style={styles.card}>
-                <DataCard 
-                    title="Current Performance" 
-                    value={dashboardData?.performance_score || 'N/A'} 
-                    unit="Score" 
-                    color={tokens.color?.success} 
-                >
-                    <CheckCircle size={24} color={tokens.color?.success} />
+        <div style={ui.grid}>
+            <EmployeeStyles />
+
+            {dashError && <div style={{ gridColumn: 'span 12' }}><ErrorNote error={dashError} context="your dashboard summary" /></div>}
+
+            <div style={{ gridColumn: 'span 3' }}>
+                <DataCard title="Leave hours available" value={<CountUp value={balanceHours} decimals={1} />} unit="hours"
+                    icon={<Calendar size={15} />} color={tokens.color?.success}
+                    subtitle={balance?.policy ? `Under the ${readablePolicy(balance.policy)} leave policy` : 'Loading your policy'}
+                    footer={<LiveMeter pct={usedPct} color={tokens.color?.warning} label="Share of entitlement already used" />} />
+            </div>
+            <div style={{ gridColumn: 'span 3' }}>
+                <DataCard title="Hours logged on timesheets" value={<CountUp value={totalHours} decimals={1} />} unit="hours"
+                    icon={<Clock size={15} />} color={tokens.color?.['accent-primary']}
+                    subtitle={`Across ${sheets.length} submitted week${sheets.length === 1 ? '' : 's'}`} />
+            </div>
+            <div style={{ gridColumn: 'span 3' }}>
+                <DataCard title="Leave requests awaiting a decision" value={<CountUp value={pendingLeave} />} unit="requests"
+                    icon={<CalendarPlus size={15} />} color={tokens.color?.warning}
+                    subtitle={`${history.length} request${history.length === 1 ? '' : 's'} on record`} />
+            </div>
+            <div style={{ gridColumn: 'span 3' }}>
+                <DataCard title="Recognition stars received" value={<CountUp value={myStars} />} unit="stars"
+                    icon={<Star size={15} />} color={tokens.color?.['accent-secondary']}
+                    subtitle="Awarded by colleagues across HiRo" />
+            </div>
+
+            <div style={{ ...ui.panel, gridColumn: 'span 5' }}>
+                <h3 style={ui.h3}>Where things stand</h3>
+                {dashLoading && <Loading label="Loading your summary" />}
+                {!dashLoading && (
+                    <>
+                        <p style={{ ...ui.hint, color: tokens.color?.['text-100'], fontSize: tokens.typography?.base?.fontSize }}>
+                            {dash?.dashboard_message || 'No summary message has been generated for your account yet.'}
+                        </p>
+                        <div style={{ marginTop: tokens.spacing?.sm }}>
+                            <div style={ui.listRow}>
+                                <div style={ui.rowMain}>
+                                    <span style={ui.rowTitle}>Your record</span>
+                                    <span style={ui.rowMeta}>{dash?.data?.full_name || user?.full_name || 'Not recorded'}</span>
+                                </div>
+                                <span style={ui.rowMeta}>{dash?.employee_id || 'No employee id linked'}</span>
+                            </div>
+                            <div style={ui.listRow}>
+                                <div style={ui.rowMain}>
+                                    <span style={ui.rowTitle}>Leave used so far</span>
+                                    <span style={ui.rowMeta}>Out of {entitlement || 0} hours of entitlement</span>
+                                </div>
+                                <span style={{ color: tokens.color?.warning, fontWeight: 600 }}>
+                                    <CountUp value={usedHours} decimals={1} suffix=" h" />
+                                </span>
+                            </div>
+                            <div style={ui.listRow}>
+                                <div style={ui.rowMain}>
+                                    <span style={ui.rowTitle}>Latest timesheet</span>
+                                    <span style={ui.rowMeta}>{sheets[0] ? `Week ending ${fmtDate(sheets[0].week)}, ${sheets[0].hours} hours` : 'You have not submitted a week yet'}</span>
+                                </div>
+                                {sheets[0] && <StatusPill status={sheets[0].status} />}
+                            </div>
+                        </div>
+                        {balanceLoading && <Loading label="Loading your leave balance" />}
+                    </>
+                )}
+                <div style={{ display: 'flex', gap: tokens.spacing?.xs, marginTop: tokens.spacing?.md, flexWrap: 'wrap' }}>
+                    <Link to="/employee-portal?module=timesheets" style={{ textDecoration: 'none' }}>
+                        <Btn tone="ghost" icon={Clock}>Submit a timesheet</Btn>
+                    </Link>
+                    <Link to="/employee-portal?module=leave" style={{ textDecoration: 'none' }}>
+                        <Btn tone="ghost" icon={CalendarPlus}>Request leave</Btn>
+                    </Link>
+                </div>
+            </div>
+
+            <div style={{ gridColumn: 'span 7' }}>
+                <DataCard title="Hours you logged, week by week" isChart minHeight="300px">
+                    <AreaChartWidget data={hoursTrend} minHeight="260px" color={tokens.color?.['accent-primary']}
+                        label="Built from the timesheets you submitted, oldest first." />
                 </DataCard>
             </div>
-            <div style={styles.card}>
-                <DataCard 
-                    title="Compensation Ratio" 
-                    value={`${(dashboardData?.comp_ratio * 100)?.toFixed(1) || 'N/A'}`} 
-                    unit="%" 
-                    color={tokens.color?.['accent-primary']}
-                >
-                    <DollarSign size={24} color={tokens.color?.['accent-primary']} />
-                </DataCard>
-            </div>
-             <div style={styles.card}>
-                <DataCard 
-                    title="Open Learning Modules" 
-                    value={dashboardData?.open_learning_modules || 3} 
-                    unit="Count" 
-                    color={tokens.color?.warning}
-                >
-                    <BookOpen size={24} color={tokens.color?.warning} />
-                </DataCard>
-            </div>
-             <div style={styles.card}>
-                <DataCard 
-                    title="Last Audit Trace" 
-                    value={dashboardData?.last_audit_id || 'Secure'} 
-                    unit="ID" 
-                    color={tokens.color?.['accent-secondary']}
-                >
-                    <Shield size={24} color={tokens.color?.['accent-secondary']} />
-                </DataCard>
-            </div>
-            
-            <div style={styles.chart}>
-                <DataCard title="Skill Gap by Department (workforce planning)" isChart minHeight="350px">
-                    <BarChartWidget data={skillGaps} minHeight="290px" color={tokens.color?.['accent-primary']} label="Higher bar = larger organizational skill gap" />
-                </DataCard>
-            </div>
-             <div style={styles.chart}>
-                <DataCard title="Recognition Leaderboard (stars)" isChart minHeight="350px">
-                    <BarChartWidget data={recognition} minHeight="290px" color={tokens.color?.warning} />
+
+            <div style={{ gridColumn: 'span 12' }}>
+                <DataCard title="Recognition stars across the organisation" isChart minHeight="300px">
+                    <BarChartWidget data={recognition} minHeight="260px" color={tokens.color?.warning}
+                        label="Stars colleagues have given each other. Yours are highlighted in the card above." />
                 </DataCard>
             </div>
         </div>
@@ -117,136 +181,169 @@ const EmployeeDashboardModule = memo(() => {
 });
 EmployeeDashboardModule.displayName = 'EmployeeDashboardModule';
 
-// --- 9.2. Sub-Module: My Leaves ---
+/* -------------------------------------------------------------------------- */
+/* Leave                                                                       */
+/* -------------------------------------------------------------------------- */
 const LeaveModule = memo(() => {
     const { toast } = useToast();
-    const { user } = useAuth();
-    const [leaveData, setLeaveData] = useState({ start_date: '', end_date: '', reason: '' });
+    const [form, setForm] = useState({ start_date: '', end_date: '', hours: '' });
     const [isSubmitting, setIsSubmitting] = useState(false);
-    
-    // CRITICAL API INTEGRATION 2: Fetch Leave Balance
-    const { 
-        data: balanceData, 
-        isLoading: isBalanceLoading, 
-        error: balanceError, 
-        refetch: refetchBalance 
-    } = useApi(getLeaveBalance, [], true, 0); // CRITICAL FIX: Polling disabled (0ms)
 
-    // Real leave history grouped by approval status.
-    const { data: leaveHistory } = useApi(getLeaveHistory, [], true, 0);
-    const leaveByStatus = useMemo(
-        () => countBy(Array.isArray(leaveHistory) ? leaveHistory : (leaveHistory?.requests || []), (r) => r.status),
-        [leaveHistory]
+    const { data: balance, isLoading: balanceLoading, error: balanceError, refetch: refetchBalance } = useApi(getLeaveBalance, [], true);
+    const { data: rawHistory, isLoading: historyLoading, error: historyError, refetch: refetchHistory } = useApi(getLeaveHistory, [], true);
+
+    const history = useMemo(
+        () => (Array.isArray(rawHistory) ? rawHistory : (rawHistory?.requests || [])),
+        [rawHistory]
     );
 
-    // CRITICAL: Handle Leave Submission
-    const handleSubmitLeave = useCallback(async (e) => {
+    const balanceHours = Number(balance?.balance_hours) || 0;
+    const usedHours = Number(balance?.used_hours) || 0;
+    const entitlement = balanceHours + usedHours;
+
+    const byStatus = useMemo(() => {
+        const counts = history.reduce((acc, r) => {
+            const k = String(r.status || 'UNKNOWN').toUpperCase();
+            acc[k] = (acc[k] || 0) + 1;
+            return acc;
+        }, {});
+        return Object.entries(counts).map(([name, value]) => ({
+            name: name.charAt(0) + name.slice(1).toLowerCase().replace(/_/g, ' '),
+            value,
+        }));
+    }, [history]);
+
+    // Working days between the two dates, eight hours each, as a starting figure.
+    const suggestedHours = useMemo(() => {
+        if (!form.start_date || !form.end_date) return 0;
+        const start = new Date(form.start_date);
+        const end = new Date(form.end_date);
+        if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return 0;
+        return (Math.round((end - start) / 86400000) + 1) * 8;
+    }, [form.start_date, form.end_date]);
+
+    const hoursValue = form.hours === '' ? suggestedHours : Number(form.hours);
+    const datesValid = !!form.start_date && !!form.end_date && new Date(form.end_date) >= new Date(form.start_date);
+    const valid = datesValid && Number.isFinite(hoursValue) && hoursValue > 0;
+    const overBalance = valid && hoursValue > balanceHours;
+
+    const handleSubmit = useCallback(async (e) => {
         e.preventDefault();
-        if (!leaveData.start_date || !leaveData.end_date || !leaveData.reason) {
-            return toast({ title: "Validation Error", description: "All fields are required.", variant: 'destructive' });
+        if (!datesValid) {
+            toast({ title: 'Check the dates', description: 'Pick a start date and an end date that is on or after it.', variant: 'destructive' });
+            return;
         }
-        
+        if (!valid) {
+            toast({ title: 'Check the hours', description: 'The request must cover more than zero hours.', variant: 'destructive' });
+            return;
+        }
         setIsSubmitting(true);
         try {
-            // Backend contract is { start_date, end_date, hours } — derive hours
-            // from the requested date range (8h per working day, min 1 day).
-            const start = new Date(leaveData.start_date);
-            const end = new Date(leaveData.end_date);
-            const days = Math.max(1, Math.round((end - start) / 86400000) + 1);
-            const payload = {
-                start_date: leaveData.start_date,
-                end_date: leaveData.end_date,
-                hours: days * 8,
-            };
-            await submitLeaveRequest(payload);
-            
-            toast({ title: 'Leave Submitted', description: 'Your request has been sent for manager approval.', variant: 'success' });
-            setLeaveData({ start_date: '', end_date: '', reason: '' }); // Clear form
-            refetchBalance(); // Refresh balance data
-        } catch (error) {
-            console.error("Leave submission failed:", error);
-            toast({ title: 'Submission Failed', description: error.response?.data?.detail || error.message, variant: 'destructive' });
+            await submitLeaveRequest({ start_date: form.start_date, end_date: form.end_date, hours: hoursValue });
+            toast({
+                title: 'Leave requested',
+                description: `${hoursValue} hours from ${fmtDate(form.start_date)} to ${fmtDate(form.end_date)} sent to your manager.`,
+                variant: 'success',
+            });
+            setForm({ start_date: '', end_date: '', hours: '' });
+            refetchBalance();
+            refetchHistory();
+        } catch (err) {
+            toast({ title: 'Leave request failed', description: err.response?.data?.detail || err.message, variant: 'destructive' });
         } finally {
             setIsSubmitting(false);
         }
-    }, [leaveData, user?.id, toast, refetchBalance]);
-
-
-    const styles = useMemo(() => ({
-        // FIX: Ensuring the grid uses fractional units (1fr 2fr is already correct for responsiveness)
-        grid: { display: 'grid', gridTemplateColumns: '1fr 2fr', gap: tokens.spacing?.lg, marginBottom: tokens.spacing?.lg },
-        card: { padding: tokens.spacing?.md, background: tokens.color?.['panel-700'], borderRadius: tokens.border?.radius?.card, minHeight: '300px' },
-        formGroup: { marginBottom: tokens.spacing?.md },
-        // FIX: Added maxWidth: '100%' to prevent input/textarea overflow
-        input: { width: '100%', maxWidth: '100%', padding: '10px', background: tokens.color?.['bg-input'], border: `1px solid ${tokens.color?.['border-600']}`, borderRadius: tokens.border?.radius?.input, color: tokens.color?.['text-100'], boxSizing: 'border-box' },
-        submitButton: { padding: '10px 20px', background: tokens.color?.success, border: 'none', borderRadius: tokens.border?.radius?.button, color: tokens.color?.['bg-deep'], cursor: 'pointer', transition: 'all 0.2s ease', display: 'flex', alignItems: 'center', gap: tokens.spacing?.xs },
-    }), []);
+    }, [datesValid, valid, form, hoursValue, toast, refetchBalance, refetchHistory]);
 
     return (
-        <div style={styles.grid}>
-            {/* Leave Balance */}
-            <div style={styles.card}>
-                <h3 style={{ color: tokens.color?.['text-100'] }}>Current Leave Balance</h3>
-                {isBalanceLoading && <p style={{textAlign: 'center'}}><Loader2 size={20} className="animate-spin" /> Loading...</p>}
-                {balanceError && <p style={{ color: tokens.color?.danger }}>Error: {balanceError.message}</p>}
-                <DataCard 
-                    title="Available PTO" 
-                    value={balanceData?.pto_days || 'N/A'} 
-                    unit="Days" 
-                    color={tokens.color?.success}
-                >
-                    <Calendar size={24} color={tokens.color?.success} />
-                </DataCard>
-                <p style={{ color: tokens.color?.['muted-500'], marginTop: tokens.spacing?.md }}>Last update: {new Date().toLocaleDateString()}</p>
+        <div style={ui.grid}>
+            <EmployeeStyles />
+
+            <div style={{ gridColumn: 'span 4' }}>
+                <DataCard title="Leave hours available" value={<CountUp value={balanceHours} decimals={1} />} unit="hours"
+                    icon={<Calendar size={15} />} color={tokens.color?.success}
+                    subtitle={balance?.policy ? `Under the ${readablePolicy(balance.policy)} leave policy` : 'Loading your policy'}
+                    footer={<LiveMeter pct={entitlement ? (balanceHours / entitlement) * 100 : 0}
+                        color={tokens.color?.success} label="Remaining share of your entitlement" />} />
             </div>
-            
-            {/* Leave Request Form */}
-            <div style={styles.card}>
-                <h3 style={{ color: tokens.color?.['text-100'] }}>Submit New Leave Request</h3>
-                <form onSubmit={handleSubmitLeave}>
-                    <div style={styles.formGroup}>
-                        <label style={{ color: tokens.color?.['text-100'], display: 'block', marginBottom: '5px' }}>Start Date</label>
-                        <input 
-                            type="date" 
-                            style={styles.input} 
-                            value={leaveData.start_date}
-                            onChange={(e) => setLeaveData(prev => ({ ...prev, start_date: e.target.value }))}
-                        />
+            <div style={{ gridColumn: 'span 4' }}>
+                <DataCard title="Leave hours already taken" value={<CountUp value={usedHours} decimals={1} />} unit="hours"
+                    icon={<Clock size={15} />} color={tokens.color?.warning}
+                    subtitle={`Entitlement on record is ${entitlement} hours`} />
+            </div>
+            <div style={{ gridColumn: 'span 4' }}>
+                <DataCard title="Requests submitted" value={<CountUp value={history.length} />} unit="requests"
+                    icon={<CalendarPlus size={15} />} color={tokens.color?.['accent-primary']} />
+            </div>
+
+            <div style={{ ...ui.panel, gridColumn: 'span 5' }}>
+                <h3 style={ui.h3}>Request leave</h3>
+                <p style={ui.hint}>Hours default to eight per calendar day in the range. Adjust them if you are taking part of a day.</p>
+                {balanceLoading && <Loading label="Loading your balance" />}
+                <ErrorNote error={balanceError} context="your leave balance" />
+
+                <form onSubmit={handleSubmit} style={{ marginTop: tokens.spacing?.md }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: tokens.spacing?.sm }}>
+                        <div style={ui.field}>
+                            <label style={ui.label} htmlFor="leave-start">First day off</label>
+                            <input id="leave-start" type="date" style={ui.input} value={form.start_date}
+                                onChange={(e) => setForm((p) => ({ ...p, start_date: e.target.value }))} />
+                        </div>
+                        <div style={ui.field}>
+                            <label style={ui.label} htmlFor="leave-end">Last day off</label>
+                            <input id="leave-end" type="date" style={ui.input} value={form.end_date} min={form.start_date || undefined}
+                                onChange={(e) => setForm((p) => ({ ...p, end_date: e.target.value }))} />
+                        </div>
                     </div>
-                    <div style={styles.formGroup}>
-                        <label style={{ color: tokens.color?.['text-100'], display: 'block', marginBottom: '5px' }}>End Date</label>
-                        <input 
-                            type="date" 
-                            style={styles.input} 
-                            value={leaveData.end_date}
-                            onChange={(e) => setLeaveData(prev => ({ ...prev, end_date: e.target.value }))}
-                        />
+                    <div style={ui.field}>
+                        <label style={ui.label} htmlFor="leave-hours">Hours to deduct</label>
+                        <input id="leave-hours" type="number" min="1" step="0.5" style={ui.input}
+                            placeholder={suggestedHours ? `${suggestedHours} suggested for this range` : 'Pick your dates first'}
+                            value={form.hours}
+                            onChange={(e) => setForm((p) => ({ ...p, hours: e.target.value }))} />
                     </div>
-                    <div style={styles.formGroup}>
-                        <label style={{ color: tokens.color?.['text-100'], display: 'block', marginBottom: '5px' }}>Reason</label>
-                        <textarea 
-                            // Uses the fixed input style with minHeight added
-                            style={{ ...styles.input, minHeight: '80px' }} 
-                            value={leaveData.reason}
-                            onChange={(e) => setLeaveData(prev => ({ ...prev, reason: e.target.value }))}
-                            placeholder="Brief reason for the leave"
-                        />
-                    </div>
-                    <button 
-                        type="submit" 
-                        style={styles.submitButton} 
-                        disabled={isSubmitting}
-                        className="leave-submit-hover"
-                    >
-                        {isSubmitting ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle size={16} />}
-                        {isSubmitting ? 'Submitting...' : 'Submit Request'}
-                    </button>
+
+                    {!datesValid && form.start_date && form.end_date && (
+                        <p style={{ ...ui.hint, color: tokens.color?.danger }}>The last day off must be on or after the first day off.</p>
+                    )}
+                    {overBalance && (
+                        <p style={{ ...ui.hint, color: tokens.color?.warning }}>
+                            This is more than the {balanceHours} hours you have left. You can still send it, and your manager will decide.
+                        </p>
+                    )}
+
+                    <Btn type="submit" tone="success" icon={Send} loading={isSubmitting} disabled={!valid}>
+                        Send request to my manager
+                    </Btn>
                 </form>
             </div>
 
-             <div style={{ gridColumn: 'span 2' }}>
-                <DataCard title="Leave History & Approval Status" isChart minHeight="250px">
-                    <BarChartWidget data={leaveByStatus} minHeight="200px" color={tokens.color?.['accent-secondary']} />
+            <div style={{ ...ui.panel, gridColumn: 'span 7' }}>
+                <h3 style={ui.h3}>Your leave requests</h3>
+                {historyLoading && <Loading label="Loading your leave history" />}
+                <ErrorNote error={historyError} context="your leave history" />
+                {!historyLoading && !historyError && history.length === 0 && (
+                    <EmptyState icon={Calendar} title="No leave requested yet"
+                        action="Use the form on the left to send your first request. Approved and rejected requests both stay listed here." />
+                )}
+                {history.length > 0 && (
+                    <div className="emp-scroll" style={{ ...ui.scroller('300px'), marginTop: tokens.spacing?.sm }}>
+                        {history.map((r) => (
+                            <div key={r.request_id} style={ui.listRow}>
+                                <div style={ui.rowMain}>
+                                    <span style={ui.rowTitle}>{fmtDate(r.start_date)} to {fmtDate(r.end_date)}</span>
+                                    <span style={ui.rowMeta}>{Number(r.hours) || 0} hours, requested {fmtDate(r.submitted_at)}</span>
+                                </div>
+                                <StatusPill status={r.status} />
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+
+            <div style={{ gridColumn: 'span 12' }}>
+                <DataCard title="How your requests were decided" isChart minHeight="300px">
+                    <PieChartWidget data={byStatus} minHeight="260px" label="Every leave request you have ever submitted, grouped by outcome." />
                 </DataCard>
             </div>
         </div>
@@ -254,274 +351,263 @@ const LeaveModule = memo(() => {
 });
 LeaveModule.displayName = 'LeaveModule';
 
-
-// --- 9.3. Sub-Module: My PII & Benefits ---
+/* -------------------------------------------------------------------------- */
+/* Privacy, consent, retention preference and feedback                         */
+/* -------------------------------------------------------------------------- */
 const PIISecurityModule = memo(() => {
     const { toast } = useToast();
-    // CRITICAL API INTEGRATION 3: Fetch Personal Info and Benefits
-    const { 
-        data: personalInfo, 
-        isLoading: isInfoLoading, 
-        error: infoError 
-    } = useApi(getPersonalInfo, [], true, 0); // CRITICAL FIX: Polling disabled (0ms)
-    
-    const { 
-        data: benefits, 
-        isLoading: isBenefitsLoading, 
-        error: benefitsError 
-    } = useApi(getEmployeeBenefits, [], true, 0); // CRITICAL FIX: Polling disabled (0ms)
+    const { data: personalInfo, isLoading: infoLoading, error: infoError } = useApi(getPersonalInfo, [], true);
+    const { data: retention, isLoading: retentionLoading, refetch: refetchRetention } = useApi(getRetentionPreference, [], true);
 
-    const [isConsenting, setIsConsenting] = useState(false);
-    const [piiMasked, setPiiMasked] = useState(true);
-    const [maskedPiiData, setMaskedPiiData] = useState({});
+    const [unmasked, setUnmasked] = useState(null);
+    const [isRevealing, setIsRevealing] = useState(false);
+    const [consentBusy, setConsentBusy] = useState(null);
+    const [preference, setPreference] = useState('');
+    const [isSavingPref, setIsSavingPref] = useState(false);
+    const [feedback, setFeedback] = useState('');
+    const [isSendingFeedback, setIsSendingFeedback] = useState(false);
 
-    // CRITICAL: Handle Consent Change
-    const handleConsentToggle = useCallback(async (isGranted) => {
-        setIsConsenting(true);
+    const savedPreference = retention?.preference || '';
+    const effectivePreference = preference || savedPreference;
+
+    const fields = useMemo(() => ([
+        { key: 'full_name', label: 'Full name' },
+        { key: 'email', label: 'Work email' },
+        { key: 'username', label: 'Sign in name' },
+        { key: 'role', label: 'Role on record', format: readableRole },
+        { key: 'employee_uuid', label: 'Employee record id' },
+    ]), []);
+
+    const handleReveal = useCallback(async () => {
+        if (unmasked) { setUnmasked(null); return; }
+        setIsRevealing(true);
         try {
-            // CRITICAL FIX: Use the specific recordConsentChange API function
-            await recordConsentChange({ 
-                purpose_id: 'marketing', 
-                consent_granted: isGranted, 
-                reason: 'User preference update' 
-            }); 
-            
-            toast({ title: 'Consent Updated', description: `Your marketing consent is now ${isGranted ? 'granted' : 'revoked'}.`, variant: 'success' });
-        } catch (error) {
-            toast({ title: 'Consent Error', description: 'Failed to update consent.', variant: 'destructive' });
+            const res = await getUnmaskedPII();
+            setUnmasked(res.data || {});
+            toast({ title: 'Sensitive fields revealed', description: 'They will hide again in thirty seconds. This reveal is written to the audit log.', variant: 'warning' });
+            setTimeout(() => setUnmasked(null), 30000);
+        } catch (err) {
+            toast({ title: 'Could not reveal your details', description: err.response?.data?.detail || err.message, variant: 'destructive' });
         } finally {
-            setIsConsenting(false);
+            setIsRevealing(false);
+        }
+    }, [unmasked, toast]);
+
+    const handleConsent = useCallback(async (granted) => {
+        setConsentBusy(granted ? 'grant' : 'revoke');
+        try {
+            await recordConsentChange({ purpose_id: 'marketing', consent_granted: granted, reason: 'Employee preference update' });
+            toast({
+                title: granted ? 'Marketing consent granted' : 'Marketing consent revoked',
+                description: granted ? 'HiRo may contact you about internal programmes.' : 'You will no longer be contacted about internal programmes.',
+                variant: 'success',
+            });
+        } catch (err) {
+            toast({ title: 'Could not update your consent', description: err.response?.data?.detail || err.message, variant: 'destructive' });
+        } finally {
+            setConsentBusy(null);
         }
     }, [toast]);
-    
-    // CRITICAL: Handle PII Unmasking (High Security Action)
-    const handleUnmaskPII = useCallback(async () => {
-        if (!piiMasked) {
-            setPiiMasked(true);
+
+    const handleSavePreference = useCallback(async () => {
+        const value = effectivePreference.trim();
+        if (!value) {
+            toast({ title: 'Nothing to save', description: 'Tell us what would keep you here before saving.', variant: 'destructive' });
             return;
         }
-
+        setIsSavingPref(true);
         try {
-            // CRITICAL FIX: Use the specific getUnmaskedPII API function
-            const response = await getUnmaskedPII(); 
-            setMaskedPiiData(response.data);
-            setPiiMasked(false);
-            
-            toast({ title: 'PII Revealed', description: 'PII unmasked for 30 seconds. This action is fully logged.', variant: 'warning' });
-            
-            // Re-mask after 30 seconds
-            setTimeout(() => {
-                setPiiMasked(true);
-                setMaskedPiiData({});
-                toast({ title: 'PII Re-Masked', description: 'Personal Information has been automatically re-masked.', variant: 'info' });
-            }, 30000); 
-
-        } catch (error) {
-            toast({ title: 'Security Error', description: error.response?.data?.detail || 'Failed to unmask PII. Check audit logs.', variant: 'destructive' });
+            await saveRetentionPreference(value);
+            toast({ title: 'Preference saved', description: 'Your retention preference is on record for HR.', variant: 'success' });
+            setPreference('');
+            refetchRetention();
+        } catch (err) {
+            toast({ title: 'Could not save your preference', description: err.response?.data?.detail || err.message, variant: 'destructive' });
+        } finally {
+            setIsSavingPref(false);
         }
-    }, [piiMasked, toast]);
+    }, [effectivePreference, toast, refetchRetention]);
 
-
-    const styles = useMemo(() => ({
-        grid: { display: 'grid', gridTemplateColumns: '2fr 1fr', gap: tokens.spacing?.lg, marginBottom: tokens.spacing?.lg },
-        card: { padding: tokens.spacing?.md, background: tokens.color?.['panel-700'], borderRadius: tokens.border?.radius?.card, minHeight: '300px' },
-        dataRow: { display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: `1px dotted ${tokens.color?.['border-700']}` },
-        buttonGroup: { display: 'flex', gap: tokens.spacing?.md, marginTop: tokens.spacing?.lg },
-        piiButton: (isMasking) => ({
-            padding: '10px 20px', 
-            background: isMasking ? tokens.color?.danger : tokens.color?.warning, 
-            color: tokens.color?.['bg-deep'], 
-            border: 'none', 
-            borderRadius: tokens.border?.radius?.button, 
-            cursor: 'pointer',
-        }),
-        benefitsList: { listStyleType: 'none', padding: 0 }
-    }), []);
-
-    // Helper function to display data (masked or unmasked)
-    const getPiiValue = (key, defaultValue) => {
-        if (piiMasked) {
-            // Simple mask
-            return '***********';
+    const handleFeedback = useCallback(async (e) => {
+        e.preventDefault();
+        const text = feedback.trim();
+        if (text.length < 5) {
+            toast({ title: 'Add a little more', description: 'Write at least a short sentence so your feedback is useful.', variant: 'destructive' });
+            return;
         }
-        return maskedPiiData[key] || personalInfo?.[key] || defaultValue;
-    };
-
+        setIsSendingFeedback(true);
+        try {
+            const res = await submitFeedback(text);
+            toast({ title: 'Feedback sent', description: `Recorded as ${res.data?.feedback_id || 'a new entry'} for the HR team.`, variant: 'success' });
+            setFeedback('');
+        } catch (err) {
+            toast({ title: 'Could not send your feedback', description: err.response?.data?.detail || err.message, variant: 'destructive' });
+        } finally {
+            setIsSendingFeedback(false);
+        }
+    }, [feedback, toast]);
 
     return (
-        <div style={styles.grid}>
-            {/* PII Management */}
-            <div style={styles.card}>
-                <h3 style={{ color: tokens.color?.['text-100'] }}>Personal Information & Security</h3>
-                {isInfoLoading && <p style={{textAlign: 'center'}}><Loader2 size={20} className="animate-spin" /> Loading info...</p>}
-                
-                {/* FIX: Explicitly handle 403 Forbidden error */}
-                {infoError && infoError.message?.includes('403') && (
-                     <div style={{ color: tokens.color?.danger, textAlign: 'center', padding: tokens.spacing?.md }}>
-                        <AlertTriangle size={24} style={{ marginBottom: tokens.spacing?.xs }} />
-                        <p>Access Forbidden (403). Your account lacks permission to view this data.</p>
+        <div style={ui.grid}>
+            <EmployeeStyles />
+
+            <div style={{ ...ui.panel, gridColumn: 'span 6' }}>
+                <h3 style={ui.h3}>What we hold about you</h3>
+                <p style={ui.hint}>These are the fields on your personnel record. Revealing the protected ones is logged.</p>
+                {infoLoading && <Loading label="Loading your record" />}
+                <ErrorNote error={infoError} context="your personal record" />
+
+                {personalInfo && (
+                    <div style={{ marginTop: tokens.spacing?.sm }}>
+                        {fields.map((f) => (
+                            <div key={f.key} style={ui.listRow}>
+                                <span style={{ ...ui.rowMeta, color: tokens.color?.['muted-500'] }}>{f.label}</span>
+                                <span style={{ color: tokens.color?.['text-100'], fontSize: tokens.typography?.base?.fontSize }}>
+                                    {f.format ? f.format(personalInfo[f.key]) : (personalInfo[f.key] || 'Not recorded')}
+                                </span>
+                            </div>
+                        ))}
+                        {unmasked && Object.entries(unmasked).map(([k, v]) => (
+                            <div key={k} style={ui.listRow}>
+                                <span style={{ ...ui.rowMeta, color: tokens.color?.warning }}>{k.replace(/_/g, ' ')}</span>
+                                <span style={{ color: tokens.color?.warning, fontSize: tokens.typography?.base?.fontSize }}>
+                                    {typeof v === 'object' ? JSON.stringify(v) : String(v)}
+                                </span>
+                            </div>
+                        ))}
                     </div>
                 )}
-                {/* FIX: Only render data if no critical error, or if error is just a standard network error */}
-                {(!infoError || !infoError.message?.includes('403')) && (
-                    <>
-                        <div style={styles.dataRow}>
-                            <span style={{ color: tokens.color?.['muted-500'] }}>Full Name:</span>
-                            <span style={{ color: tokens.color?.['text-100'] }}>{getPiiValue('full_name', 'N/A')}</span>
-                        </div>
-                        <div style={styles.dataRow}>
-                            <span style={{ color: tokens.color?.['muted-500'] }}>Personal Email:</span>
-                            <span style={{ color: tokens.color?.['text-100'] }}>{getPiiValue('personal_email', 'N/A')}</span>
-                        </div>
-                        <div style={styles.dataRow}>
-                            <span style={{ color: tokens.color?.['muted-500'] }}>Home Address:</span>
-                            <span style={{ color: tokens.color?.['text-100'] }}>{getPiiValue('address', 'N/A')}</span>
-                        </div>
-                        <div style={styles.dataRow}>
-                            <span style={{ color: tokens.color?.['muted-500'] }}>SSN/Tax ID:</span>
-                            <span style={{ color: tokens.color?.['text-100'], fontWeight: 'bold' }}>{getPiiValue('ssn', '***-**-****')}</span>
-                        </div>
-                    </>
-                )}
 
-
-                <div style={styles.buttonGroup}>
-                    <button 
-                        onClick={handleUnmaskPII} 
-                        style={styles.piiButton(piiMasked)} 
-                        className="pii-unmask-hover"
-                        // Disable if there's a critical info error (e.g., 403)
-                        disabled={!!infoError}
-                    >
-                         {piiMasked ? <Shield size={16} /> : <AlertTriangle size={16} />}
-                        {piiMasked ? 'Unmask PII (30s)' : 'Re-Mask PII'}
-                    </button>
-                    <button 
-                        onClick={() => handleConsentToggle(false)} 
-                        disabled={isConsenting || !!infoError} 
-                        style={{ ...styles.piiButton(true), background: tokens.color?.['panel-800'], color: tokens.color?.danger }}
-                        className="pii-revoke-hover"
-                    >
-                         {isConsenting ? <Loader2 size={16} className="animate-spin" /> : <XCircle size={16} />}
-                        Revoke Marketing Consent
-                    </button>
+                <div style={{ display: 'flex', gap: tokens.spacing?.xs, marginTop: tokens.spacing?.md, flexWrap: 'wrap' }}>
+                    <Btn tone="ghost" icon={unmasked ? EyeOff : Eye} loading={isRevealing} disabled={!!infoError} onClick={handleReveal}>
+                        {unmasked ? 'Hide protected fields' : 'Reveal protected fields for thirty seconds'}
+                    </Btn>
                 </div>
             </div>
-            
-            {/* Benefits Overview */}
-            <div style={styles.card}>
-                <h3 style={{ color: tokens.color?.['text-100'] }}>My Benefits Snapshot</h3>
-                {isBenefitsLoading && <p style={{textAlign: 'center'}}><Loader2 size={20} className="animate-spin" /> Loading benefits...</p>}
-                {benefitsError && <p style={{ color: tokens.color?.danger }}>Error: {benefitsError.message}</p>}
-                <ul style={styles.benefitsList}>
-                    {/* FIX: Add defensive check for benefits array */}
-                    {(benefits || []).slice(0, 3).map((b, index) => (
-                        <li key={index} style={{ padding: '8px 0', borderBottom: `1px dotted ${tokens.color?.['border-700']}`, color: tokens.color?.['text-100'] }}>
-                            <span style={{ fontWeight: 'bold', color: tokens.color?.['accent-primary'] }}>{b.name}</span>: {b.coverage}
-                        </li>
-                    ))}
-                    {/* FIX: Add defensive check for benefits array length */}
-                    {(benefits || []).length > 3 && (
-                        <li style={{ padding: '8px 0', color: tokens.color?.['muted-500'], fontSize: tokens.typography?.small?.fontSize }}>... and {(benefits || []).length - 3} more benefits.</li>
-                    )}
-                </ul>
-                <button style={{ marginTop: tokens.spacing?.md, padding: '8px 15px', background: tokens.color?.['accent-secondary'], border: 'none', borderRadius: tokens.border?.radius?.button, color: tokens.color?.['bg-deep'], cursor: 'pointer' }}>
-                    Manage Enrollments
-                </button>
+
+            <div style={{ ...ui.panel, gridColumn: 'span 6' }}>
+                <h3 style={ui.h3}>Consent</h3>
+                <p style={ui.hint}>Controls whether HiRo may contact you about internal programmes. Every change is written to the consent ledger.</p>
+                <div style={{ display: 'flex', gap: tokens.spacing?.xs, marginTop: tokens.spacing?.md, flexWrap: 'wrap' }}>
+                    <Btn tone="success" icon={CheckCircle} loading={consentBusy === 'grant'} disabled={!!consentBusy} onClick={() => handleConsent(true)}>
+                        Grant marketing consent
+                    </Btn>
+                    <Btn tone="danger" icon={XCircle} loading={consentBusy === 'revoke'} disabled={!!consentBusy} onClick={() => handleConsent(false)}>
+                        Revoke marketing consent
+                    </Btn>
+                </div>
+
+                <h3 style={{ ...ui.h3, marginTop: tokens.spacing?.xl }}>What would keep you here</h3>
+                <p style={ui.hint}>
+                    {retentionLoading ? 'Loading your saved preference.'
+                        : savedPreference ? `Currently on record: ${savedPreference}`
+                            : 'Nothing on record yet. What you write here goes to HR retention planning.'}
+                </p>
+                <div style={{ display: 'flex', gap: tokens.spacing?.xs, marginTop: tokens.spacing?.sm, flexWrap: 'wrap' }}>
+                    <input style={{ ...ui.input, flex: '1 1 200px' }} placeholder="For example more remote days, or a mentoring track"
+                        value={preference} onChange={(e) => setPreference(e.target.value)} />
+                    <Btn icon={Award} loading={isSavingPref} disabled={!preference.trim()} onClick={handleSavePreference}>Save</Btn>
+                </div>
+            </div>
+
+            <div style={{ ...ui.panel, gridColumn: 'span 12' }}>
+                <h3 style={ui.h3}>Send feedback to HR</h3>
+                <p style={ui.hint}>Goes straight to the HR feedback log with your employee record attached.</p>
+                <form onSubmit={handleFeedback} style={{ marginTop: tokens.spacing?.sm }}>
+                    <textarea style={{ ...ui.input, minHeight: 90, resize: 'vertical' }}
+                        placeholder="Tell HR what is working and what is not"
+                        value={feedback} onChange={(e) => setFeedback(e.target.value)} />
+                    <div style={{ marginTop: tokens.spacing?.sm }}>
+                        <Btn type="submit" icon={MessageSquare} loading={isSendingFeedback} disabled={feedback.trim().length < 5}>
+                            Send feedback
+                        </Btn>
+                    </div>
+                </form>
             </div>
         </div>
     );
 });
 PIISecurityModule.displayName = 'PIISecurityModule';
 
-
-// --- MAIN EMPLOYEE PORTAL COMPONENT ---
+/* -------------------------------------------------------------------------- */
+/* Shell                                                                       */
+/* -------------------------------------------------------------------------- */
 export const EmployeePortalComponent = memo(() => {
     const location = useLocation();
-    const query = new URLSearchParams(location.search);
-    // CRITICAL FIX: Get the module name from the URL, default to 'dashboard'
-    const module = query.get('module') || 'dashboard'; 
+    const requested = new URLSearchParams(location.search).get('module') || 'dashboard';
+    const active = MODULES.find((m) => m.key === requested);
 
-    const getModuleComponent = (mod) => {
-        switch (mod) {
-            case 'dashboard':
-                return <EmployeeDashboardModule />;
-            case 'leave':
-                return <LeaveModule />;
-            case 'pii':
-                return <PIISecurityModule />;
+    const styles = useMemo(() => ({
+        container: { display: 'flex', flexDirection: 'column', gap: tokens.spacing?.lg, minWidth: 0, maxWidth: '100%' },
+        header: { borderBottom: `1px solid ${tokens.color?.['border-600']}`, paddingBottom: tokens.spacing?.md },
+        title: {
+            margin: 0, display: 'flex', alignItems: 'center', gap: tokens.spacing?.sm,
+            fontSize: tokens.typography?.h1?.fontSize, fontWeight: tokens.typography?.h1?.fontWeight,
+            letterSpacing: '-0.022em', color: tokens.color?.['text-100'],
+        },
+        subtitle: { margin: '6px 0 0 0', fontSize: tokens.typography?.small?.fontSize, color: tokens.color?.['muted-600'] },
+        tabs: {
+            display: 'flex', gap: 6, overflowX: 'auto', overflowY: 'hidden',
+            paddingBottom: 4, marginTop: tokens.spacing?.md, maxWidth: '100%',
+        },
+        tab: (isActive) => ({
+            display: 'inline-flex', alignItems: 'center', gap: 7, flexShrink: 0,
+            padding: '7px 13px', borderRadius: tokens.border?.radius?.full,
+            border: `1px solid ${isActive ? `${tokens.color?.['accent-primary']}55` : tokens.color?.['border-600']}`,
+            background: isActive ? `${tokens.color?.['accent-primary']}18` : 'transparent',
+            color: isActive ? tokens.color?.['text-100'] : tokens.color?.['muted-500'],
+            fontSize: tokens.typography?.button?.fontSize, fontWeight: 500,
+            textDecoration: 'none', whiteSpace: 'nowrap', transition: tokens.ui?.transition?.micro,
+        }),
+        chat: { position: 'fixed', bottom: tokens.spacing?.lg, right: tokens.spacing?.lg, zIndex: 1000 },
+    }), []);
+
+    const body = () => {
+        switch (requested) {
+            case 'dashboard': return <EmployeeDashboardModule />;
+            case 'timesheets': return <TimesheetSubmission />;
+            case 'leave': return <LeaveModule />;
+            case 'pay': return <PayModule />;
+            case 'growth': return <TalentExperienceHub />;
+            case 'documents': return <DocumentsModule />;
+            case 'expenses': return <ExpenseModule />;
+            case 'pii': return <PIISecurityModule />;
             default:
                 return (
-                    <div style={{ textAlign: 'center', color: tokens.color?.danger, padding: tokens.spacing?.xl }}>
-                        <AlertTriangle size={32} />
-                        <h3 style={{ margin: tokens.spacing?.md }}>Module Not Found</h3>
-                        <p>The requested Employee portal module "{mod}" could not be loaded.</p>
-                    </div>
+                    <EmptyState icon={AlertTriangle} title={`There is no employee section called "${requested}"`}
+                        action="Pick one of the sections above to carry on." />
                 );
         }
     };
 
-    const moduleTitleMap = {
-        dashboard: 'My Personalized Dashboard',
-        leave: 'Leave Management & Balance',
-        pii: 'PII Security & Benefits',
-    };
-    
-    const styles = useMemo(() => ({
-        container: { minHeight: '100%', display: 'flex', flexDirection: 'column' },
-        header: {
-            color: tokens.color?.['text-100'],
-            marginBottom: tokens.spacing?.lg,
-            borderBottom: `1px solid ${tokens.color?.['border-600']}`,
-            paddingBottom: tokens.spacing?.md,
-        },
-        title: {
-            fontSize: tokens.typography?.h1?.fontSize, // FIX: Safe access
-            margin: 0,
-            display: 'flex',
-            alignItems: 'center',
-            gap: tokens.spacing?.sm,
-        },
-        // NEW FIX: Fixed container for the Digital Twin Chat Widget
-        chatFixedContainer: {
-            position: 'fixed', // Pin to viewport
-            bottom: tokens.spacing?.lg,
-            right: tokens.spacing?.lg,
-            zIndex: 1000, // Ensure it's above other content
-        }
-    }), []);
+    const Icon = active?.icon || User;
 
     return (
         <div style={styles.container} className="portal-container">
             <div style={styles.header}>
                 <h1 style={styles.title}>
-                    <User size={32} color={tokens.color?.['accent-secondary']} />
-                    Employee Portal: {moduleTitleMap[module] || 'Unknown Module'}
+                    <Icon size={26} color={tokens.color?.['accent-secondary']} />
+                    {active?.title || 'Employee portal'}
                 </h1>
-            </div>
-            
-            {/* Render the dynamically selected module component */}
-            {getModuleComponent(module)}
-            
-            {/* CRITICAL INTEGRATION: Digital Twin Chat Widget */}
-            {/* NEW FIX: Wrapped the chat widget in a fixed position container */}
-            <div style={styles.chatFixedContainer}>
-                <DigitalTwinChat isWidget={true} />
+                <p style={styles.subtitle}>Everything shown here is read live from your own employee record.</p>
+
+                <nav style={styles.tabs} className="emp-scroll" aria-label="Employee portal sections">
+                    {MODULES.map((m) => {
+                        const TabIcon = m.icon;
+                        return (
+                            <Link key={m.key} to={`/employee-portal?module=${m.key}`} style={styles.tab(m.key === requested)}>
+                                <TabIcon size={14} /> {m.label}
+                            </Link>
+                        );
+                    })}
+                </nav>
             </div>
 
-            <style>{`
-                .leave-submit-hover:hover {
-                    box-shadow: 0 0 10px ${tokens.color?.success}77;
-                    transform: translateY(-1px);
-                }
-                .pii-unmask-hover:hover {
-                    box-shadow: 0 0 10px ${tokens.color?.warning}77;
-                    transform: translateY(-1px);
-                }
-                .pii-revoke-hover:hover {
-                    color: ${tokens.color?.danger} !important;
-                }
-            `}</style>
+            {body()}
+
+            <div style={styles.chat}>
+                <DigitalTwinChat isWidget={true} />
+            </div>
         </div>
     );
 });

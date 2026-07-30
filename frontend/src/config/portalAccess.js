@@ -28,12 +28,16 @@ export const SIDEBAR_NAV = [
         roles: [ROLES.HRBP, ROLES.HRIT_MANAGER, ROLES.SUPER_ADMIN], 
         color: 'danger', 
         subModules: [
-            { label: 'Policy Governance', path: '/hr-portal?module=policy' },
+            { label: 'Policy Lifecycle', path: '/hr-portal?module=policy' },
+            { label: 'Compliance Posture', path: '/hr-portal?module=compliance' },
+            { label: 'Rule Compiler', path: '/hr-portal?module=rules' },
+            { label: 'Workforce Governance', path: '/hr-portal?module=governance' },
+            { label: 'Audit Trail', path: '/hr-portal?module=audit' },
             { label: 'Compensation Workbench', path: '/hr-portal?module=comp' },
             { label: 'Talent Insights', path: '/hr-portal?module=talent' },
             { label: 'Document Ingestion', path: '/hr-portal?module=ingestion' },
-            { label: 'HRSD Case Mgmt', path: '/hr-portal?module=cases' }, 
-        ] 
+            { label: 'HRSD Case Mgmt', path: '/hr-portal?module=cases' },
+        ]
     },
     { 
         label: 'HRIT Portal', 
@@ -67,9 +71,14 @@ export const SIDEBAR_NAV = [
         color: 'accent-secondary', 
         subModules: [
             { label: 'My Dashboard', path: '/employee-portal?module=dashboard' },
-            { label: 'My Leaves', path: '/employee-portal?module=leave' },
-            { label: 'My Benefits', path: '/employee-portal?module=pii' },
-        ] 
+            { label: 'Timesheets', path: '/employee-portal?module=timesheets' },
+            { label: 'Leave', path: '/employee-portal?module=leave' },
+            { label: 'Pay & Benefits', path: '/employee-portal?module=pay' },
+            { label: 'Growth', path: '/employee-portal?module=growth' },
+            { label: 'Documents', path: '/employee-portal?module=documents' },
+            { label: 'Expenses', path: '/employee-portal?module=expenses' },
+            { label: 'Privacy', path: '/employee-portal?module=pii' },
+        ]
     },
     { 
         label: 'Advanced Analytics', 

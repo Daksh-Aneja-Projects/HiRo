@@ -1,132 +1,121 @@
-// /frontend/src/components/HRSDMonitoringDashboard.js - FINAL PRODUCTION-READY REPLACEMENT (Polling Rate Reduced)
+// HR service desk health - queue depth, SLA breaches and where every case sits.
+// All figures come from /api/hrsd/monitoring/overview.
 import React, { useMemo, memo, useCallback, useState } from 'react';
 import { theme as tokens } from '../theme';
 import { useApi } from '../hooks/useApi';
 import { useToast } from '../hooks/use-toast';
-import { getHRSDMonitoringOverview, syncServiceNow } from '../config/api'; // CRITICAL FIX: Import stabilized API functions
+import { getHRSDMonitoringOverview, syncServiceNow } from '../config/api';
 import DataCard from './DataCard';
 import BarChartWidget from './charts/BarChartWidget';
 import PieChartWidget from './charts/PieChartWidget';
-import { objToSeries } from '../utils/chartData';
-import { MessageCircle, CheckCircle, AlertTriangle, Loader2, RefreshCw, Clock } from 'lucide-react'; // Added Clock icon
+import { MessageCircle, CheckCircle2, AlertTriangle, Loader2, RefreshCw, Activity } from 'lucide-react';
+import { s, dim, apiError } from './policy/ui';
+
+// The service desk stores machine statuses; readers get sentences.
+const STATUS_TEXT = {
+    NEW: 'Just raised',
+    IN_TRIAGE: 'Being triaged',
+    IN_RESOLUTION: 'Being worked',
+    PENDING_EMPLOYEE: 'Waiting on the employee',
+    CLOSED: 'Closed',
+    RESOLVED: 'Resolved',
+};
+export const ticketStatusText = (raw) => STATUS_TEXT[String(raw || '').toUpperCase()]
+    || (raw ? String(raw).replace(/_/g, ' ').toLowerCase() : 'Unknown');
 
 const HRSDMonitoringDashboard = memo(() => {
     const { toast } = useToast();
     const [isSyncing, setIsSyncing] = useState(false);
+    const { data: overview, isLoading, error, refetch } = useApi(getHRSDMonitoringOverview, [], true, 60000);
 
-    // CRITICAL API INTEGRATION 1: Fetch Monitoring Data (Polling every 60s)
-    const { 
-        data: overview, 
-        isLoading, 
-        error, 
-        refetch 
-    } = useApi(getHRSDMonitoringOverview, [], true, 60000); // Polling reduced to every 60 seconds
-
-    // CRITICAL: Handle ServiceNow Sync
     const handleSync = useCallback(async () => {
         setIsSyncing(true);
         try {
-            // CRITICAL API INTEGRATION 2: Trigger ServiceNow Sync
-            await syncServiceNow();
-            toast({ title: 'Sync Initiated', description: 'ServiceNow integration sync initiated. Monitoring results.', variant: 'info' });
+            const res = await syncServiceNow();
+            const external = res.data?.details?.external_configured;
+            toast({
+                title: 'Sync recorded',
+                description: external
+                    ? 'The service desk pulled from the connected ServiceNow tenant.'
+                    : 'No ServiceNow tenant is connected, so the attempt was logged locally instead.',
+                variant: 'success',
+            });
             refetch();
-        } catch (error) {
-            // NOTE: The error structure here relies on Axios interceptors providing a good error object
-            toast({ title: 'Sync Failed', description: error.response?.data?.detail || error.message, variant: 'destructive' });
+        } catch (err) {
+            toast({ title: 'Sync failed', description: apiError(err), variant: 'destructive' });
         } finally {
             setIsSyncing(false);
         }
     }, [toast, refetch]);
 
-    // Real ticket distributions from the monitoring overview.
-    const statusDist = useMemo(() => objToSeries(overview?.tickets_by_status || {}), [overview]);
-    const ticketVolume = useMemo(() => ([
-        { name: 'Active', value: Number(overview?.active_tickets) || 0 },
-        { name: 'SLA Breaches', value: Number(overview?.sla_breaches) || 0 },
-        { name: 'Total', value: Number(overview?.total_tickets) || 0 },
-    ]), [overview]);
+    const statusSplit = useMemo(() => Object.entries(overview?.tickets_by_status || {})
+        .map(([name, value]) => ({ name: ticketStatusText(name), value: Number(value) || 0 })), [overview]);
 
-    const styles = useMemo(() => ({
-        grid: { display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: tokens.spacing?.lg, marginBottom: tokens.spacing?.lg },
-        card: { gridColumn: 'span 3' },
-        chart: { gridColumn: 'span 6', minHeight: '300px' },
-        syncCard: { gridColumn: 'span 12', padding: tokens.spacing?.md, background: tokens.color?.['panel-700'], borderRadius: tokens.border?.radius?.card, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }
-    }), []);
+    const active = Number(overview?.active_tickets) || 0;
+    const total = Number(overview?.total_tickets) || 0;
+    const breaches = Number(overview?.sla_breaches) || 0;
+    const closed = Math.max(0, total - active);
+
+    const throughput = useMemo(() => (total > 0 ? [
+        { name: 'Still open', value: active },
+        { name: 'Closed out', value: closed },
+        { name: 'Past their SLA', value: breaches },
+    ] : []), [total, active, closed, breaches]);
+
+    const styles = {
+        grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: tokens.spacing?.lg, marginBottom: tokens.spacing?.lg },
+        charts: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: tokens.spacing?.lg },
+    };
 
     if (isLoading && !overview) {
         return (
-            <div style={{ textAlign: 'center', padding: tokens.spacing?.xl }}>
-                <Loader2 size={32} className="animate-spin" color={tokens.color?.['accent-primary']} />
-                <p style={{ color: tokens.color?.['muted-500'] }}>Loading HRSD operational overview...</p>
+            <p style={{ ...s.hint, textAlign: 'center', padding: tokens.spacing?.xl }}>
+                <Loader2 size={18} className="animate-spin" /> Reading the service desk queue...
+            </p>
+        );
+    }
+
+    if (error) {
+        return (
+            <div style={{ ...s.panel, color: tokens.color?.danger, display: 'flex', gap: 10, alignItems: 'center' }}>
+                <AlertTriangle size={20} />
+                <span>The service desk did not answer: {error}</span>
             </div>
         );
     }
-    
-    // Add check for error state to improve UX
-    if (error) {
-         return (
-             <div style={{ textAlign: 'center', padding: tokens.spacing?.xl, color: tokens.color?.danger }}>
-                 <AlertTriangle size={32} />
-                 <p>Error loading HRSD monitoring data. Please try syncing manually.</p>
-             </div>
-         );
-     }
-    
+
     return (
-        <div style={styles.grid}>
-            {/* Sync Control */}
-            <div style={styles.syncCard}>
-                <p style={{ color: tokens.color?.['muted-500'], margin: 0 }}>
-                    Last Sync: {overview?.last_sync || 'N/A'}
-                </p>
-                <button 
-                    onClick={handleSync} 
-                    disabled={isSyncing} 
-                    style={{ padding: '8px 15px', background: tokens.color?.['accent-primary'], border: 'none', borderRadius: tokens.border?.radius?.button, color: tokens.color?.['bg-deep'], cursor: 'pointer', display: 'flex', alignItems: 'center', gap: tokens.spacing?.xs }} 
-                    className="hrsd-sync-hover"
-                >
-                    {isSyncing ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-                    {isSyncing ? 'Syncing...' : 'Force ServiceNow Sync'}
+        <div>
+            <div style={{ ...s.panel, ...s.row, justifyContent: 'space-between', marginBottom: tokens.spacing?.lg }}>
+                <span style={{ color: tokens.color?.['muted-500'], fontSize: 13 }}>
+                    Triage agents are {String(overview?.agent_status || 'unknown').toLowerCase()}.
+                    {' '}{total.toLocaleString()} case(s) have passed through the desk in total.
+                </span>
+                <button type="button" onClick={handleSync} disabled={isSyncing} style={dim(s.btnGhost, isSyncing)}>
+                    {isSyncing ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />} Pull from ServiceNow
                 </button>
             </div>
-            
-            {/* Metrics Cards */}
-            <div style={styles.card}>
-                <DataCard title="Open Tickets" value={overview?.open_tickets || 0} unit="Count" color={tokens.color?.warning}>
-                    <MessageCircle size={24} color={tokens.color?.warning} />
-                </DataCard>
-            </div>
-            <div style={styles.card}>
-                <DataCard title="Autonomous Resolution Rate" value={(overview?.auto_resolution_rate * 100).toFixed(1) || 0} unit="%" color={tokens.color?.success}>
-                    <CheckCircle size={24} color={tokens.color?.success} />
-                </DataCard>
-            </div>
-            <div style={styles.card}>
-                <DataCard title="Policy Violation Spikes" value={overview?.violation_spikes || 0} unit="Count" color={tokens.color?.danger}>
-                    <AlertTriangle size={24} color={tokens.color?.danger} />
-                </DataCard>
-            </div>
-            <div style={styles.card}>
-                <DataCard title="Avg. Time to Resolve" value={overview?.avg_resolution_time_hrs || 'N/A'} unit="Hours" color={tokens.color?.['accent-primary']}>
-                    <Clock size={24} color={tokens.color?.['accent-primary']} />
-                </DataCard>
+
+            <div style={styles.grid}>
+                <DataCard title="Cases still open" value={active} unit={active === 1 ? 'case' : 'cases'}
+                          color={tokens.color?.warning} icon={<MessageCircle size={22} />} />
+                <DataCard title="Past their response deadline" value={breaches} unit={breaches === 1 ? 'case' : 'cases'}
+                          color={breaches > 0 ? tokens.color?.danger : tokens.color?.success} icon={<AlertTriangle size={22} />}
+                          subtitle={active > 0 ? `${Math.round((breaches / active) * 100)} percent of open cases` : 'Nothing open'} />
+                <DataCard title="Closed out" value={closed} unit={closed === 1 ? 'case' : 'cases'}
+                          color={tokens.color?.success} icon={<CheckCircle2 size={22} />} />
+                <DataCard title="Triage agents" value={overview?.agent_status || 'Unknown'}
+                          color={tokens.color?.['accent-primary']} icon={<Activity size={22} />} />
             </div>
 
-            {/* Charts */}
-            <div style={styles.chart}>
-                <DataCard title="Tickets by Status" isChart minHeight="300px">
-                    <PieChartWidget data={statusDist} minHeight="240px" />
+            <div style={styles.charts}>
+                <DataCard title="Where the cases sit right now" isChart minHeight="320px">
+                    <PieChartWidget data={statusSplit} minHeight="250px" />
+                </DataCard>
+                <DataCard title="Open, closed and overdue" isChart minHeight="320px">
+                    <BarChartWidget data={throughput} minHeight="250px" color={tokens.color?.['accent-primary']} />
                 </DataCard>
             </div>
-            <div style={styles.chart}>
-                <DataCard title="Ticket Volume Overview" isChart minHeight="300px">
-                    <BarChartWidget data={ticketVolume} minHeight="240px" color={tokens.color?.['accent-primary']} />
-                </DataCard>
-            </div>
-            
-            <style>{`
-                .hrsd-sync-hover:hover { box-shadow: 0 0 10px ${tokens.color?.['accent-primary']}77; transform: translateY(-1px); }
-            `}</style>
         </div>
     );
 });

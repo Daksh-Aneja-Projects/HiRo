@@ -1,108 +1,113 @@
-// /frontend/src/components/AuditTraceLog.js - FINAL PRODUCTION-READY REPLACEMENT (Fixes fontSize TypeErrors)
+// Audit trail - every enforcement decision the policy engine has written to
+// policy_audit_log, in plain English. Rows are real; nothing is synthesised.
 import React, { useMemo, memo, useState, useCallback } from 'react';
 import { theme as tokens } from '../theme';
 import { useApi } from '../hooks/useApi';
-import { getAuditTrace } from '../config/api'; // CRITICAL FIX: Import stabilized API function
-import { Clock, Search, Loader2, AlertTriangle, Shield } from 'lucide-react';
+import { getAuditTrace } from '../config/api';
+import { countBy } from '../utils/chartData';
+import DataCard from './DataCard';
+import BarChartWidget from './charts/BarChartWidget';
+import { Search, Loader2, AlertTriangle, ScrollText, RefreshCw } from 'lucide-react';
+import { s, dim, decisionText, isDenial, humanise } from './policy/ui';
 
-const AuditTraceLog = memo(({ initialFilters = {} }) => {
-    const [filters, setFilters] = useState(initialFilters);
-    
-    // CRITICAL API INTEGRATION: Fetch audit logs based on current filters
-    const { 
-        data: auditLogs = [], // Default to empty array for safe mapping
-        isLoading, 
-        error, 
-        refetch 
-    } = useApi(getAuditTrace, [{ params: filters }], true, []); // Pass filters as params in the API call
+const AuditTraceLog = memo(({ initialAction = '', limit = 50 }) => {
+    const [actionInput, setActionInput] = useState(initialAction);
+    const [query, setQuery] = useState(() => (initialAction ? { action: initialAction, limit } : { limit }));
 
-    const handleFilterChange = useCallback((key, value) => {
-        setFilters(prev => ({ ...prev, [key]: value }));
-    }, []);
+    const { data, isLoading, error, refetch } = useApi(getAuditTrace, [query], true);
+    const rows = useMemo(() => (Array.isArray(data) ? data : []), [data]);
 
-    const handleRefetch = useCallback(() => {
-        refetch();
-    }, [refetch]);
+    const applyFilter = useCallback((e) => {
+        e?.preventDefault?.();
+        const action = actionInput.trim();
+        setQuery(action ? { action, limit } : { limit });
+    }, [actionInput, limit]);
 
-    const styles = useMemo(() => ({
-        container: { background: tokens.color?.['panel-800'], borderRadius: tokens.border?.radius?.card, padding: tokens.spacing?.md, height: '100%', display: 'flex', flexDirection: 'column' },
-        header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: tokens.spacing?.md, borderBottom: `1px solid ${tokens.color?.['border-600']}`, paddingBottom: tokens.spacing?.xs },
-        input: { padding: '8px 12px', background: tokens.color?.['bg-input'], border: `1px solid ${tokens.color?.['border-600']}`, borderRadius: tokens.border?.radius?.input, color: tokens.color?.['text-100'], flexGrow: 1, minWidth: '150px' },
-        logArea: { flexGrow: 1, overflowY: 'auto', marginTop: tokens.spacing?.md },
-        logTable: { width: '100%', borderCollapse: 'collapse', color: tokens.color?.['text-100'] },
-        // --- FIX: Added optional chaining ---
-        th: { borderBottom: `1px solid ${tokens.color?.['border-600']}`, padding: '10px 5px', textAlign: 'left', color: tokens.color?.['accent-secondary'], fontSize: tokens.typography?.small?.fontSize },
-        td: { borderBottom: `1px dotted ${tokens.color?.['border-700']}`, padding: '10px 5px', fontSize: tokens.typography?.small?.fontSize },
-        // ------------------------------------
-    }), []);
+    const byDecision = useMemo(() => countBy(rows, (r) => decisionText(r.decision)), [rows]);
+    const denied = rows.filter((r) => isDenial(r.decision)).length;
+
+    const styles = {
+        table: { width: '100%', borderCollapse: 'collapse', color: tokens.color?.['text-100'] },
+        th: { borderBottom: '1px solid var(--border-subtle)', padding: '9px 8px', textAlign: 'left', fontSize: 12, fontWeight: 500, color: tokens.color?.['muted-600'], whiteSpace: 'nowrap' },
+        td: { borderBottom: '1px solid var(--border-subtle)', padding: '10px 8px', fontSize: 12.5, verticalAlign: 'top' },
+        scroll: { maxHeight: 420, overflowY: 'auto', overflowX: 'auto', marginTop: 12 },
+        top: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: tokens.spacing?.lg, marginBottom: tokens.spacing?.lg },
+    };
 
     return (
-        <div style={styles.container}>
-            <div style={styles.header}>
-                <h3 style={{ margin: 0, color: tokens.color?.['text-100'] }}>
-                    <Shield size={20} style={{ marginRight: tokens.spacing?.xs }} color={tokens.color?.success} />
-                    PQC Audit Trace Log
-                </h3>
-            </div>
-            
-            {/* Filter Controls */}
-            <div style={{ display: 'flex', gap: tokens.spacing?.sm, marginBottom: tokens.spacing?.md }}>
-                <input 
-                    type="text" 
-                    placeholder="Filter by User ID" 
-                    value={filters.user_id || ''} 
-                    onChange={e => handleFilterChange('user_id', e.target.value)} 
-                    style={styles.input} 
-                />
-                <input 
-                    type="text" 
-                    placeholder="Filter by Policy" 
-                    value={filters.policy_id || ''} 
-                    onChange={e => handleFilterChange('policy_id', e.target.value)} 
-                    style={styles.input} 
-                />
-                <button 
-                    onClick={handleRefetch} 
-                    disabled={isLoading}
-                    style={{ padding: '8px 15px', background: tokens.color?.['accent-primary'], border: 'none', borderRadius: tokens.border?.radius?.button, color: tokens.color?.['bg-deep'], cursor: 'pointer', display: 'flex', alignItems: 'center' }}
-                >
-                    {isLoading ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
-                </button>
+        <div>
+            <div style={styles.top}>
+                <DataCard title="Decisions in this view" value={rows.length} unit={rows.length === 1 ? 'entry' : 'entries'}
+                          color={tokens.color?.['accent-primary']} icon={<ScrollText size={22} />} />
+                <DataCard title="Blocked by policy" value={denied} unit={denied === 1 ? 'entry' : 'entries'}
+                          color={denied > 0 ? tokens.color?.danger : tokens.color?.success} icon={<AlertTriangle size={22} />} />
+                <DataCard title="How these decisions landed" isChart minHeight="150px">
+                    <BarChartWidget data={byDecision} minHeight="110px" color={tokens.color?.['accent-secondary']} />
+                </DataCard>
             </div>
 
-            {/* Log Display Area */}
-            <div style={styles.logArea}>
-                {isLoading && <p style={{ textAlign: 'center' }}><Loader2 size={24} className="animate-spin" /> Fetching logs...</p>}
-                {error && <p style={{ color: tokens.color?.danger, textAlign: 'center' }}><AlertTriangle size={24} /> Error: {error.message}</p>}
-                
-                <table style={styles.logTable}>
-                    <thead>
-                        <tr>
-                            <th style={styles.th}>Timestamp</th>
-                            <th style={styles.th}>Event</th>
-                            <th style={styles.th}>User ID</th>
-                            <th style={styles.th}>Status</th>
-                            <th style={styles.th}>Trace ID</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {auditLogs.slice(0, 20).map(log => (
-                            <tr key={log.trace_id}>
-                                <td style={styles.td}>{new Date(log.timestamp).toLocaleTimeString()}</td>
-                                <td style={styles.td}>{log.event_type}</td>
-                                <td style={styles.td}>{log.user_id}</td>
-                                <td style={styles.td}>
-                                    <span style={{ color: log.status === 'SUCCESS' ? tokens.color?.success : tokens.color?.danger }}>
-                                        {log.status}
-                                    </span>
-                                </td>
-                                <td style={styles.td}>{log.trace_id.substring(0, 8)}...</td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-                {auditLogs.length === 0 && !isLoading && !error && (
-                    <p style={{ textAlign: 'center', color: tokens.color?.['muted-500'], marginTop: tokens.spacing?.md }}>No audit entries found for the current filters.</p>
+            <div style={s.panel}>
+                <div style={{ ...s.row, justifyContent: 'space-between' }}>
+                    <h3 style={s.sectionTitle}><ScrollText size={16} color={tokens.color?.success} /> Enforcement audit trail</h3>
+                    <form onSubmit={applyFilter} style={s.row}>
+                        <input style={{ ...s.input, minWidth: 220 }} value={actionInput}
+                               onChange={(e) => setActionInput(e.target.value)}
+                               placeholder="Filter by what triggered the check" />
+                        <button type="submit" style={dim(s.btn, isLoading)} disabled={isLoading}>
+                            {isLoading ? <Loader2 size={15} className="animate-spin" /> : <Search size={15} />} Filter
+                        </button>
+                        <button type="button" style={dim(s.btnGhost, isLoading)} disabled={isLoading} onClick={() => refetch()}>
+                            <RefreshCw size={15} /> Refresh
+                        </button>
+                    </form>
+                </div>
+
+                <p style={{ ...s.hint, margin: '10px 0 0' }}>
+                    Each row is one decision the enforcement engine recorded, newest first, capped at {limit}.
+                </p>
+
+                {error && (
+                    <p style={{ color: tokens.color?.danger, fontSize: 13, marginTop: 12 }}>
+                        <AlertTriangle size={14} style={{ marginBottom: -2, marginRight: 6 }} />
+                        The audit trail could not be read: {error}
+                    </p>
+                )}
+
+                {!error && !isLoading && rows.length === 0 && (
+                    <p style={{ ...s.hint, marginTop: 16 }}>
+                        No decision has been recorded yet for this filter. Clear the filter, or activate a policy so the engine starts judging transactions.
+                    </p>
+                )}
+
+                {rows.length > 0 && (
+                    <div style={styles.scroll}>
+                        <table style={styles.table}>
+                            <thead>
+                                <tr>
+                                    <th style={styles.th}>When</th>
+                                    <th style={styles.th}>What was checked</th>
+                                    <th style={styles.th}>Outcome</th>
+                                    <th style={styles.th}>Why</th>
+                                    <th style={styles.th}>Audit reference</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {rows.map((r) => (
+                                    <tr key={r.audit_id}>
+                                        <td style={styles.td}>{r.timestamp ? new Date(r.timestamp).toLocaleString() : 'not recorded'}</td>
+                                        <td style={styles.td}>{humanise(r.action)}</td>
+                                        <td style={{ ...styles.td, color: isDenial(r.decision) ? tokens.color?.danger : tokens.color?.success }}>
+                                            {decisionText(r.decision)}
+                                        </td>
+                                        <td style={{ ...styles.td, color: tokens.color?.['muted-500'], maxWidth: 380 }}>
+                                            {r.summary || 'No reason was recorded.'}
+                                        </td>
+                                        <td style={{ ...styles.td, ...s.mono }}>{r.audit_id}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
                 )}
             </div>
         </div>

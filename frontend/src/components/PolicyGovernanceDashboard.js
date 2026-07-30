@@ -1,146 +1,105 @@
-// /frontend/src/components/PolicyGovernanceDashboard.js - FINAL PRODUCTION-READY REPLACEMENT (Polling Stabilized)
+// Compliance posture for the HRBP: how the enforcement engine has actually been
+// deciding, how many high severity breaches are open, and whether the live
+// policy set is current. Every figure comes from /api/compliance/dashboard,
+// which aggregates the real policy_audit_log.
 import React, { useMemo, memo } from 'react';
 import { theme as tokens } from '../theme';
 import { useApi } from '../hooks/useApi';
-import { getGovernanceDashboardData, getComplianceDashboardData, getAnalyticsCharts } from '../config/api'; // CRITICAL FIX: Import stabilized API functions
+import { getComplianceDashboardData } from '../config/api';
 import DataCard from './DataCard';
-import BarChartWidget from './charts/BarChartWidget';
 import PieChartWidget from './charts/PieChartWidget';
-import { Shield, Users, Loader2, AlertTriangle, BookOpen, Clock } from 'lucide-react';
+import { Shield, Loader2, AlertTriangle, Clock, Radio, ScrollText } from 'lucide-react';
+import { s } from './policy/ui';
+
+const feedText = (status) => {
+    switch (String(status || '').toUpperCase()) {
+        case 'ONLINE': return 'Live';
+        case 'DEGRADED': return 'Patchy';
+        case 'OFFLINE': return 'Down';
+        default: return status ? String(status).toLowerCase() : 'Unknown';
+    }
+};
 
 const PolicyGovernanceDashboard = memo(() => {
-    
-    // CRITICAL API INTEGRATION 1: Fetch Governance Data (DAO/Proposals) - Polls every 60s
-    // NOTE: Removed extraneous trailing {} argument if it was present
-    const { 
-        data: governanceData, 
-        isLoading: isGovLoading, 
-        error: govError 
-    } = useApi(getGovernanceDashboardData, [], true, 60000); // CRITICAL FIX: Polling interval set to 60000ms (60 seconds)
-    
-    // CRITICAL API INTEGRATION 2: Fetch Compliance Data (Policy Status)
-    const { 
-        data: complianceData, 
-        isLoading: isCompLoading, 
-        error: compError 
-    } = useApi(getComplianceDashboardData, [], true, 60000); // CRITICAL FIX: Polling interval set to 60000ms (60 seconds)
+    const { data, isLoading, error } = useApi(getComplianceDashboardData, [], true, 60000);
 
-    // Real attrition-by-department series (proxy for compliance risk by group).
-    const { data: charts } = useApi(getAnalyticsCharts, [], true);
+    const total = Number(data?.total_decisions) || 0;
+    const denials = Number(data?.denials) || 0;
+    const approved = Math.max(0, total - denials);
+    const denialRate = total ? (denials / total) * 100 : 0;
+    const violations = Number(data?.high_severity_violations) || 0;
+    const upToDate = data?.latest_version_applied === true;
 
-    const isLoading = isGovLoading || isCompLoading;
+    const decisionSplit = useMemo(() => (total > 0
+        ? [{ name: 'Allowed by policy', value: approved }, { name: 'Denied by policy', value: denials }]
+        : []), [total, approved, denials]);
 
-    // Data stabilization and display logic
-    const policyViolationCount = complianceData?.high_severity_violations || 0;
-    const isPolicyUpToDate = complianceData?.latest_version_applied === true;
+    const styles = {
+        grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: tokens.spacing?.lg, marginBottom: tokens.spacing?.lg },
+        lower: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: tokens.spacing?.lg },
+    };
 
-    // Real compliance decision split (approved vs denied) from the live compliance engine.
-    const decisionSplit = useMemo(() => {
-        const total = Number(complianceData?.total_decisions) || 0;
-        const denials = Number(complianceData?.denials) || 0;
-        if (total <= 0) return [];
-        return [
-            { name: 'Approved', value: Math.max(0, total - denials) },
-            { name: 'Denied', value: denials },
-        ];
-    }, [complianceData]);
-
-    // Real governance activity snapshot from the DAO dashboard.
-    const governanceActivity = useMemo(() => ([
-        { name: 'Active Proposals', value: Number(governanceData?.active_proposals) || 0 },
-        { name: 'Members Voting', value: Number(governanceData?.members_voting) || 0 },
-        { name: 'Ledger Commits (24h)', value: Number(governanceData?.ledger_commits_24h) || 0 },
-    ]), [governanceData]);
-
-    const styles = useMemo(() => ({
-        grid: { display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: tokens.spacing?.lg, marginBottom: tokens.spacing?.lg },
-        card: { gridColumn: 'span 3' },
-        chartHalf: { gridColumn: 'span 6', minHeight: '300px' },
-    }), []);
-
-    // Placeholder data for rendering safety
-    const governance = governanceData || {};
-    const compliance = complianceData || {};
-
-    // Determine color based on compliance status
-    const statusColor = isPolicyUpToDate ? tokens.color?.success : tokens.color?.danger;
-
-
-    if (isLoading) {
-        return <p style={{ textAlign: 'center', padding: tokens.spacing?.xl }}><Loader2 size={32} className="animate-spin" /> Loading Policy Governance Dashboard...</p>;
+    if (isLoading && !data) {
+        return (
+            <p style={{ ...s.hint, textAlign: 'center', padding: tokens.spacing?.xl }}>
+                <Loader2 size={18} className="animate-spin" /> Reading the compliance ledger...
+            </p>
+        );
     }
 
-    if (govError || compError) {
+    if (error) {
         return (
-            <div style={{ padding: tokens.spacing?.xl, background: tokens.color?.['panel-700'], borderRadius: tokens.border?.radius?.card, color: tokens.color?.danger }}>
-                <AlertTriangle size={24} style={{ marginRight: tokens.spacing?.xs, marginBottom: '-3px' }} />
-                Error loading one or more dashboard data feeds.
+            <div style={{ ...s.panel, color: tokens.color?.danger, display: 'flex', gap: 10, alignItems: 'center' }}>
+                <AlertTriangle size={20} />
+                <span>The compliance service did not answer: {error}</span>
             </div>
         );
     }
 
     return (
-        <div style={styles.grid}>
-            {/* Compliance Metrics */}
-            <div style={styles.card}>
-                <DataCard 
-                    title="Latest Policy Version" 
-                    value={isPolicyUpToDate ? 'UP TO DATE' : 'STALE'} 
-                    unit="Status" 
-                    color={statusColor}
-                >
-                    <Shield size={24} color={statusColor} />
-                </DataCard>
-            </div>
-            <div style={styles.card}>
-                <DataCard 
-                    title="Time to Policy Audit" 
-                    value={compliance.days_to_next_audit || 'N/A'} 
-                    unit="Days" 
-                    color={tokens.color?.['accent-secondary']}
-                >
-                    <Clock size={24} color={tokens.color?.['accent-secondary']} />
-                </DataCard>
-            </div>
-            <div style={styles.card}>
-                <DataCard 
-                    title="High Severity Violations" 
-                    value={policyViolationCount} 
-                    unit="Count" 
-                    color={policyViolationCount > 5 ? tokens.color?.danger : tokens.color?.success}
-                >
-                    <AlertTriangle size={24} color={policyViolationCount > 5 ? tokens.color?.danger : tokens.color?.success} />
-                </DataCard>
-            </div>
-            
-            {/* DAO/Governance Metrics */}
-            <div style={styles.card}>
-                <DataCard title="Active DAO Proposals" value={governanceData?.active_proposals || 0} unit="Count" color={tokens.color?.['accent-primary']}>
-                    <Users size={24} color={tokens.color?.['accent-primary']} />
-                </DataCard>
-            </div>
-            <div style={styles.card}>
-                <DataCard title="Policy Ledger Commits (24h)" value={governanceData?.ledger_commits_24h || 0} unit="Commits" color={tokens.color?.warning}>
-                    <BookOpen size={24} color={tokens.color?.warning} />
-                </DataCard>
+        <div>
+            <div style={styles.grid}>
+                <DataCard title="Decisions that followed policy" value={total ? (100 - denialRate).toFixed(1) : '0.0'} unit="%"
+                          color={tokens.color?.success} icon={<Shield size={22} />}
+                          subtitle={total ? `${approved.toLocaleString()} of ${total.toLocaleString()} decisions` : 'No decisions recorded yet'} />
+                <DataCard title="Open high severity breaches" value={violations} unit={violations === 1 ? 'case' : 'cases'}
+                          color={violations > 0 ? tokens.color?.danger : tokens.color?.success} icon={<AlertTriangle size={22} />}
+                          subtitle={violations > 0 ? 'Needs an HRBP review' : 'Nothing outstanding'} />
+                <DataCard title="Next scheduled audit" value={data?.days_to_next_audit ?? 0} unit="days away"
+                          color={tokens.color?.['accent-secondary']} icon={<Clock size={22} />} />
+                <DataCard title="Regulatory feeds" value={feedText(data?.regulatory_feed_status)}
+                          color={String(data?.regulatory_feed_status).toUpperCase() === 'ONLINE' ? tokens.color?.success : tokens.color?.warning}
+                          icon={<Radio size={22} />}
+                          subtitle={upToDate ? 'Live policy set is the newest one' : 'A newer policy version has not been applied'} />
             </div>
 
-            {/* Policy Audit and Workflow Status */}
-            <div style={styles.chartHalf}>
-                <DataCard title="Compliance Decision Split" isChart minHeight="300px">
-                    <PieChartWidget data={decisionSplit} minHeight="240px" />
+            <div style={styles.lower}>
+                <DataCard title="How the engine decided" isChart minHeight="320px">
+                    <PieChartWidget data={decisionSplit} minHeight="250px" />
                 </DataCard>
-            </div>
-            <div style={styles.chartHalf}>
-                <DataCard title="Governance Activity" isChart minHeight="300px">
-                    <BarChartWidget data={governanceActivity} minHeight="240px" color={tokens.color?.['accent-primary']} />
-                </DataCard>
-            </div>
 
-            <div style={{ gridColumn: 'span 12' }}>
-                <DataCard title="Compliance Risk by Department" isChart minHeight="250px">
-                    <BarChartWidget data={charts?.attrition_by_department || []} minHeight="200px" color={tokens.color?.warning} />
-                </DataCard>
+                <div style={s.panel}>
+                    <h3 style={s.sectionTitle}><ScrollText size={16} color={tokens.color?.['accent-primary']} /> What this means</h3>
+                    {total === 0 ? (
+                        <p style={{ ...s.hint, marginTop: 12 }}>
+                            The enforcement engine has not judged a single transaction yet, so there is no compliance record to read.
+                            Activate a policy version and the decisions will start landing here.
+                        </p>
+                    ) : (
+                        <p style={{ color: tokens.color?.['muted-500'], fontSize: 13.5, lineHeight: 1.85, marginTop: 12 }}>
+                            The engine has judged {total.toLocaleString()} transactions against the live policy set.
+                            It let {approved.toLocaleString()} through and blocked {denials.toLocaleString()},
+                            a denial rate of {denialRate.toFixed(1)} percent.
+                            {' '}{violations > 0
+                                ? `${violations} of those breaches are rated high severity and are still open.`
+                                : 'No high severity breach is currently open.'}
+                            {' '}{upToDate
+                                ? 'The version being enforced is the newest approved one.'
+                                : 'A newer approved version exists but is not the one being enforced, so activate it before the next audit.'}
+                            {' '}The next audit is {data?.days_to_next_audit ?? 0} days away.
+                        </p>
+                    )}
+                </div>
             </div>
         </div>
     );

@@ -5,128 +5,89 @@ import { theme as tokens } from '../theme';
 
 // CRITICAL API IMPORTS
 import {
-    getActivePolicy, getPolicyHistory, submitPolicyDraft,
-    getComplianceDashboardData, getHRSDTickets, getEmployeeCompensation,
+    getHRSDTickets, createHRSDTicket, getEmployeeCompensation,
     updateEmployeeCompensation,
-    uploadIngestionFile, getIngestionJobs, getAnalyticsCharts, getTeamPerformanceTrend,
-    getWFPProjections
+    uploadIngestionFile, getIngestionJobs, getAnalyticsCharts,
+    getWFPProjections, put
 } from '../config/api';
 import { useApi } from '../hooks/useApi';
 import { useToast } from '../hooks/use-toast';
 
 // UI COMPONENTS (Assume these exist and are stable)
 import DataCard from '../components/DataCard';
-import AreaChartWidget from '../components/charts/AreaChartWidget';
 import BarChartWidget from '../components/charts/BarChartWidget';
-import PieChartWidget from '../components/charts/PieChartWidget';
 import { countBy, skillGapSeries, readinessSeries, toArray } from '../utils/chartData';
 import {
-    BookOpen, DollarSign, Users, FileText, Briefcase,
-    Search, Loader2, ArrowLeft, AlertTriangle, CheckCircle, Shield
+    DollarSign, Users, FileText, Briefcase,
+    Search, Loader2, AlertTriangle, CheckCircle, CheckCircle2, Shield,
+    Ticket, MessageSquarePlus, ClipboardCheck
 } from 'lucide-react';
-import PolicyGovernanceDashboard from '../components/PolicyGovernanceDashboard'; // Assumed complex component for Policy tab
+import PolicyGovernanceDashboard from '../components/PolicyGovernanceDashboard';
+import HRSDMonitoringDashboard, { ticketStatusText } from '../components/HRSDMonitoringDashboard';
+import AuditTraceLog from '../components/AuditTraceLog';
+import BPCLPolicyLinter from '../components/BPCLPolicyLinter';
+import PolicyLifecycleWorkbench from '../components/policy/PolicyLifecycleWorkbench';
+import DAOGovernancePanel from '../components/policy/DAOGovernancePanel';
+import { s as ps, dim, apiError } from '../components/policy/ui';
 
 
-// --- 7.1. Sub-Module: Policy Governance ---
-/**
- * Renders the Policy Governance and Compliance module.
- */
-const PolicyModule = memo(() => {
-    // CRITICAL API INTEGRATION 1: Fetch Compliance Dashboard Data
-    const { 
-        data: complianceData, 
-        isLoading: isComplianceLoading, 
-        error: complianceError 
-    } = useApi(getComplianceDashboardData, [], true, 300000); // FIX: Polling interval set to 5 minutes (300000ms)
-
-    // Real monthly workforce-performance series (proxy for compliance-health trend over time).
-    const { data: trend } = useApi(getTeamPerformanceTrend, [], true);
-
-    // Real decision breakdown from the live compliance engine (approved vs denied).
-    const violationBreakdown = useMemo(() => {
-        const total = Number(complianceData?.total_decisions) || 0;
-        const denials = Number(complianceData?.denials) || 0;
-        if (total <= 0) return [];
-        return [
-            { name: 'Compliant', value: Math.max(0, total - denials) },
-            { name: 'Denied / Violation', value: denials },
-        ];
-    }, [complianceData]);
-
-    const styles = useMemo(() => ({
-        grid: { display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: tokens.spacing?.lg, marginBottom: tokens.spacing?.lg },
-        card: { gridColumn: 'span 3' },
-        chart: { gridColumn: 'span 6', minHeight: '300px' }
-    }), []);
-
-    return (
-        <div className="policy-module">
-            <h2 style={{ color: tokens.color?.['accent-primary'], marginBottom: tokens.spacing?.lg }}>Compliance Overview</h2>
-            
-            {isComplianceLoading && <p style={{textAlign: 'center'}}><Loader2 size={20} className="animate-spin" /> Loading compliance data...</p>}
-            {complianceError && <p style={{ color: tokens.color?.danger }}>Error loading compliance dashboard.</p>}
-
-            <div style={styles.grid}>
-                {/* Data Cards */}
-                <div style={styles.card}>
-                    <DataCard 
-                        title="Policy Compliance Score" 
-                        value={(complianceData?.score * 100).toFixed(1) || 'N/A'} 
-                        unit="%" 
-                        color={tokens.color?.success}
-                    >
-                        <CheckCircle size={24} color={tokens.color?.success} />
-                    </DataCard>
-                </div>
-                <div style={styles.card}>
-                    <DataCard 
-                        title="Active Violations" 
-                        value={complianceData?.active_violations || 0} 
-                        unit="Count" 
-                        color={tokens.color?.danger}
-                    >
-                        <AlertTriangle size={24} color={tokens.color?.danger} />
-                    </DataCard>
-                </div>
-                <div style={styles.card}>
-                    <DataCard 
-                        title="Pending Policy Drafts" 
-                        value={complianceData?.pending_drafts || 0} 
-                        unit="Count" 
-                        color={tokens.color?.warning}
-                    >
-                        <BookOpen size={24} color={tokens.color?.warning} />
-                    </DataCard>
-                </div>
-                <div style={styles.card}>
-                    <DataCard 
-                        title="Last Audit Date" 
-                        value={complianceData?.last_audit_date ? new Date(complianceData.last_audit_date).toLocaleDateString() : 'N/A'} 
-                        unit="" 
-                        color={tokens.color?.['accent-secondary']}
-                    >
-                        <Briefcase size={24} color={tokens.color?.['accent-secondary']} />
-                    </DataCard>
-                </div>
-                
-                {/* Charts */}
-                <div style={styles.chart}>
-                    <DataCard title="Workforce Performance Trend (monthly)" isChart minHeight="300px">
-                        <AreaChartWidget data={trend || []} minHeight="240px" color={tokens.color?.success} />
-                    </DataCard>
-                </div>
-                <div style={styles.chart}>
-                    <DataCard title="Compliance Decision Breakdown" isChart minHeight="300px">
-                        <PieChartWidget data={violationBreakdown} minHeight="240px" />
-                    </DataCard>
-                </div>
-            </div>
-
-            <PolicyGovernanceDashboard />
-        </div>
-    );
-});
+// --- 7.1. Sub-Module: Policy Lifecycle ---
+// The whole chain lives in PolicyLifecycleWorkbench: choose a policy, read the
+// live version and history, draft, edit, scan, approve, activate, roll back and
+// attest to the ledger.
+const PolicyModule = memo(() => (
+    <div className="policy-module">
+        <p style={{ ...ps.hint, marginTop: -4 }}>
+            Draft a policy, get it signed off, put it live, and leave a tamper-evident record of every step.
+        </p>
+        <PolicyLifecycleWorkbench />
+    </div>
+));
 PolicyModule.displayName = 'PolicyModule';
+
+// --- Sub-Module: Compliance posture ---
+const ComplianceModule = memo(() => (
+    <div className="compliance-module">
+        <p style={{ ...ps.hint, marginTop: -4 }}>
+            How the enforcement engine has been judging real transactions against the live policy set.
+        </p>
+        <PolicyGovernanceDashboard />
+    </div>
+));
+ComplianceModule.displayName = 'ComplianceModule';
+
+// --- Sub-Module: Rule compiler and linter ---
+const RulesModule = memo(() => (
+    <div className="rules-module">
+        <p style={{ ...ps.hint, marginTop: -4 }}>
+            Turn a sentence of plain English into an enforceable rule, and verify any rule before it ships.
+        </p>
+        <BPCLPolicyLinter />
+    </div>
+));
+RulesModule.displayName = 'RulesModule';
+
+// --- Sub-Module: DAO governance ---
+const GovernanceModule = memo(() => (
+    <div className="governance-module">
+        <p style={{ ...ps.hint, marginTop: -4 }}>
+            Proposals open to the workforce, and your vote on each. Votes are written to the governance ledger.
+        </p>
+        <DAOGovernancePanel />
+    </div>
+));
+GovernanceModule.displayName = 'GovernanceModule';
+
+// --- Sub-Module: Audit trail ---
+const AuditModule = memo(() => (
+    <div className="audit-module">
+        <p style={{ ...ps.hint, marginTop: -4 }}>
+            Every decision the policy engine has recorded, with the reason it gave.
+        </p>
+        <AuditTraceLog />
+    </div>
+));
+AuditModule.displayName = 'AuditModule';
 
 // --- 7.2. Sub-Module: Compensation Workbench ---
 // Real HRBP workflow: look up an employee, read their decrypted compensation
@@ -372,70 +333,194 @@ const IngestionModule = memo(() => {
 IngestionModule.displayName = 'IngestionModule';
 
 
-// --- 7.5. Sub-Module: HRSD Case Management (Mocked) ---
+// --- 7.5. Sub-Module: HRSD Case Management ---
+// Real desk work: raise a case, watch the queue, close a case with a written
+// resolution. Field names follow the live HRSD payload (ticket_id / title /
+// status / priority / assigned_agent).
+const PRIORITY_TEXT = { CRITICAL: 'Critical', HIGH: 'Urgent', MEDIUM: 'Normal', LOW: 'Low' };
+const priorityText = (p) => PRIORITY_TEXT[String(p || '').toUpperCase()] || 'Unrated';
+const priorityColor = (p) => {
+    switch (String(p || '').toUpperCase()) {
+        case 'CRITICAL':
+        case 'HIGH': return tokens.color?.danger;
+        case 'MEDIUM': return tokens.color?.warning;
+        default: return tokens.color?.['muted-500'];
+    }
+};
+const isOpenCase = (t) => !['CLOSED', 'RESOLVED'].includes(String(t.status || '').toUpperCase());
+
 const CasesModule = memo(() => {
-    // CRITICAL API INTEGRATION 4: Fetch HRSD Tickets (Polling for live updates)
+    const { toast } = useToast();
     const {
         data: ticketsResp,
         isLoading: isTicketsLoading,
         error: ticketsError,
-    } = useApi(getHRSDTickets, [], true, 60000); // Polling every 60 seconds
+        refetch: refetchTickets,
+    } = useApi(getHRSDTickets, [], true, 60000);
 
     // Backend returns { tickets: [...], count }; normalize to an array.
     const tickets = useMemo(() => toArray(ticketsResp), [ticketsResp]);
+    const open = useMemo(() => tickets.filter(isOpenCase), [tickets]);
 
-    // Real distributions derived from the live ticket set (no fabricated series).
-    const byAssignee = useMemo(() => countBy(tickets, (t) => t.assigned_agent || t.assigned_to), [tickets]);
-    const byPriority = useMemo(() => countBy(tickets, (t) => t.priority), [tickets]);
+    const [draft, setDraft] = useState({ subject: '', description: '', employee_id: '' });
+    const [creating, setCreating] = useState(false);
+    const [resolving, setResolving] = useState('');
+    const [summaries, setSummaries] = useState({});
+    const [showAll, setShowAll] = useState(false);
 
-    const styles = useMemo(() => ({
-        grid: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: tokens.spacing?.lg },
-        ticketCard: (isHighPriority) => ({
-            padding: tokens.spacing?.md,
-            background: tokens.color?.['panel-700'],
-            borderRadius: tokens.border?.radius?.card,
-            borderLeft: `4px solid ${isHighPriority ? tokens.color?.danger : tokens.color?.warning}`,
-            marginBottom: tokens.spacing?.md,
-        })
-    }), []);
-    
+    const byAgent = useMemo(() => countBy(open, (t) => t.assigned_agent || t.assigned_to), [open]);
+    const byPriority = useMemo(() => countBy(open, (t) => priorityText(t.priority)), [open]);
+
+    const raise = useCallback(async (e) => {
+        e.preventDefault();
+        if (!draft.subject.trim() || !draft.description.trim() || !draft.employee_id.trim()) {
+            toast({ title: 'Fill in every field', description: 'A case needs a subject, a description and the employee it concerns.', variant: 'warning' });
+            return;
+        }
+        setCreating(true);
+        try {
+            const res = await createHRSDTicket(draft.subject.trim(), draft.description.trim(), draft.employee_id.trim());
+            toast({
+                title: 'Case raised',
+                description: `Case ${res.data?.ticket_id} was created and handed to the triage agents.`,
+                variant: 'success',
+            });
+            setDraft({ subject: '', description: '', employee_id: '' });
+            refetchTickets();
+        } catch (err) {
+            toast({ title: 'Could not raise the case', description: apiError(err), variant: 'destructive' });
+        } finally {
+            setCreating(false);
+        }
+    }, [draft, toast, refetchTickets]);
+
+    const resolve = useCallback(async (ticket) => {
+        const summary = (summaries[ticket.ticket_id] || '').trim();
+        if (!summary) {
+            toast({ title: 'Write what you did', description: 'A case can only be closed with a resolution the employee can read.', variant: 'warning' });
+            return;
+        }
+        setResolving(ticket.ticket_id);
+        try {
+            // The endpoint reads this body as a bare JSON string. api.js wraps it
+            // in an object, which the server rejects, so the generic client is
+            // used against the same documented route.
+            await put(`/hrsd/tickets/${encodeURIComponent(ticket.ticket_id)}/resolve`, summary);
+            toast({ title: 'Case closed', description: `${ticket.title || ticket.ticket_id} was closed with your resolution.`, variant: 'success' });
+            setSummaries((prev) => ({ ...prev, [ticket.ticket_id]: '' }));
+            refetchTickets();
+        } catch (err) {
+            toast({ title: 'Could not close the case', description: apiError(err), variant: 'destructive' });
+        } finally {
+            setResolving('');
+        }
+    }, [summaries, toast, refetchTickets]);
+
+    const visible = showAll ? open : open.slice(0, 12);
+
+    const styles = {
+        columns: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(330px, 1fr))', gap: tokens.spacing?.lg, alignItems: 'start' },
+        caseCard: (p) => ({
+            ...ps.panel,
+            borderLeft: `3px solid ${priorityColor(p)}`,
+            marginBottom: tokens.spacing?.sm,
+        }),
+        list: { maxHeight: 520, overflowY: 'auto', paddingRight: 4 },
+    };
+
     return (
         <div className="cases-module">
-            <h2 style={{ color: tokens.color?.['accent-primary'], marginBottom: tokens.spacing?.lg }}>HRSD Case Management</h2>
-            
-            {isTicketsLoading && <p style={{textAlign: 'center'}}><Loader2 size={20} className="animate-spin" /> Loading tickets...</p>}
-            {ticketsError && <p style={{ color: tokens.color?.danger }}>Error loading HRSD tickets.</p>}
+            <p style={{ ...ps.hint, marginTop: -4 }}>
+                Raise a case, see where the queue stands, and close cases with a written resolution.
+            </p>
 
-            <div style={styles.grid}>
+            <HRSDMonitoringDashboard />
+
+            <div style={{ ...styles.columns, marginTop: tokens.spacing?.lg }}>
                 <div>
-                    <h3 style={{ borderBottom: `1px solid ${tokens.color?.['border-600']}`, paddingBottom: tokens.spacing?.xs, marginBottom: tokens.spacing?.md }}>High Priority Cases</h3>
-                    {(tickets || []).filter(t => t.priority === 'High').map(ticket => (
-                        <div key={ticket.id} style={styles.ticketCard(true)}>
-                            <p style={{ fontWeight: 'bold', margin: '0 0 5px 0', color: tokens.color?.danger }}>{ticket.subject}</p>
-                            <p style={{ margin: 0, fontSize: tokens.typography?.small?.fontSize, color: tokens.color?.['muted-500'] }}>Assigned to: {ticket.assigned_to}</p>
-                        </div>
-                    ))}
-                    {/* Real: open cases grouped by assignee */}
+                    <div style={ps.panel}>
+                        <h3 style={ps.sectionTitle}><MessageSquarePlus size={16} color={tokens.color?.['accent-primary']} /> Raise a case</h3>
+                        <form onSubmit={raise} style={{ marginTop: 12 }}>
+                            <label style={ps.label}>What is this about</label>
+                            <input style={{ ...ps.input, width: '100%' }} value={draft.subject}
+                                   onChange={(e) => setDraft((p) => ({ ...p, subject: e.target.value }))}
+                                   placeholder="Short subject, for example: missing overtime payment" />
+                            <label style={{ ...ps.label, marginTop: 12 }}>What happened</label>
+                            <textarea style={{ ...ps.textarea, minHeight: 100, fontFamily: 'inherit', fontSize: 13.5 }} value={draft.description}
+                                      onChange={(e) => setDraft((p) => ({ ...p, description: e.target.value }))}
+                                      placeholder="Describe the problem so the triage agent can route it correctly." />
+                            <label style={{ ...ps.label, marginTop: 12 }}>Who it concerns</label>
+                            <input style={{ ...ps.input, width: '100%' }} value={draft.employee_id}
+                                   onChange={(e) => setDraft((p) => ({ ...p, employee_id: e.target.value }))}
+                                   placeholder="Employee id, for example EMP-001" />
+                            <button type="submit" style={{ ...dim(ps.btn, creating), marginTop: 14 }} disabled={creating}>
+                                {creating ? <Loader2 size={15} className="animate-spin" /> : <Ticket size={15} />} Raise the case
+                            </button>
+                        </form>
+                    </div>
+
                     <div style={{ marginTop: tokens.spacing?.lg }}>
-                        <DataCard title="Open Cases by Assignee" isChart minHeight="250px">
-                            <BarChartWidget data={byAssignee} minHeight="200px" color={tokens.color?.['accent-primary']} />
+                        <DataCard title="Open cases by triage agent" isChart minHeight="260px">
+                            <BarChartWidget data={byAgent} minHeight="200px" color={tokens.color?.['accent-primary']} />
                         </DataCard>
                     </div>
-                </div>
-                <div>
-                    <h3 style={{ borderBottom: `1px solid ${tokens.color?.['border-600']}`, paddingBottom: tokens.spacing?.xs, marginBottom: tokens.spacing?.md }}>Normal & Low Priority Cases</h3>
-                    {(tickets || []).filter(t => t.priority !== 'High').map(ticket => (
-                        <div key={ticket.id} style={styles.ticketCard(false)}>
-                            <p style={{ fontWeight: 'bold', margin: '0 0 5px 0', color: tokens.color?.warning }}>{ticket.subject}</p>
-                            <p style={{ margin: 0, fontSize: tokens.typography?.small?.fontSize, color: tokens.color?.['muted-500'] }}>Assigned to: {ticket.assigned_to}</p>
-                        </div>
-                    ))}
-                    {/* Real: ticket volume grouped by priority */}
                     <div style={{ marginTop: tokens.spacing?.lg }}>
-                        <DataCard title="Ticket Volume by Priority" isChart minHeight="250px">
+                        <DataCard title="Open cases by urgency" isChart minHeight="260px">
                             <BarChartWidget data={byPriority} minHeight="200px" color={tokens.color?.warning} />
                         </DataCard>
                     </div>
+                </div>
+
+                <div style={ps.panel}>
+                    <div style={{ ...ps.row, justifyContent: 'space-between' }}>
+                        <h3 style={ps.sectionTitle}><ClipboardCheck size={16} color={tokens.color?.success} /> Cases still open</h3>
+                        <span style={{ fontSize: 12.5, color: tokens.color?.['muted-600'] }}>
+                            {open.length.toLocaleString()} open of {tickets.length.toLocaleString()} on the desk
+                        </span>
+                    </div>
+
+                    {isTicketsLoading && tickets.length === 0 && (
+                        <p style={{ ...ps.hint, marginTop: 14 }}><Loader2 size={14} className="animate-spin" /> Loading the case queue...</p>
+                    )}
+                    {ticketsError && (
+                        <p style={{ color: tokens.color?.danger, fontSize: 13, marginTop: 14 }}>The case queue could not be read: {ticketsError}</p>
+                    )}
+                    {!isTicketsLoading && !ticketsError && open.length === 0 && (
+                        <p style={{ ...ps.hint, marginTop: 14 }}>Nothing is open. Raise a case on the left when something needs the desk.</p>
+                    )}
+
+                    <div style={{ ...styles.list, marginTop: 14 }}>
+                        {visible.map((t) => (
+                            <div key={t.ticket_id} style={styles.caseCard(t.priority)}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'baseline' }}>
+                                    <strong style={{ fontSize: 13.5, color: tokens.color?.['text-100'] }}>{t.title || 'Untitled case'}</strong>
+                                    <span style={{ fontSize: 12, color: priorityColor(t.priority) }}>{priorityText(t.priority)}</span>
+                                </div>
+                                <p style={{ fontSize: 12.5, color: tokens.color?.['muted-500'], margin: '6px 0 0', lineHeight: 1.6 }}>
+                                    {t.description || 'No description was given.'}
+                                </p>
+                                <p style={{ fontSize: 12, color: tokens.color?.['muted-600'], margin: '6px 0 0' }}>
+                                    {ticketStatusText(t.status)}, handled by {t.assigned_agent || 'nobody yet'}
+                                    {t.created_at ? `, raised ${new Date(t.created_at).toLocaleDateString()}` : ''}.
+                                </p>
+                                <div style={{ ...ps.row, marginTop: 10 }}>
+                                    <input style={{ ...ps.input, flex: 1, minWidth: 170 }} placeholder="What you did to resolve it"
+                                           value={summaries[t.ticket_id] || ''}
+                                           onChange={(e) => setSummaries((prev) => ({ ...prev, [t.ticket_id]: e.target.value }))} />
+                                    <button type="button" style={dim(ps.btnGhost, resolving === t.ticket_id)}
+                                            disabled={resolving === t.ticket_id} onClick={() => resolve(t)}>
+                                        {resolving === t.ticket_id ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} color={tokens.color?.success} />} Close
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    {open.length > 12 && (
+                        <button type="button" style={{ ...ps.btnGhost, marginTop: 12 }} onClick={() => setShowAll((v) => !v)}>
+                            {showAll ? 'Show only the first 12' : `Show all ${open.length.toLocaleString()} open cases`}
+                        </button>
+                    )}
                 </div>
             </div>
         </div>
@@ -454,6 +539,14 @@ export const HRPortalComponent = memo(() => {
         switch (mod) {
             case 'policy':
                 return <PolicyModule />;
+            case 'compliance':
+                return <ComplianceModule />;
+            case 'rules':
+                return <RulesModule />;
+            case 'governance':
+                return <GovernanceModule />;
+            case 'audit':
+                return <AuditModule />;
             case 'comp':
                 return <CompensationModule />;
             case 'talent':
@@ -474,7 +567,11 @@ export const HRPortalComponent = memo(() => {
     };
 
     const moduleTitleMap = {
-        policy: 'Policy Governance & Compliance',
+        policy: 'Policy Lifecycle',
+        compliance: 'Compliance Posture',
+        rules: 'Rule Compiler',
+        governance: 'Workforce Governance',
+        audit: 'Audit Trail',
         comp: 'Compensation Workbench',
         talent: 'Talent Insights & Planning',
         ingestion: 'AI Document Ingestion',

@@ -190,21 +190,21 @@ async def process_policy_approval(req: Request, request_id: str, action: Approva
     return {"status": "Processed"}
 
 @policy_router.post("/versions/{version_id}/activate")
-async def activate_policy(req: Request, version_id: str, payload: Dict=Depends(hrit_admin_role_required)):
+async def activate_policy(req: Request, version_id: str, payload: Dict=Depends(policy_admin_role_required)):
     pvs: PolicyVersioningService = getattr(req.app.state, 'policy_versioning_service', None)
     if not pvs: raise HTTPException(status_code=503, detail="Policy Versioning Service unavailable.")
     await asyncio.to_thread(pvs.activate_version, version_id, payload['sub'])
     return {"status": "Activated"}
 
 @policy_router.post("/{policy_id}/rollback")
-async def rollback_policy(req: Request, policy_id: str, target_version_id: str = Body(..., embed=True), payload: Dict=Depends(hrit_admin_role_required)):
+async def rollback_policy(req: Request, policy_id: str, target_version_id: str = Body(..., embed=True), payload: Dict=Depends(policy_admin_role_required)):
     pvs: PolicyVersioningService = getattr(req.app.state, 'policy_versioning_service', None)
     if not pvs: raise HTTPException(status_code=503, detail="Policy Versioning Service unavailable.")
     await asyncio.to_thread(pvs.rollback_to_version, policy_id, target_version_id, payload['sub'])
     return {"status": "Rollback Success"}
 
 @policy_router.post("/ledger/commit")
-async def commit_to_ledger(req: Request, data: Dict[str, Any], auth_payload: Dict = Depends(hrit_admin_role_required)):
+async def commit_to_ledger(req: Request, data: Dict[str, Any], auth_payload: Dict = Depends(policy_admin_role_required)):
     """Append a content-addressed record to the policy ledger (Mongo). Each block's
     hash chains the previous block's hash, so tampering is detectable."""
     mongo_client = getattr(req.app.state, "mongo_client", None)
