@@ -1,5 +1,5 @@
 // /frontend/src/config/portalAccess.js - FINAL PRODUCTION-READY REPLACEMENT
-import { Briefcase, Cpu, Users, Settings, User, Zap, BarChart3, MessageCircle, Home } from 'lucide-react';
+import { Briefcase, Cpu, Users, Settings, User, Zap, BarChart3, MessageCircle, ShieldCheck } from 'lucide-react';
 import { settings } from './settings';
 
 const ROLES = settings.ROLES;
@@ -79,16 +79,32 @@ export const SIDEBAR_NAV = [
         color: 'success', 
         subModules: [] 
     },
-    { 
-        label: 'Orchestrator Control', 
-        path: '/ultimate-orchestrator', 
-        icon: Settings, 
-        roles: [ROLES.HRIT_MANAGER, ROLES.SUPER_ADMIN], 
-        color: 'warning', 
+    {
+        label: 'Orchestrator Control',
+        path: '/ultimate-orchestrator',
+        icon: Settings,
+        roles: [ROLES.HRIT_MANAGER, ROLES.SUPER_ADMIN],
+        color: 'warning',
         subModules: [
             { label: 'RLFF & AI Command', path: '/ultimate-orchestrator?module=command' },
             { label: 'System Governor', path: '/ultimate-orchestrator?module=danger' },
-        ] 
+        ]
+    },
+    {
+        label: 'Admin Console',
+        path: '/admin-portal',
+        icon: ShieldCheck,
+        roles: [ROLES.HRIT_MANAGER, ROLES.SUPER_ADMIN],
+        color: 'danger',
+        subModules: []
+    },
+    {
+        label: 'Profile',
+        path: '/user-profile',
+        icon: User,
+        roles: [ROLES.HRIT_MANAGER, ROLES.HRBP, ROLES.MANAGER, ROLES.SUPER_ADMIN, ROLES.EMPLOYEE],
+        color: 'accent-secondary',
+        subModules: []
     }
 ];
 

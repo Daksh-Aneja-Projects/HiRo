@@ -1,112 +1,99 @@
-// /frontend/src/hooks/useApi.js - FINAL PRODUCTION-READY REPLACEMENT
+// /frontend/src/hooks/useApi.js
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useToast } from './use-toast';
-import { createCancelToken } from '../config/api'; // Assuming createCancelToken is exported from api.js
-import axios from 'axios'; // Required to check for cancellation errors
+import { createCancelToken } from '../config/api';
+import axios from 'axios';
 
 /**
- * Custom Hook for generalized, production-ready API data fetching.
- * Handles loading states, errors, memoization of API functions, and request cancellation.
- * @param {Function} apiFunction - The API function to call (e.g., api.getEmployees). Must return an Axios Promise.
- * @param {Array} dependencies - Dependencies for re-fetching (similar to useEffect).
- * @param {boolean} immediate - If true, fetches data immediately on mount.
- * @param {number|boolean} pollingInterval - Interval in milliseconds for polling, or false to disable.
- * @param {any} initialData - Initial state for the data.
+ * Generalized API data fetching hook.
+ * @param {Function} apiFunction - API function returning an Axios promise.
+ * @param {Array} dependencies - Spread as positional args into apiFunction AND used as re-fetch deps.
+ * @param {boolean} immediate - Fetch on mount.
+ * @param {number|boolean} pollingInterval - Poll every N ms. Anything that is not a
+ *   positive finite number disables polling (guards against callers who mistake this
+ *   slot for `initialData` and would otherwise create a 0ms request storm).
+ * @param {any} initialData - Initial value for `data`.
  */
 export const useApi = (apiFunction, dependencies = [], immediate = true, pollingInterval = false, initialData = null) => {
-    // CRITICAL FIX 1: Explicitly define all state and hooks
     const { toast } = useToast();
+
+    // A caller passing [] or {} here means initialData, not an interval. Never poll on it.
+    const intervalMs = (typeof pollingInterval === 'number' && Number.isFinite(pollingInterval) && pollingInterval > 0)
+        ? pollingInterval
+        : 0;
+
     const [data, setData] = useState(initialData);
-    const [isLoading, setIsLoading] = useState(false);
+    const [isLoading, setIsLoading] = useState(immediate);
     const [error, setError] = useState(null);
     const cancelTokenRef = useRef(null);
-    const intervalRef = useRef(null);
+    const hasLoadedRef = useRef(false);
 
-    // CRITICAL FIX 2: useCallback for the core fetch logic
+    // Keep the latest toast/initialData without re-creating `fetch` on every render.
+    const toastRef = useRef(toast);
+    toastRef.current = toast;
+    const initialDataRef = useRef(initialData);
+
+    const depsKey = JSON.stringify(dependencies ?? []);
+
     const fetch = useCallback(async (extraParams = {}) => {
-        // Clear previous interval if this fetch is triggered manually/outside the interval loop
-        if (intervalRef.current) {
-            clearInterval(intervalRef.current);
-        }
-
-        // 1. Setup Cancel Token
         if (cancelTokenRef.current) {
-            cancelTokenRef.current.cancel('Previous request cancelled due to new fetch or unmount.');
+            cancelTokenRef.current.cancel('Superseded by a newer request.');
         }
         cancelTokenRef.current = createCancelToken();
-        
-        // Only set loading state if data is not present (avoids UI flash during background polling)
-        if (data === initialData) {
-            setIsLoading(true);
-        }
+
+        // Only flash the spinner before the first successful load; polling stays silent.
+        if (!hasLoadedRef.current) setIsLoading(true);
         setError(null);
 
         try {
-            // CRITICAL FIX 3: Invoke the API function with its arguments
-            const response = await apiFunction(...dependencies, { 
-                cancelToken: cancelTokenRef.current.token, 
-                ...extraParams 
+            const args = JSON.parse(depsKey);
+            const response = await apiFunction(...args, {
+                cancelToken: cancelTokenRef.current.token,
+                ...extraParams,
             });
 
+            hasLoadedRef.current = true;
             setData(response.data);
-            setIsLoading(false); // Ensure loading is cleared on success
+            setIsLoading(false);
             return response.data;
-
         } catch (err) {
-            if (axios.isCancel(err)) {
-                console.log('Request cancelled:', apiFunction.name);
-                return;
-            }
+            if (axios.isCancel(err)) return;
 
-            // CRITICAL FIX 4: Extract meaningful error from Axios response
-            const errorMessage = err.response?.data?.detail || err.message || `An unknown error occurred in ${apiFunction.name}`;
-            
+            const errorMessage = err.response?.data?.detail || err.message || `${apiFunction.name} failed`;
             setError(errorMessage);
-            // Only show toast if it's not a background poll error
-            if (immediate || !pollingInterval) {
-                 toast({
-                    title: `${apiFunction.name} Failed`,
+            setIsLoading(false);
+
+            // Background polls fail quietly; the error state is enough for the UI.
+            if (!intervalMs) {
+                toastRef.current({
+                    title: 'Could not load data',
                     description: errorMessage,
                     variant: 'destructive',
                 });
             }
-            setData(initialData); 
-            throw err; 
-            
-        } finally {
-            // Re-establish polling interval if enabled, but only after the first run
-            if (pollingInterval) {
-                intervalRef.current = setInterval(fetch, pollingInterval);
-            }
+            return undefined;
         }
-    }, [apiFunction, ...dependencies, initialData, toast, pollingInterval]);
+    }, [apiFunction, depsKey, intervalMs]);
 
-    // 5. Initialization and Polling Effect
     useEffect(() => {
-        if (immediate) {
-            fetch(); // Initial fetch
-        }
-        
-        // 6. Cleanup: Cancel any pending request on unmount
-        return () => {
-            if (cancelTokenRef.current) {
-                cancelTokenRef.current.cancel('Component unmounted.');
-            }
-            if (intervalRef.current) {
-                clearInterval(intervalRef.current);
-            }
-        };
-    }, [fetch, immediate, pollingInterval]);
+        if (immediate) fetch();
 
-    // CRITICAL FIX 7: useMemo for stable return object
-    const memoizedReturn = useMemo(() => ({
+        // Polling lives here, not in fetch()'s finally block, so manual refetches
+        // cannot stack multiple intervals on top of each other.
+        let timer = null;
+        if (intervalMs) timer = setInterval(fetch, intervalMs);
+
+        return () => {
+            if (timer) clearInterval(timer);
+            if (cancelTokenRef.current) cancelTokenRef.current.cancel('Component unmounted.');
+        };
+    }, [fetch, immediate, intervalMs]);
+
+    return useMemo(() => ({
         data,
         isLoading,
         error,
         refetch: fetch,
-        // Helper flag for easy checking in components
-        isSuccess: !isLoading && !error && data !== initialData
-    }), [data, isLoading, error, fetch, initialData]);
-
-    return memoizedReturn;
+        isSuccess: !isLoading && !error && data !== initialDataRef.current,
+    }), [data, isLoading, error, fetch]);
 };

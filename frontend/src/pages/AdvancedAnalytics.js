@@ -9,7 +9,7 @@ import { aggregateMetrics, getAdvancedAnalytics, getAnalyticsCharts } from '../c
 import { useToast } from '../hooks/use-toast';
 import DataCard from '../components/DataCard';
 import BarChartWidget from '../components/charts/BarChartWidget';
-import { ScatterChart, Scatter, XAxis as RXAxis, YAxis as RYAxis, ZAxis, CartesianGrid as RGrid, Tooltip as RTooltip, ResponsiveContainer as RContainer } from 'recharts';
+import { ScatterChart as RScatterChart, Scatter, XAxis as RXAxis, YAxis as RYAxis, ZAxis, CartesianGrid as RGrid, Tooltip as RTooltip, ResponsiveContainer as RContainer } from 'recharts';
 
 // --- Static Style Definitions ---
 const getStyles = (tokens) => ({
@@ -112,7 +112,7 @@ const PerfTenureScatter = memo(({ points }) => {
     return (
         <div style={{ width: '100%', height: '100%', minHeight: '300px' }}>
             <RContainer width="100%" height="100%">
-                <ScatterChart margin={{ top: 10, right: 20, bottom: 10, left: -10 }}>
+                <RScatterChart margin={{ top: 10, right: 20, bottom: 10, left: -10 }}>
                     <RGrid strokeDasharray="3 3" stroke={tokens.color?.['border-600'] || '#e5e5e5'} />
                     <RXAxis type="number" dataKey="tenure" name="Tenure (months)" unit="mo"
                         tick={{ fill: tokens.color?.['muted-500'] || '#888', fontSize: 12 }} axisLine={false} tickLine={false} />
@@ -123,7 +123,7 @@ const PerfTenureScatter = memo(({ points }) => {
                         contentStyle={{ backgroundColor: tokens.color?.['panel-800'] || '#fff', borderRadius: '8px', border: `1px solid ${tokens.color?.['border-600'] || '#e5e5e5'}` }}
                         itemStyle={{ color: tokens.color?.['text-100'] || '#000' }} />
                     <Scatter name="Employees" data={points} fill={tokens.color?.['accent-primary'] || '#0071e3'} fillOpacity={0.6} />
-                </ScatterChart>
+                </RScatterChart>
             </RContainer>
         </div>
     );

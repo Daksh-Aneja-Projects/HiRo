@@ -7,9 +7,10 @@ import { hasAccess } from '../config/portalAccess';
 
 const ROLES = settings.ROLES;
 
-// Maps the backend role string to a preferred landing path
+// Maps the backend role string to a preferred landing path.
+// Note: ROLES.SUPER_ADMIN and ROLES.HRIT_MANAGER are the same wire value
+// ('hrit_admin') — there is no distinct admin role — so only one entry is kept.
 const ROLE_TO_PATH_MAP = {
-    [ROLES.SUPER_ADMIN]: '/ultimate-orchestrator',
     [ROLES.HRIT_MANAGER]: '/hrit-portal',
     [ROLES.HRBP]: '/hr-portal',
     [ROLES.MANAGER]: '/manager-portal',

@@ -1,5 +1,5 @@
 // /frontend/src/hooks/useAgentWebsocket.js - FINAL PRODUCTION-READY REPLACEMENT
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { WS_URL } from '../config/api'; // CRITICAL FIX: Import the hardened WS_URL
 
 const RECONNECT_INTERVAL = 5000; // 5 seconds
