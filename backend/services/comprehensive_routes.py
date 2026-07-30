@@ -1410,9 +1410,37 @@ async def check_user_consent(req: Request, purpose_id: str = Query(...), payload
 # 14. INGESTION ROUTER (Fixed/Complete)
 # ======================================
 @ingestion_router.post("/upload")
-async def upload_ingestion_file(req: Request, file: UploadFile = File(...), payload: Dict=Depends(hrit_admin_role_required)):
-    # Mocking ingestion process
-    return {"status": "Ingestion Process Initiated", "filename": file.filename}
+async def upload_ingestion_file(req: Request, file: UploadFile = File(...), payload: Dict=Depends(policy_admin_role_required)):
+    """Record a real ingestion job: the document is read, sized, content-hashed and
+    persisted so the ingestion queue and history reflect actual uploads."""
+    mongo_client = getattr(req.app.state, "mongo_client", None)
+    if not mongo_client:
+        raise HTTPException(status_code=503, detail="Ingestion store unavailable.")
+    contents = await file.read()
+    doc = {
+        "job_id": f"ING-{hashlib.sha256(contents).hexdigest()[:10].upper()}",
+        "filename": file.filename,
+        "content_type": file.content_type,
+        "size_bytes": len(contents),
+        "content_sha256": hashlib.sha256(contents).hexdigest(),
+        "status": "INGESTED",
+        "uploaded_by": payload.get("sub"),
+        "uploaded_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await mongo_client[settings.MONGO_DB_NAME]["ingestion_jobs"].insert_one(dict(doc))
+    return {"status": "Ingested", **doc}
+
+@ingestion_router.get("/jobs")
+async def list_ingestion_jobs(req: Request, limit: int = Query(20), payload: Dict=Depends(policy_admin_role_required)):
+    """Real ingestion history for the status panel."""
+    mongo_client = getattr(req.app.state, "mongo_client", None)
+    if not mongo_client:
+        return {"jobs": [], "pending": 0}
+    lim = max(1, min(int(limit or 20), 200))
+    col = mongo_client[settings.MONGO_DB_NAME]["ingestion_jobs"]
+    jobs = await col.find({}, {"_id": 0}).sort("uploaded_at", -1).limit(lim).to_list(length=lim)
+    pending = await col.count_documents({"status": {"$ne": "INGESTED"}})
+    return {"jobs": jobs, "pending": pending, "total": await col.count_documents({})}
 
 # ======================================
 # 15. ANALYTICS ROUTER (Fixed/Complete)

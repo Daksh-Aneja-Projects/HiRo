@@ -3,7 +3,7 @@ const { createProxyMiddleware } = require('http-proxy-middleware');
 
 // CRITICAL FIX: Define the backend target URL here. 
 // NOTE: In a real-world scenario, this URL would come from an environment variable.
-const BACKEND_TARGET = process.env.BACKEND_PROXY_URL || 'http://localhost:8002';
+const BACKEND_TARGET = process.env.BACKEND_PROXY_URL || 'http://localhost:8100';
 
 module.exports = function(app) {
     // 1. Proxy API endpoints (everything starting with /api)

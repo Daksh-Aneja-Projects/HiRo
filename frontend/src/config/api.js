@@ -461,8 +461,9 @@ export const uploadIngestionFile = (file) => {
          headers: { 
             'Content-Type': 'multipart/form-data' 
          } 
-     }); 
+     });
  };
+export const getIngestionJobs = (limit = 20) => api.get('/ingestion/jobs', { params: { limit } });
 export const getSocialFeed = () => api.get('/social/feed');
 export const postSocialPost = (data) => api.post('/social/posts', data);
 export const getInnovationIdeas = () => api.get('/innovation/ideas');

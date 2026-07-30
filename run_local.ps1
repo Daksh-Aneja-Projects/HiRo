@@ -35,6 +35,6 @@ Get-Content (Join-Path $root "backend\.env.local") | ForEach-Object {
 }
 $env:PYTHONUTF8 = "1"
 
-Write-Host "Starting backend (uvicorn) on :8002..."
+Write-Host "Starting backend (uvicorn) on :8100..."
 Set-Location (Join-Path $root "backend")
-python -m uvicorn server:app --host 0.0.0.0 --port 8002 --reload
+python -m uvicorn server:app --host 0.0.0.0 --port 8100

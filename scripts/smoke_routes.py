@@ -1,5 +1,5 @@
 """Route smoke test: logs in as each role and checks every portal route/sub-module
-for crashes and failed API calls. Requires the backend on :8002.
+for crashes and failed API calls. Requires the backend on :8100.
 
 Usage:  python scripts/smoke_routes.py
 """
@@ -8,7 +8,7 @@ import sys
 import urllib.error
 import urllib.request
 
-API = "http://localhost:8002/api"
+API = "http://localhost:8100/api"
 
 ROLE_ROUTES = {
     "employee": [

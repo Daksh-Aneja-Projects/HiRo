@@ -1,7 +1,6 @@
 // /frontend/src/hooks/useApi.js
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useToast } from './use-toast';
-import { createCancelToken } from '../config/api';
 import axios from 'axios';
 
 /**
@@ -25,8 +24,8 @@ export const useApi = (apiFunction, dependencies = [], immediate = true, polling
     const [data, setData] = useState(initialData);
     const [isLoading, setIsLoading] = useState(immediate);
     const [error, setError] = useState(null);
-    const cancelTokenRef = useRef(null);
     const hasLoadedRef = useRef(false);
+    const aliveRef = useRef(true);
 
     // Keep the latest toast/initialData without re-creating `fetch` on every render.
     const toastRef = useRef(toast);
@@ -36,28 +35,26 @@ export const useApi = (apiFunction, dependencies = [], immediate = true, polling
     const depsKey = JSON.stringify(dependencies ?? []);
 
     const fetch = useCallback(async (extraParams = {}) => {
-        if (cancelTokenRef.current) {
-            cancelTokenRef.current.cancel('Superseded by a newer request.');
-        }
-        cancelTokenRef.current = createCancelToken();
-
         // Only flash the spinner before the first successful load; polling stays silent.
         if (!hasLoadedRef.current) setIsLoading(true);
         setError(null);
 
         try {
+            // Call with the caller's own arguments only. We deliberately do NOT append
+            // an axios config object: many api.js functions take `(params)` as their
+            // first argument and spread it into the query string, which turned a
+            // trailing config into `?cancelToken=[object Object]` on real requests.
+            // Unmount safety is handled by aliveRef below instead.
             const args = JSON.parse(depsKey);
-            const response = await apiFunction(...args, {
-                cancelToken: cancelTokenRef.current.token,
-                ...extraParams,
-            });
+            const response = await apiFunction(...args);
 
+            if (!aliveRef.current) return undefined;
             hasLoadedRef.current = true;
             setData(response.data);
             setIsLoading(false);
             return response.data;
         } catch (err) {
-            if (axios.isCancel(err)) return;
+            if (axios.isCancel(err) || !aliveRef.current) return undefined;
 
             const errorMessage = err.response?.data?.detail || err.message || `${apiFunction.name} failed`;
             setError(errorMessage);
@@ -76,6 +73,7 @@ export const useApi = (apiFunction, dependencies = [], immediate = true, polling
     }, [apiFunction, depsKey, intervalMs]);
 
     useEffect(() => {
+        aliveRef.current = true;
         if (immediate) fetch();
 
         // Polling lives here, not in fetch()'s finally block, so manual refetches
@@ -84,8 +82,8 @@ export const useApi = (apiFunction, dependencies = [], immediate = true, polling
         if (intervalMs) timer = setInterval(fetch, intervalMs);
 
         return () => {
+            aliveRef.current = false;
             if (timer) clearInterval(timer);
-            if (cancelTokenRef.current) cancelTokenRef.current.cancel('Component unmounted.');
         };
     }, [fetch, immediate, intervalMs]);
 

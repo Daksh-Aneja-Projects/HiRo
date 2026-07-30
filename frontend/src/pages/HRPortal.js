@@ -8,7 +8,7 @@ import {
     getActivePolicy, getPolicyHistory, submitPolicyDraft,
     getComplianceDashboardData, getHRSDTickets, getEmployeeCompensation,
     updateEmployeeCompensation,
-    uploadIngestionFile, getAnalyticsCharts, getTeamPerformanceTrend,
+    uploadIngestionFile, getIngestionJobs, getAnalyticsCharts, getTeamPerformanceTrend,
     getWFPProjections
 } from '../config/api';
 import { useApi } from '../hooks/useApi';
@@ -276,8 +276,13 @@ TalentModule.displayName = 'TalentModule';
 
 // --- 7.4. Sub-Module: AI Document Ingestion (Mocked) ---
 const IngestionModule = memo(() => {
+    const { toast } = useToast();
     const [file, setFile] = useState(null);
     const [isUploading, setIsUploading] = useState(false);
+
+    // Real ingestion history + queue depth.
+    const { data: jobsData, refetch: refetchJobs } = useApi(getIngestionJobs, [], true);
+    const jobs = jobsData?.jobs || [];
 
     const handleFileUpload = useCallback(async (e) => {
         e.preventDefault();
@@ -285,17 +290,25 @@ const IngestionModule = memo(() => {
 
         setIsUploading(true);
         try {
-            // CRITICAL API INTEGRATION 3: Upload Document for AI Ingestion
-            await uploadIngestionFile(file);
-            alert(`File ${file.name} submitted for AI ingestion!`);
+            const res = await uploadIngestionFile(file);
+            toast({
+                title: 'Document ingested',
+                description: `${res.data?.filename || file.name} stored as job ${res.data?.job_id || ''}.`,
+                variant: 'success',
+            });
             setFile(null);
+            e.target.reset?.();
+            refetchJobs();
         } catch (error) {
-            console.error("Upload failed:", error);
-            alert(`Upload failed: ${error.message}`);
+            toast({
+                title: 'Upload failed',
+                description: error.response?.data?.detail || error.message,
+                variant: 'destructive',
+            });
         } finally {
             setIsUploading(false);
         }
-    }, [file]);
+    }, [file, toast, refetchJobs]);
     
     const styles = useMemo(() => ({
         container: { maxWidth: '800px', margin: '0 auto', padding: tokens.spacing?.xl, background: tokens.color?.['panel-800'], borderRadius: tokens.border?.radius?.card },
@@ -327,9 +340,31 @@ const IngestionModule = memo(() => {
             </form>
 
             <div style={styles.statusCard}>
-                <h3 style={{ margin: '0 0 10px 0', color: tokens.color?.['text-100'] }}>Ingestion Status</h3>
-                <p style={{ color: tokens.color?.['muted-500'] }}>Last document ingested: **Q3 2024 Regulatory Update** (7 days ago)</p>
-                <p style={{ color: tokens.color?.success }}>Processing Queue: **0** files pending.</p>
+                <h3 style={{ margin: '0 0 10px 0', color: tokens.color?.['text-100'] }}>Ingestion status</h3>
+                {jobs.length === 0 ? (
+                    <p style={{ color: tokens.color?.['muted-500'], margin: 0 }}>
+                        No documents ingested yet. Upload a file to start building the governance corpus.
+                    </p>
+                ) : (
+                    <>
+                        <p style={{ color: tokens.color?.['muted-500'], margin: '0 0 4px' }}>
+                            Last ingested: <strong style={{ color: tokens.color?.['text-100'] }}>{jobs[0].filename}</strong>
+                            {' '}on {new Date(jobs[0].uploaded_at).toLocaleString()}
+                        </p>
+                        <p style={{ color: tokens.color?.success, margin: '0 0 12px' }}>
+                            {jobsData.pending || 0} file{(jobsData.pending || 0) === 1 ? '' : 's'} pending
+                            {' '}, {jobsData.total || jobs.length} ingested in total.
+                        </p>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                            {jobs.slice(0, 6).map((j) => (
+                                <div key={j.job_id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 12.5, color: tokens.color?.['muted-500'] }}>
+                                    <span style={{ color: tokens.color?.['text-100'], overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{j.filename}</span>
+                                    <span>{Math.max(1, Math.round((j.size_bytes || 0) / 1024))} KB, by {j.uploaded_by}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </>
+                )}
             </div>
         </div>
     );
