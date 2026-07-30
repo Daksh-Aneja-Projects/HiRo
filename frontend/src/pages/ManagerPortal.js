@@ -41,6 +41,8 @@ const TeamOverviewModule = memo(() => {
     const teamRoster = Array.isArray(teamRosterRaw)
         ? teamRosterRaw
         : (teamRosterRaw?.roster || teamRosterRaw?.team || []);
+    // The endpoint is paginated; surface the true size so the count is honest.
+    const rosterTotal = Number(teamRosterRaw?.total) || teamRoster.length;
     
     // State for the currently selected employee for the Digital Twin Chat
     const [selectedEmployee, setSelectedEmployee] = useState(null);
@@ -76,7 +78,10 @@ const TeamOverviewModule = memo(() => {
             {/* Roster List */}
             <div style={styles.rosterWidget}>
                 <h3 style={{ color: tokens.color?.['text-100'], borderBottom: `1px solid ${tokens.color?.['border-600']}`, paddingBottom: tokens.spacing?.xs, marginBottom: tokens.spacing?.md }}>
-                    Team Roster ({teamRoster?.length || 0})
+                    Team roster
+                    {rosterTotal > teamRoster.length
+                        ? ` (showing ${teamRoster.length} of ${rosterTotal.toLocaleString()})`
+                        : ` (${teamRoster.length})`}
                 </h3>
                 {isRosterLoading && <p style={{textAlign: 'center'}}><Loader2 size={20} className="animate-spin" /> Loading team...</p>}
                 {rosterError && <p style={{ color: tokens.color?.danger }}>Error loading team roster.</p>}

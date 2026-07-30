@@ -15,17 +15,35 @@ class MSSService:
         self.pii_vault = PIIVault.get_instance()
         logger.info("✓ MSS Service Initialized.")
 
-    async def get_manager_team_data(self, manager_id: str, requesting_agent_id: str) -> Dict[str, Any]:
-        """Retrieves and decrypts PII for the manager's direct reports."""
-        query = "SELECT employee_uuid, full_name_encrypted, email_encrypted FROM employee_pii WHERE manager_id = $1"
-        
+    async def get_manager_team_data(self, manager_id: str, requesting_agent_id: str,
+                                    limit: int = 50, offset: int = 0) -> Dict[str, Any]:
+        """Retrieves and decrypts PII for the manager's direct reports.
+
+        Paginated: decrypting an entire org's PII in one request is slow and
+        floods the UI, so callers get a page plus the true total.
+        """
+        limit = max(1, min(int(limit or 50), 500))
+        offset = max(0, int(offset or 0))
+        query = (
+            "SELECT employee_uuid, full_name_encrypted, email_encrypted "
+            "FROM employee_pii WHERE manager_id = $1 ORDER BY employee_uuid LIMIT $2 OFFSET $3"
+        )
+
         try:
             # Signature: execute_pii_query(query, table_name, agent_id, auth=None, *query_args)
             data = await self.pii_vault.execute_pii_query(
                 query, "employee_pii", requesting_agent_id,
-                {"role": requesting_agent_id}, manager_id,
+                {"role": requesting_agent_id}, manager_id, limit, offset,
             )
-            return {"manager": manager_id, "team": data}
+            total = 0
+            try:
+                row = await pg_client.fetchrow(
+                    "SELECT COUNT(*) AS n FROM employee_pii WHERE manager_id = $1", manager_id
+                )
+                total = int((row or {}).get("n") or 0)
+            except Exception:
+                total = len(data)
+            return {"manager": manager_id, "team": data, "total": total, "limit": limit, "offset": offset}
         except Exception as e:
             logger.error(f"PII query for manager {manager_id} failed: {e}")
             raise RuntimeError(f"Failed to retrieve team data securely: {e}")

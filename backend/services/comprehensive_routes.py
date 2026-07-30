@@ -1099,8 +1099,10 @@ async def _pending_leave_requests(limit: int = 100) -> List[Dict[str, Any]]:
     ]
 
 @mss_router.get("/team/roster")
-async def get_team_roster(req: Request, manager_id: Optional[str] = Query(None), status: Optional[str] = Query(None), payload: Dict=Depends(manager_role_required)):
-    """Real team roster: the manager's direct reports via the MSS service (PII-vault backed)."""
+async def get_team_roster(req: Request, manager_id: Optional[str] = Query(None), status: Optional[str] = Query(None),
+                          limit: int = Query(50), offset: int = Query(0), payload: Dict=Depends(manager_role_required)):
+    """Real team roster: the manager's direct reports via the MSS service (PII-vault backed).
+    Paginated - a large org otherwise decrypts thousands of PII rows per request."""
     mss_service: MSSService = getattr(req.app.state, "mss_service", None)
     if not mss_service:
         raise HTTPException(status_code=503, detail="MSS Service unavailable.")
@@ -1108,11 +1110,17 @@ async def get_team_roster(req: Request, manager_id: Optional[str] = Query(None),
     if not mgr_uuid:
         raise HTTPException(status_code=404, detail="No manager record linked to this account.")
     try:
-        data = await mss_service.get_manager_team_data(mgr_uuid, payload["role"])
+        data = await mss_service.get_manager_team_data(mgr_uuid, payload["role"], limit=limit, offset=offset)
     except Exception as e:
         logger.warning(f"team roster query failed: {e}")
         return {"roster": []}
-    return {"manager_id": mgr_uuid, "roster": data.get("team", [])}
+    return {
+        "manager_id": mgr_uuid,
+        "roster": data.get("team", []),
+        "total": data.get("total", len(data.get("team", []))),
+        "limit": data.get("limit"),
+        "offset": data.get("offset"),
+    }
 
 @mss_router.get("/hiring/requisitions")
 async def get_requisitions(req: Request, manager_id: Optional[str] = Query(None), status: Optional[str] = Query(None), payload: Dict=Depends(manager_role_required)):
