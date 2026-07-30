@@ -194,10 +194,16 @@ const ApprovalsQueueModule = memo(() => {
                 {/* FIX: Ensure queue defaults to an empty array for mapping */}
                 {(queue || []).map(item => (
                     <div key={item.request_id} style={styles.queueCard(item.type)}>
-                        <p style={{ fontWeight: 'bold', margin: '0 0 5px 0', color: tokens.color?.['accent-primary'] }}>{item.type || 'N/A'} Request</p>
-                        <p style={{ margin: '0 0 5px 0', color: tokens.color?.['text-100'] }}>**{item.employee_name}** - {item.details}</p>
+                        <p style={{ fontWeight: 'bold', margin: '0 0 5px 0', color: tokens.color?.['accent-primary'] }}>
+                            {item.type === 'LEAVE_REQUEST' ? 'Leave request' : (item.type || 'Request')}
+                        </p>
+                        <p style={{ margin: '0 0 5px 0', color: tokens.color?.['text-100'] }}>
+                            <strong>{item.employee_name || item.employee_uuid}</strong>
+                            {item.hours ? ` requested ${item.hours} hours` : ''}
+                            {item.start_date ? ` from ${item.start_date} to ${item.end_date}` : ''}
+                        </p>
                         <p style={{ margin: 0, fontSize: tokens.typography?.small?.fontSize, color: tokens.color?.['muted-500'] }}>
-                            Submitted: {new Date(item.submitted_date).toLocaleDateString()}
+                            Submitted {new Date(item.submitted_at || item.submitted_date).toLocaleDateString()}
                         </p>
                         <div style={styles.buttonGroup}>
                             <button 

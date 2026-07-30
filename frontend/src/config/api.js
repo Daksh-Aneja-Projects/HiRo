@@ -277,6 +277,7 @@ export const getCurrentTelemetry = () => api.get('/telemetry/metrics/live');
 /* -------------------------------------------------------------------------- */
 export const getActivePolicy = (policyId) => api.get(`/policy/${encodeURIComponent(policyId)}/active`);
 export const getPolicyHistory = (policyId) => api.get(`/policy/${encodeURIComponent(policyId)}/history`);
+export const listPolicies = () => api.get('/policy/list');
 export const createPolicyDraft = (policyId, data) => api.post(`/policy/${encodeURIComponent(policyId)}/versions`, data);
 export const updatePolicyDraftContent = (versionId, data) => api.put(`/policy/versions/${encodeURIComponent(versionId)}/content`, data);
 export const submitPolicyForApproval = (versionId, approvers) => api.post(`/policy/versions/${encodeURIComponent(versionId)}/submit`, { approvers });

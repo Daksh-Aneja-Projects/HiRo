@@ -294,7 +294,10 @@ const TelemetryModule = memo(() => {
                 <div style={{ color: tokens.color?.['muted-500'], display: 'flex', alignItems: 'center', gap: tokens.spacing?.md }}>
                     <Cpu size={24} color={tokens.color?.['accent-primary']} />
                     <p style={{ margin: 0 }}>
-                        System Uptime: **{hritData?.uptime || 'N/A'}** | Last Full Check: {hritData?.last_check || 'N/A'}
+                        {hritData?.integrity_score != null
+                            ? <>Platform integrity <strong style={{ color: 'var(--text-primary)' }}>{hritData.integrity_score}%</strong>
+                               {hritData.critical_alerts ? `, ${hritData.critical_alerts} critical alert${hritData.critical_alerts === 1 ? '' : 's'} open` : ', no critical alerts'}</>
+                            : 'Reading platform integrity from the governance ledger'}
                     </p>
                 </div>
                 <button 

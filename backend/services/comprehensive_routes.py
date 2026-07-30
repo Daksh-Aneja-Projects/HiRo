@@ -147,6 +147,26 @@ recognition_router = APIRouter(prefix="/recognition", tags=["Recognition"])
 # ======================================
 # 1. POLICY GOVERNANCE ROUTER (Fixed/Complete)
 # ======================================
+# Declared before /{policy_id}/... so "list" is not captured as a policy id.
+@policy_router.get("/list")
+async def list_policies(req: Request, payload: Dict = Depends(policy_admin_role_required)):
+    """Every policy the versioning service knows about, with its live version.
+    Without this the UI had no way to discover existing policy ids."""
+    pvs = getattr(req.app.state, 'policy_versioning_service', None)
+    if not pvs:
+        raise HTTPException(status_code=503, detail="Policy Versioning Service unavailable.")
+    active = getattr(pvs, "active_versions", {}) or {}
+    versions = getattr(pvs, "versions", {}) or {}
+    by_policy: Dict[str, Dict[str, Any]] = {}
+    for v in versions.values():
+        pid = getattr(v, "policy_id", None)
+        if not pid:
+            continue
+        entry = by_policy.setdefault(pid, {"policy_id": pid, "version_count": 0, "active_version_id": active.get(pid)})
+        entry["version_count"] += 1
+        entry["latest_version_number"] = getattr(v, "version_number", None)
+    return {"policies": sorted(by_policy.values(), key=lambda p: p["policy_id"]), "count": len(by_policy)}
+
 @policy_router.get("/{policy_id}/active")
 async def get_active_policy(req: Request, policy_id: str):
     pvs: PolicyVersioningService = getattr(req.app.state, 'policy_versioning_service', None)
@@ -159,48 +179,57 @@ async def get_policy_history(req: Request, policy_id: str):
     if not pvs: raise HTTPException(status_code=503, detail="Policy Versioning Service unavailable.")
     return await asyncio.to_thread(pvs.get_version_history, policy_id)
 
+def _pvs(req: Request) -> PolicyVersioningService:
+    svc = getattr(req.app.state, 'policy_versioning_service', None)
+    if not svc:
+        raise HTTPException(status_code=503, detail="Policy Versioning Service unavailable.")
+    return svc
+
+async def _policy_call(fn, *args):
+    """Run a policy-versioning call, turning its rule violations into 400s.
+
+    The service raises ValueError for legitimate refusals ("you are not an
+    approver on this request", "only APPROVED versions can be activated"). Those
+    are client errors, not server faults, and the caller needs to see the reason.
+    """
+    try:
+        return await asyncio.to_thread(fn, *args)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=f"Not found: {e}")
+
 @policy_router.post("/{policy_id}/versions")
 async def create_policy_draft(req: Request, policy_id: str, data: PolicyUpdateRequest, payload: Dict=Depends(policy_admin_role_required)):
-    pvs: PolicyVersioningService = getattr(req.app.state, 'policy_versioning_service', None)
-    if not pvs: raise HTTPException(status_code=503, detail="Policy Versioning Service unavailable.")
+    pvs = _pvs(req)
     active_version = getattr(pvs, 'active_versions', {}).get(policy_id)
-    draft = await asyncio.to_thread(pvs.create_policy_version, policy_id, data.content, payload['sub'], data.changelog, active_version)
+    draft = await _policy_call(pvs.create_policy_version, policy_id, data.content, payload['sub'], data.changelog, active_version)
     return {"version_id": draft.version_id, "version_number": draft.version_number}
 
 @policy_router.put("/versions/{version_id}/content")
 async def update_policy_draft_content(req: Request, version_id: str, data: PolicyUpdateRequest, payload: Dict=Depends(policy_admin_role_required)):
-    pvs: PolicyVersioningService = getattr(req.app.state, 'policy_versioning_service', None)
-    if not pvs: raise HTTPException(status_code=503, detail="Policy Versioning Service unavailable.")
-    await asyncio.to_thread(pvs.update_version_content, version_id, data.content, payload['sub'], data.changelog)
+    await _policy_call(_pvs(req).update_version_content, version_id, data.content, payload['sub'], data.changelog)
     return {"status": "Updated"}
 
 @policy_router.post("/versions/{version_id}/submit")
-async def submit_policy(req: Request, version_id: str, 
-                      approvers: List[str] = Body(...), payload: Dict=Depends(policy_admin_role_required)):
-    pvs: PolicyVersioningService = getattr(req.app.state, 'policy_versioning_service', None)
-    if not pvs: raise HTTPException(status_code=503, detail="Policy Versioning Service unavailable.")
-    req_obj = await asyncio.to_thread(pvs.submit_for_approval, version_id, payload['sub'], approvers)
+async def submit_policy(req: Request, version_id: str,
+                      approvers: List[str] = Body(..., embed=True), payload: Dict=Depends(policy_admin_role_required)):
+    req_obj = await _policy_call(_pvs(req).submit_for_approval, version_id, payload['sub'], approvers)
     return {"request_id": req_obj.request_id}
 
 @policy_router.post("/approvals/{request_id}")
 async def process_policy_approval(req: Request, request_id: str, action: ApprovalActionRequest, payload: Dict=Depends(policy_admin_role_required)):
-    pvs: PolicyVersioningService = getattr(req.app.state, 'policy_versioning_service', None)
-    if not pvs: raise HTTPException(status_code=503, detail="Policy Versioning Service unavailable.")
-    await asyncio.to_thread(pvs.approve_policy, request_id, payload['sub'], action.approved, action.comments)
+    await _policy_call(_pvs(req).approve_policy, request_id, payload['sub'], action.approved, action.comments)
     return {"status": "Processed"}
 
 @policy_router.post("/versions/{version_id}/activate")
 async def activate_policy(req: Request, version_id: str, payload: Dict=Depends(policy_admin_role_required)):
-    pvs: PolicyVersioningService = getattr(req.app.state, 'policy_versioning_service', None)
-    if not pvs: raise HTTPException(status_code=503, detail="Policy Versioning Service unavailable.")
-    await asyncio.to_thread(pvs.activate_version, version_id, payload['sub'])
+    await _policy_call(_pvs(req).activate_version, version_id, payload['sub'])
     return {"status": "Activated"}
 
 @policy_router.post("/{policy_id}/rollback")
 async def rollback_policy(req: Request, policy_id: str, target_version_id: str = Body(..., embed=True), payload: Dict=Depends(policy_admin_role_required)):
-    pvs: PolicyVersioningService = getattr(req.app.state, 'policy_versioning_service', None)
-    if not pvs: raise HTTPException(status_code=503, detail="Policy Versioning Service unavailable.")
-    await asyncio.to_thread(pvs.rollback_to_version, policy_id, target_version_id, payload['sub'])
+    await _policy_call(_pvs(req).rollback_to_version, policy_id, target_version_id, payload['sub'])
     return {"status": "Rollback Success"}
 
 @policy_router.post("/ledger/commit")
@@ -231,7 +260,7 @@ async def commit_to_ledger(req: Request, data: Dict[str, Any], auth_payload: Dic
     return {"status": "COMMITTED", "block_hash": block_hash, "index": index, "timestamp": timestamp}
 
 @policy_router.post("/scan-policy-for-deployment")
-async def scan_policy_for_deployment(req: Request, data: PolicyScanRequest, payload: Dict=Depends(hrit_admin_role_required)):
+async def scan_policy_for_deployment(req: Request, data: PolicyScanRequest, payload: Dict=Depends(policy_admin_role_required)):
     # runtime_enforcer is the module-level async function execute_dsl_check(trigger, context_data).
     scan_result = await runtime_enforcer("pre_deployment_scan", {
         "PolicyVersion": data.version_id,
@@ -298,7 +327,7 @@ async def create_ticket(req: Request, subject: str = Body(...), description: str
     return {"ticket_id": ticket.ticket_id, "status": "Triage Initiated"}
 
 @hrsd_router.put("/tickets/{ticket_id}/resolve")
-async def resolve_ticket(req: Request, ticket_id: str, resolution_summary: str = Body(...), payload: Dict=Depends(manager_role_required)):
+async def resolve_ticket(req: Request, ticket_id: str, resolution_summary: str = Body(..., embed=True), payload: Dict=Depends(manager_role_required)):
     hrsd_system: MultiAgentHRSDSystem = getattr(req.app.state, "hrsd_system", None)
     if not hrsd_system: raise HTTPException(status_code=503, detail="HRSD System unavailable.")
     await hrsd_system.resolve_ticket_by_agent(ticket_id, 
@@ -313,7 +342,7 @@ async def get_hrsd_overview(req: Request, payload: Dict=Depends(manager_role_req
     return await hrsd_system.get_overview()
 
 @hrsd_router.post("/integrations/snow/sync")
-async def sync_servicenow(req: Request, payload: Dict=Depends(hrit_admin_role_required)):
+async def sync_servicenow(req: Request, payload: Dict=Depends(policy_admin_role_required)):
     """Record a ServiceNow sync attempt. There is no live ServiceNow tenant wired up,
     so this persists a local sync-log record (clearly marked as local) rather than
     fabricating an external ServiceNow id."""
@@ -683,27 +712,44 @@ async def sandbox_deploy(req: Request, data: Dict, payload: Dict=Depends(hrit_ad
 
 
 @dev_router.post("/policy/scan")
-async def security_scan_bpcl(req: Request, code: Dict[str, Any], payload: Dict=Depends(hrit_admin_role_required)):
-    """Validate BPCL through the real V&V compiler on app.state."""
-    bpcl_content = code.get('code', '')
+async def security_scan_bpcl(req: Request, code: Dict[str, Any], payload: Dict=Depends(policy_admin_role_required)):
+    """Validate BPCL through the real V&V compiler.
+
+    Accepts either a JSON policy body or raw BPCL text; the compiler validates a
+    structured document, so plain text is wrapped before validation.
+    """
     vv = getattr(req.app.state, "vv_compiler", None)
     if not vv:
         raise HTTPException(status_code=503, detail="V&V compiler unavailable.")
+
+    raw = code.get("code", code.get("content", ""))
+    policy_id = code.get("policy_id", "adhoc-scan")
+    if isinstance(raw, str):
+        try:
+            content = json.loads(raw)
+        except Exception:
+            content = {"bpcl_code": raw}
+    else:
+        content = raw or {}
+
     try:
-        result = vv.validate_bpcl(bpcl_content) if hasattr(vv, "validate_bpcl") else None
+        # validate_bpcl(policy_id, content) is async and returns
+        # {is_valid, errors, type, policy_id, details?}
+        result = await vv.validate_bpcl(policy_id, content)
     except Exception as e:
+        logger.error(f"BPCL scan failed: {e}")
         raise HTTPException(status_code=400, detail=f"Scan failed: {e}")
-    if result is None:
-        # Compiler present but no validate hook: fall back to a structural check.
-        vulnerabilities = [w for w in ("UNSAFE_CALL", "EXEC", "DROP") if w in bpcl_content.upper()]
-        return {"status": "SECURE" if not vulnerabilities else "VULNERABLE",
-                "vulnerabilities": vulnerabilities,
-                "trace": "Structural scan (no compiler validate hook)."}
-    is_valid = result.get("valid", True) if isinstance(result, dict) else bool(result)
+
+    is_valid = bool(result.get("is_valid"))
     return {
         "status": "SECURE" if is_valid else "VULNERABLE",
-        "vulnerabilities": (result.get("errors", []) if isinstance(result, dict) else []),
-        "trace": (result.get("summary") if isinstance(result, dict) else "Validated by V&V compiler."),
+        "is_valid": is_valid,
+        "failure_type": result.get("type"),
+        "vulnerabilities": result.get("errors", []),
+        "trace": result.get("details") or (
+            "Policy passed syntax and semantic validation."
+            if is_valid else f"Validation failed at the {result.get('type', 'unknown')} stage."
+        ),
     }
 
 # ======================================
@@ -871,7 +917,7 @@ async def submit_expense(req: Request, expense_data: str = Form(...), receipt: O
     return await _hr(req).submit_expense(_self_uuid(payload), data, receipt.filename if receipt else None)
 
 @hr_router.get("/audit/trace")
-async def get_audit_trace(req: Request, employee_id: Optional[str] = Query(None), action: Optional[str] = Query(None), limit: int = Query(50), payload: Dict=Depends(hrit_admin_role_required)):
+async def get_audit_trace(req: Request, employee_id: Optional[str] = Query(None), action: Optional[str] = Query(None), limit: int = Query(50), payload: Dict=Depends(policy_admin_role_required)):
     """Real audit trail from the Postgres policy_audit_log."""
     clauses, args = [], []
     if action:

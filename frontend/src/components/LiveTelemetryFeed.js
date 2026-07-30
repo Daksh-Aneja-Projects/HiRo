@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback, memo, useMemo } from 'react';
 import { Loader2, Zap, Cpu, Server, Clock, AlertTriangle } from 'lucide-react';
 import { theme as tokens } from '../theme';
-import { createTelemetryWebSocket } from '../config/api'; // ASSUMPTION: This utility exists
+import { createTelemetryWebSocket, getCurrentMetrics } from '../config/api';
 import DataCard from './DataCard';
 
 const LiveTelemetryFeed = memo(() => {
@@ -68,13 +68,37 @@ const LiveTelemetryFeed = memo(() => {
 
         // Cleanup function for component unmount
         return () => {
-            console.log('Cleaning up Telemetry WebSocket connection.');
             clearTimeout(reconnectTimeout);
             if (ws) {
                 ws.close();
             }
         };
     }, []); // Empty dependency array ensures it runs once on mount
+
+    // The WebSocket stream only runs when the message bus is connected. Poll the
+    // REST telemetry endpoint as well so these figures are always real host
+    // readings rather than zeros.
+    useEffect(() => {
+        let alive = true;
+        const tick = () => getCurrentMetrics()
+            .then((res) => {
+                if (!alive || !res?.data) return;
+                const d = res.data;
+                setMetrics((prev) => ({
+                    ...prev,
+                    cpu_load: Number(d.cpu_load) || 0,
+                    memory_load: Number(d.memory_load) || 0,
+                    // agent_activity is a 0..1 index; surface it as events/sec-equivalent load.
+                    events_per_second: Math.round((Number(d.agent_activity) || 0) * 100),
+                    active_nodes: prev.active_nodes || 1,
+                }));
+                setStatus((s) => (s === 'ONLINE' ? s : 'POLLING'));
+            })
+            .catch(() => {});
+        tick();
+        const id = setInterval(tick, 3000);
+        return () => { alive = false; clearInterval(id); };
+    }, []);
 
     const styles = useMemo(() => ({
         grid: { display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: tokens.spacing?.lg },
