@@ -1,5 +1,5 @@
 // /frontend/src/App.js - FINAL PRODUCTION-READY REPLACEMENT (ROOT STRUCTURE)
-import React, { useState, useCallback, useMemo, memo, Suspense } from 'react';
+import React, { memo, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Outlet, Link, useLocation } from 'react-router-dom';
 // Contexts & Hooks
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -33,92 +33,75 @@ const AdvancedAnalyticsComponent = React.lazy(() => import('./pages/AdvancedAnal
 import { theme as tokens } from './theme';
 import './App.css'; // Global styles import
 
-// Navbar height fixed to 60px for layout calculations
-const NAVBAR_HEIGHT = '60px';
-
 // --- Main Authenticated Layout Container (Nested Router Element) ---
 /**
  * Renders the Floating Dock and the main content Outlet.
  */
+// --- Authenticated shell: left Sidebar rail + main column (Navbar + content) ---
 const MainLayoutContainer = memo(() => (
-    <>
-        <div style={styles.contentView}>
-            {/* The actual page component renders here */}
-            <Suspense fallback={<LoadingScreen />}> 
-                 <Outlet />
-            </Suspense>
-        </div>
-        
-        {/* Floating Dock overrides traditional Sidebar */}
+    <div style={styles.shell}>
         <Sidebar />
-        
-        {/* CRITICAL: Styles moved to AppWrapper or Global CSS (keeping them here for reference stability) */}
+        <div style={styles.mainColumn}>
+            <Navbar />
+            <div style={styles.contentView}>
+                <Suspense fallback={<LoadingScreen />}>
+                    <Outlet />
+                </Suspense>
+            </div>
+        </div>
         <style>{`
-            /* Global animations/hovers needed across all portals */
             @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
             .animate-spin { animation: spin 1s linear infinite; }
-            /* Add any other critical global hover styles here */
         `}</style>
-    </>
+    </div>
 ));
 MainLayoutContainer.displayName = 'MainLayoutContainer';
 
 
-// --- Top-Level App Wrapper (Handles Layout Toggle) ---
 const AppWrapper = memo(() => {
     const { isAuthenticated } = useAuth();
-    // CRITICAL FIX: Manage sidebar state at the top level
-    const [isSidebarExpanded, setIsSidebarExpanded] = useState(true);
-    const toggleSidebar = useCallback(() => setIsSidebarExpanded(prev => !prev), []);
-    
     return (
         <div className="App" style={styles.appContainer}>
-            {/* CRITICAL FIX: Navbar is rendered outside the main content area, always visible */}
-            <Navbar /> 
-
-            <div style={styles.mainContentArea}>
-                {/* If authenticated, render the full layout (Dock + Outlet) */}
-                {isAuthenticated ? (
-                    <MainLayoutContainer />
-                ) : (
-                    /* If NOT authenticated, render only the content outlet (Login Page) */
-                    <div style={{ flexGrow: 1, minWidth: '100vw' }}>
-                        <Outlet />
-                    </div>
-                )}
-            </div>
-            {/* CRITICAL FIX: Toast Container lives outside the main flow */}
-            <ToastContainer /> 
+            {isAuthenticated ? (
+                <MainLayoutContainer />
+            ) : (
+                <div style={{ flexGrow: 1, width: '100%' }}>
+                    <Outlet />
+                </div>
+            )}
+            <ToastContainer />
         </div>
     );
 });
 AppWrapper.displayName = 'AppWrapper';
 
 
-// --- EMBEDDED STYLES (Should ideally be in a separate CSS file) ---
 const styles = {
     appContainer: {
         minHeight: '100vh',
         display: 'flex',
-        flexDirection: 'column',
         background: tokens.color?.['bg-900'],
         fontFamily: tokens.typography?.fontFamily,
         overflow: 'hidden',
     },
-    // CRITICAL FIX: Use the NAVBAR_HEIGHT constant for accurate remaining height calculation
-    mainContentArea: {
+    shell: {
         display: 'flex',
+        width: '100%',
+        height: '100vh',
+        overflow: 'hidden',
+    },
+    mainColumn: {
+        display: 'flex',
+        flexDirection: 'column',
         flexGrow: 1,
-        position: 'relative',
-        height: `calc(100vh - ${NAVBAR_HEIGHT})`, 
-        overflow: 'hidden', 
+        minWidth: 0,
+        height: '100vh',
+        overflow: 'hidden',
     },
     contentView: {
         flexGrow: 1,
-        padding: '24px 24px 100px 24px', // Extra bottom padding so dock doesn't obscure content
         minWidth: 0,
-        height: '100%', 
-        overflowY: 'auto', 
+        overflowY: 'auto',
         overflowX: 'hidden',
     },
 };
