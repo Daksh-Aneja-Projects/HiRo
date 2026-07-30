@@ -79,8 +79,30 @@ CREATE TABLE IF NOT EXISTS public.hrsd_tickets (
     created_at TIMESTAMP WITH TIME ZONE
 );
 
+-- DAO governance world-state (written by hyperledger_chaincode, read by /dao/* dashboards).
+CREATE TABLE IF NOT EXISTS public.dao_proposals (
+    proposal_id VARCHAR(64) PRIMARY KEY,
+    status VARCHAR(20),
+    data JSONB NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Policy decision audit trail (written by enforcement_engine; decision_timestamp kept as TEXT
+-- because the writer passes an ISO string). Read/aggregated by /compliance/dashboard.
+CREATE TABLE IF NOT EXISTS public.policy_audit_log (
+    audit_id VARCHAR(64) PRIMARY KEY,
+    decision_timestamp TEXT,
+    policy_version VARCHAR(64),
+    trigger_type VARCHAR(64),
+    decision VARCHAR(20),
+    reason TEXT,
+    execution_time_ms INTEGER,
+    context_json JSONB
+);
+
 -- CRITICAL FIX: TRUNCATE ALL TABLES TO ENSURE IDEMPOTENCY AND CLEAR DUPLICATE KEYS
 TRUNCATE public.performance_reviews, public.leave_balance, public.hrsd_tickets, public.employee_pii RESTART IDENTITY CASCADE;
+TRUNCATE public.dao_proposals, public.policy_audit_log;
 """
 
 # --- CORE DEMO USERS (Logic remains the same, ensures unique ID strings E00001-E00010) ---
@@ -242,6 +264,64 @@ async def generate_large_dataset_and_seed_pii(pqc_wrapper: PQCEncryptionWrapper,
 
     return all_employees
 
+# --- GOVERNANCE + COMPLIANCE SEEDING ---
+async def seed_governance_and_audit():
+    """Seeds realistic DAO proposals and policy-audit decisions so the governance and
+    compliance dashboards show meaningful, non-trivial live data (idempotent UPSERTs)."""
+    import json as _json
+
+    now = datetime.now(timezone.utc)
+    proposals = [
+        ("Flexible Remote-Work Policy", "VOTING", 6200.0, 1400.0, 41),
+        ("Q3 Parental-Leave Expansion", "VOTING", 3100.0, 900.0, 18),
+        ("Pay-Transparency Framework", "VOTING", 5400.0, 5100.0, 63),
+        ("AI-Assisted Performance Reviews", "APPROVED", 8200.0, 1200.0, 77),
+        ("Four-Day Work-Week Pilot", "EXPIRED", 2100.0, 4400.0, 55),
+    ]
+    prop_rows = []
+    for i, (title, status, vfor, vagainst, n_voters) in enumerate(proposals):
+        pid = f"PROP_SEED{i:03d}"
+        deadline = (now + timedelta(hours=48 if status == "VOTING" else -24)).isoformat()
+        data = {
+            "proposal_id": pid, "proposer": "HRBP_LEAD",
+            "rule_content": {"title": title},
+            "status": status, "votes_for": vfor, "votes_against": vagainst,
+            "total_votes": vfor + vagainst,
+            "voters": [f"V{j:04d}" for j in range(n_voters)],
+            "deadline": deadline, "executed": status == "APPROVED",
+        }
+        prop_rows.append((pid, status, _json.dumps(data)))
+
+    await pg_client.executemany_async(
+        """INSERT INTO public.dao_proposals (proposal_id, status, data, updated_at)
+           VALUES ($1, $2, $3::jsonb, NOW())
+           ON CONFLICT (proposal_id) DO UPDATE SET status = EXCLUDED.status, data = EXCLUDED.data, updated_at = NOW()""",
+        prop_rows,
+    )
+
+    # ~60 policy decisions over the last 30 days, ~18% DENY (a realistic violation rate).
+    triggers = ["LEAVE_APPROVAL", "COMP_CHANGE", "DATA_ACCESS", "POLICY_EXCEPTION", "TERMINATION"]
+    audit_rows = []
+    for i in range(60):
+        deny = random.random() < 0.18
+        ts = (now - timedelta(hours=random.randint(0, 30 * 24))).isoformat()
+        audit_rows.append((
+            f"AUD_SEED{i:04d}", ts, "policy-v2.4", random.choice(triggers),
+            "DENY" if deny else "ALLOW",
+            "Violates jurisdiction ceiling" if deny else "Within policy bounds",
+            random.randint(2, 40),
+            _json.dumps({"decision": "DENY" if deny else "ALLOW", "seed": True}),
+        ))
+    await pg_client.executemany_async(
+        """INSERT INTO public.policy_audit_log
+             (audit_id, decision_timestamp, policy_version, trigger_type, decision, reason, execution_time_ms, context_json)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+           ON CONFLICT (audit_id) DO NOTHING""",
+        audit_rows,
+    )
+    logger.info(f" ✅ Seeded {len(prop_rows)} DAO proposals and {len(audit_rows)} policy-audit decisions.")
+
+
 # --- MAIN EXECUTION LOGIC ---
 async def initialize_data_and_users():
     logger.info("Initializing Postgres schema and extensive test data.")
@@ -300,6 +380,13 @@ async def initialize_data_and_users():
         logger.info(" ✅ HRSD ticket seeding complete.")
     except Exception as e:
         logger.warning(f" ⚠️ HRSD ticket seeding failed (non-critical): {e}")
+
+    # 6. Seed DAO governance + policy-audit decisions
+    try:
+        logger.info("Seeding DAO governance proposals and policy-audit decisions...")
+        await seed_governance_and_audit()
+    except Exception as e:
+        logger.warning(f" ⚠️ Governance/audit seeding failed (non-critical): {e}")
 
 
 if __name__ == "__main__":

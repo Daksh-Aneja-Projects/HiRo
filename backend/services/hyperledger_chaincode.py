@@ -134,3 +134,41 @@ class AHCMGovernanceChaincode:
                         proposal['status'] = 'APPROVED'
                         proposal['executed'] = True
                         logger.info(f"Proposal {proposal['proposal_id']} PASSED.")
+
+    async def list_active_proposals(self, limit: int = 20) -> List[Dict[str, Any]]:
+        """Real active (VOTING) proposals from Postgres for the governance feed."""
+        rows = await pg_client.fetch(
+            "SELECT data FROM dao_proposals WHERE status = 'VOTING' ORDER BY updated_at DESC LIMIT $1",
+            limit,
+        )
+        out: List[Dict[str, Any]] = []
+        for r in rows:
+            d = r['data'] if isinstance(r['data'], dict) else json.loads(r['data'])
+            out.append({
+                'id': d.get('proposal_id'),
+                'title': (d.get('rule_content') or {}).get('title') or d.get('proposal_id'),
+                'proposer': d.get('proposer'),
+                'votes_for': d.get('votes_for', 0.0),
+                'votes_against': d.get('votes_against', 0.0),
+                'deadline': d.get('deadline'),
+            })
+        return out
+
+    async def get_governance_stats(self) -> Dict[str, Any]:
+        """Real DAO aggregates backing /dao/dashboard and the governance cards."""
+        row = await pg_client.fetchrow(
+            """
+            SELECT
+              COUNT(*) FILTER (WHERE status = 'VOTING')                        AS active_proposals,
+              COALESCE(SUM((data->>'total_votes')::float), 0)                  AS total_voting_power,
+              COALESCE(SUM(jsonb_array_length(data->'voters')), 0)             AS members_voting,
+              COUNT(*) FILTER (WHERE updated_at > NOW() - INTERVAL '24 hours') AS ledger_commits_24h
+            FROM dao_proposals
+            """
+        ) or {}
+        return {
+            'active_proposals': int(row.get('active_proposals') or 0),
+            'total_voting_power': float(row.get('total_voting_power') or 0.0),
+            'members_voting': int(row.get('members_voting') or 0),
+            'ledger_commits_24h': int(row.get('ledger_commits_24h') or 0),
+        }

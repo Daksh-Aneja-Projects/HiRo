@@ -91,6 +91,49 @@ async def log_policy_decision_async(audit_data: Dict[str, Any]):
         logger.error(f"Failed to log policy decision to Postgres: {e}")
 
 
+async def get_compliance_overview() -> Dict[str, Any]:
+    """Real compliance aggregates from the policy_audit_log table.
+
+    Backs /compliance/dashboard: overall compliance score (allow-rate), high-severity
+    violations (DENY decisions in the last 24h), and the regulatory-feed liveness signal.
+    """
+    row = await pg_client.fetchrow(
+        """
+        SELECT
+          COUNT(*)                                                           AS total_decisions,
+          COUNT(*) FILTER (WHERE decision = 'DENY')                          AS denials,
+          COUNT(*) FILTER (WHERE decision = 'DENY'
+              AND decision_timestamp::timestamptz > NOW() - INTERVAL '24 hours') AS high_severity_violations,
+          COUNT(*) FILTER (WHERE decision_timestamp::timestamptz > NOW() - INTERVAL '24 hours') AS decisions_24h,
+          MAX(decision_timestamp::timestamptz)                               AS last_decision_at
+        FROM policy_audit_log
+        """
+    ) or {}
+
+    total = int(row.get("total_decisions") or 0)
+    denials = int(row.get("denials") or 0)
+    decisions_24h = int(row.get("decisions_24h") or 0)
+    score = round(1.0 - (denials / total), 4) if total else 1.0
+
+    last = row.get("last_decision_at")
+    # ponytail: fixed 30-day audit cadence heuristic; wire to a real audit schedule when one exists
+    if last is not None:
+        days_since = (datetime.now(timezone.utc) - last).days
+        days_to_next_audit = max(0, 30 - days_since)
+    else:
+        days_to_next_audit = 30
+
+    return {
+        "score": score,
+        "high_severity_violations": int(row.get("high_severity_violations") or 0),
+        "regulatory_feed_status": "ONLINE" if decisions_24h > 0 else "DEGRADED",
+        "latest_version_applied": total > 0,
+        "days_to_next_audit": days_to_next_audit,
+        "total_decisions": total,
+        "denials": denials,
+    }
+
+
 # CRITICAL FIX: The wrapper should handle the execution time tracking
 async def execute_dsl_check(trigger: str, context_data: Dict[str, Any]) -> Dict[str, Any]:
     """

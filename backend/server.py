@@ -304,8 +304,9 @@ async def lifespan(app: FastAPI):
             pg_client_instance=app.state.pg_client
         )
         
+        app.state.governance_chaincode = AHCMGovernanceChaincode()
         app.state.policy_scraping_agent = PolicyScrapingAgent(
-            governance_chaincode=AHCMGovernanceChaincode(), 
+            governance_chaincode=app.state.governance_chaincode,
             ai_service=app.state.ai_service,
             api_connector=app.state.external_api_connector,
             policy_versioning_service=app.state.policy_versioning_service,

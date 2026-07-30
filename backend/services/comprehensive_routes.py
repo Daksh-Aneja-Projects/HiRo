@@ -1059,8 +1059,11 @@ async def aggregate_metrics(req: Request, payload_data: Dict, payload: Dict=Depe
 # ======================================
 @dao_router.get("/proposals/active")
 async def get_active_proposals(req: Request, payload: Dict = Depends(employee_role_required)):
-    """FIX: Added missing DAO endpoint."""
-    return [{"id": "DAO-1", "title": "Flexible Work Policy Vote"}]
+    """Real active DAO proposals from the Postgres governance ledger."""
+    chaincode = getattr(req.app.state, "governance_chaincode", None)
+    if not chaincode:
+        raise HTTPException(status_code=503, detail="Governance service unavailable.")
+    return await chaincode.list_active_proposals()
 
 @dao_router.post("/vote")
 async def cast_vote(req: Request, proposal_id: str = Body(...), vote: str = Body(...), voting_power: float = Body(...), payload: Dict = Depends(employee_role_required)):
@@ -1069,13 +1072,17 @@ async def cast_vote(req: Request, proposal_id: str = Body(...), vote: str = Body
 
 @dao_router.get("/dashboard")
 async def get_governance_dashboard_data(req: Request, payload: Dict = Depends(employee_role_required)):
-    """FIX: Added missing DAO endpoint."""
-    return {"proposals_active": 3, "pending_votes": 1, "treasury_balance": 100000}
+    """Real DAO governance aggregates (matches the frontend contract)."""
+    chaincode = getattr(req.app.state, "governance_chaincode", None)
+    if not chaincode:
+        raise HTTPException(status_code=503, detail="Governance service unavailable.")
+    return await chaincode.get_governance_stats()
 
 @compliance_router.get("/dashboard")
 async def get_compliance_dashboard_data(req: Request, payload: Dict = Depends(hrit_admin_role_required)):
-    """FIX: Added missing compliance endpoint."""
-    return {"active_policies": 10, "audit_status": "Passed", "last_audit": "2025-10-01"}
+    """Real compliance aggregates from the policy_audit_log table."""
+    from services.enforcement_engine import get_compliance_overview
+    return await get_compliance_overview()
 
 @compliance_router.post("/monitor_feeds")
 async def monitor_regulatory_feeds(req: Request, jurisdictions: List[str] = Body(..., embed=True), payload: Dict = Depends(hrit_admin_role_required)):
