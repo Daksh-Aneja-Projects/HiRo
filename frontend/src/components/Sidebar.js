@@ -3,18 +3,31 @@
 // uses to authorize routes. Keeping one source of truth means a link can never
 // appear that the route guard would reject, and sub-modules are reachable by
 // clicking instead of only by hand-typing ?module=.
-import React, { memo, useMemo } from 'react';
+import React, { memo, useMemo, useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { SIDEBAR_NAV, hasAccess } from '../config/portalAccess';
 import { LayoutDashboard } from 'lucide-react';
 import BrandLogo from './BrandLogo';
 
+// Below this width a 248px rail would leave almost no room for content, so the
+// rail collapses to icons and the labels are exposed as tooltips instead.
+const COLLAPSE_AT = 900;
+
 const Sidebar = memo(() => {
     const { userRole, user } = useAuth();
     const location = useLocation();
     const navigate = useNavigate();
     const search = location.search;
+
+    const [collapsed, setCollapsed] = useState(
+        () => typeof window !== 'undefined' && window.innerWidth < COLLAPSE_AT
+    );
+    useEffect(() => {
+        const onResize = () => setCollapsed(window.innerWidth < COLLAPSE_AT);
+        window.addEventListener('resize', onResize);
+        return () => window.removeEventListener('resize', onResize);
+    }, []);
 
     const items = useMemo(
         () => SIDEBAR_NAV.filter((item) => hasAccess(userRole, item.path)),
@@ -25,9 +38,9 @@ const Sidebar = memo(() => {
     const activeModule = new URLSearchParams(search).get('module');
 
     return (
-        <aside style={s.rail}>
-            <div style={s.brand}>
-                <BrandLogo size={26} wordmark />
+        <aside style={{ ...s.rail, ...(collapsed ? s.railCollapsed : null) }}>
+            <div style={{ ...s.brand, ...(collapsed ? { padding: '6px 0 18px', display: 'grid', placeItems: 'center' } : null) }}>
+                <BrandLogo size={26} wordmark={!collapsed} />
             </div>
 
             <nav style={s.nav}>
@@ -39,18 +52,20 @@ const Sidebar = memo(() => {
                         <div key={it.path}>
                             <button
                                 onClick={() => navigate(it.path)}
-                                style={{ ...s.item, ...(onPage ? s.itemActive : null) }}
+                                style={{ ...s.item, ...(collapsed ? s.itemCollapsed : null), ...(onPage ? s.itemActive : null) }}
                                 className="nav-item"
                                 aria-current={onPage ? 'page' : undefined}
+                                title={collapsed ? it.label : undefined}
+                                aria-label={it.label}
                             >
                                 {onPage && <span style={s.activeBar} />}
                                 <Icon size={17} strokeWidth={2} style={{ flexShrink: 0 }} />
-                                <span>{it.label}</span>
+                                {!collapsed && <span>{it.label}</span>}
                             </button>
 
                             {/* Sub-modules appear once you are on the parent page, so
                                 every screen the portal can render is reachable. */}
-                            {onPage && subs.length > 0 && (
+                            {onPage && !collapsed && subs.length > 0 && (
                                 <div style={s.subList}>
                                     {subs.map((sub) => {
                                         const subModule = new URLSearchParams(sub.path.split('?')[1] || '').get('module');
@@ -75,9 +90,10 @@ const Sidebar = memo(() => {
                 })}
             </nav>
 
-            <div style={s.userCard}>
+            <div style={{ ...s.userCard, ...(collapsed ? { justifyContent: 'center' } : null) }}
+                 title={collapsed ? `${user?.full_name || user?.username || 'Guest'} (${roleLabel})` : undefined}>
                 <span style={s.avatar}>{(user?.full_name || user?.username || 'U').charAt(0).toUpperCase()}</span>
-                <div style={{ minWidth: 0 }}>
+                <div style={{ minWidth: 0, display: collapsed ? 'none' : 'block' }}>
                     <div style={s.userName}>{user?.full_name || user?.username || 'Guest'}</div>
                     <div style={s.userRole}>{roleLabel}</div>
                 </div>
@@ -97,6 +113,7 @@ const s = {
         background: 'var(--bg-surface)', borderRight: '1px solid var(--border-subtle)',
         display: 'flex', flexDirection: 'column', padding: '18px 12px', boxSizing: 'border-box',
     },
+    railCollapsed: { width: 64, padding: '18px 8px' },
     brand: { padding: '6px 8px 20px' },
     nav: { display: 'flex', flexDirection: 'column', gap: 2, flexGrow: 1, overflowY: 'auto', minHeight: 0 },
     item: {
@@ -105,6 +122,7 @@ const s = {
         color: 'var(--text-secondary)', fontSize: 13.5, fontWeight: 500, cursor: 'pointer',
         textAlign: 'left', width: '100%', transition: 'all 0.14s ease', fontFamily: 'inherit',
     },
+    itemCollapsed: { justifyContent: 'center', padding: '10px 0', gap: 0 },
     itemActive: { background: 'rgba(94,106,210,0.14)', color: 'var(--text-primary)' },
     activeBar: { position: 'absolute', left: -12, top: '50%', transform: 'translateY(-50%)', width: 3, height: 18, borderRadius: 999, background: 'var(--accent-bright)' },
     subList: { display: 'flex', flexDirection: 'column', gap: 1, margin: '2px 0 6px', paddingLeft: 28, borderLeft: '1px solid var(--border-subtle)', marginLeft: 20 },
