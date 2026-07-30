@@ -11,6 +11,7 @@ import json
 from datetime import datetime, timezone
 import random
 import psutil
+from services import social_recognition
 
 # CRITICAL FIX 1: Initialize logger immediately after import
 logger = logging.getLogger(__name__)
@@ -1139,13 +1140,22 @@ async def monitor_regulatory_feeds(req: Request, jurisdictions: List[str] = Body
 
 @social_router.get("/feed")
 async def get_social_feed(req: Request, payload: Dict = Depends(employee_role_required)):
-    """FIX: Added missing social feed endpoint."""
-    return [{"id": 1, "text": "Welcome new hire!"}]
+    """Real, persisted social feed (newest first) from MongoDB."""
+    return await social_recognition.list_feed(social_recognition.get_db(req))
 
 @social_router.post("/posts")
 async def post_social_post(req: Request, data: Dict, payload: Dict = Depends(employee_role_required)):
-    """FIX: Added missing social post endpoint."""
-    return {"status": "Posted"}
+    """Persist a new post so it appears on the next feed refresh."""
+    try:
+        post = await social_recognition.create_post(
+            social_recognition.get_db(req),
+            user_id=data.get("user_id") or payload.get("sub"),
+            user_name=data.get("user_name") or payload.get("sub"),
+            content=data.get("content"),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"status": "Posted", "post": post}
     
 @social_router.post("/activity")
 async def create_activity_site(req: Request, activity_details: Dict, payload: Dict = Depends(employee_role_required)):
@@ -1178,13 +1188,21 @@ async def vote_innovation_idea(req: Request, payload_data: Dict, payload: Dict =
 # ======================================
 @recognition_router.post("/star/{user_id}")
 async def give_recognition_star(req: Request, user_id: str, reason: str = Body(..., embed=True), payload: Dict = Depends(manager_role_required)):
-    """FIX: Added missing recognition star endpoint."""
-    return {"status": "Star Given", "to_user": user_id, "from_user": payload['sub']}
+    """Persist a recognition star; recipient display name resolved from the users store."""
+    try:
+        return await social_recognition.give_star(
+            social_recognition.get_db(req),
+            from_user=payload.get("sub"),
+            to_user=user_id,
+            reason=reason,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @recognition_router.get("/leaderboard")
 async def get_recognition_leaderboard(req: Request, payload: Dict = Depends(employee_role_required)):
-    """FIX: Added missing recognition leaderboard endpoint (was previously 404)."""
-    return [{"user_id": "manager", "stars": 10}, {"user_id": "employee", "stars": 5}]
+    """Real recognition leaderboard aggregated from persisted stars."""
+    return await social_recognition.leaderboard(social_recognition.get_db(req))
 
 # ======================================
 # 18. ORCHESTRATOR ROUTES (Fixed/Complete)

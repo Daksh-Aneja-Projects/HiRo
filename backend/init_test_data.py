@@ -556,6 +556,16 @@ async def initialize_data_and_users():
     except Exception as e:
         logger.warning(f" ⚠️ UCI incident-log seeding failed (non-critical): {e}")
 
+    # 8. Seed social feed + recognition leaderboard (MongoDB, references the demo users)
+    try:
+        from services import social_recognition
+        n_posts, n_stars = await social_recognition.seed(
+            mongo_client[settings.MONGO_DB_NAME], core_demo_employees
+        )
+        logger.info(f" ✅ Seeded {n_posts} social posts and {n_stars} recognition stars.")
+    except Exception as e:
+        logger.warning(f" ⚠️ Social/recognition seeding failed (non-critical): {e}")
+
 
 if __name__ == "__main__":
     from dotenv import load_dotenv
