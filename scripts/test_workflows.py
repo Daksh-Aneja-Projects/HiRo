@@ -116,6 +116,64 @@ def wf_analytics_real():
     assert len(trend) > 1, "performance trend has no real series"
 
 
+def wf_expense_approval():
+    """Employee files an expense, manager approves, employee sees APPROVED."""
+    emp, mgr = login("employee"), login("manager")
+    boundary = "----hiroExpBoundary"
+    body = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="expense_data"\r\n\r\n'
+        '{"amount": 12.5, "category": "Travel", "description": "workflow test"}\r\n'
+        f"--{boundary}--\r\n"
+    ).encode()
+    req = urllib.request.Request(f"{API}/hr/expenses", data=body, method="POST")
+    req.add_header("Content-Type", f"multipart/form-data; boundary={boundary}")
+    req.add_header("Authorization", f"Bearer {emp}")
+    with urllib.request.urlopen(req, timeout=45) as r:
+        eid = json.loads(r.read().decode())["expense"]["expense_id"]
+
+    decision = call("POST", f"/hr/expenses/{eid}/decision", mgr, {"approved": True, "comments": "ok"})
+    assert decision["status"] == "APPROVED", f"expected APPROVED, got {decision}"
+
+    mine = call("GET", "/hr/expenses", emp)
+    row = next((x for x in mine if x["expense_id"] == eid), None)
+    assert row and row["status"] == "APPROVED", f"employee does not see the approval: {row}"
+
+
+def wf_timesheet_approval():
+    """Employee submits a timesheet, it reaches the manager queue, approval sticks."""
+    emp, mgr = login("employee"), login("manager")
+    pre = call("POST", "/hr/timesheets/pre-check", emp, {"hours": 45})
+    assert pre["status"] == "FAIL", "a 45h week should fail the 40h policy pre-check"
+
+    created = call("POST", "/hr/timesheets", emp, {"total_hours": 37, "week_ending": "2026-09-25"})
+    tid = created["timesheet_id"]
+
+    pending = call("GET", "/hr/timesheets/pending", mgr)
+    assert any(p["request_id"] == tid for p in pending), "timesheet missing from the manager queue"
+
+    decision = call("POST", f"/hr/timesheets/{tid}/decision", mgr, {"approved": True})
+    assert decision["status"] == "APPROVED", f"expected APPROVED, got {decision}"
+
+
+def wf_policy_lifecycle():
+    """HRBP drafts, submits, approves, activates and attests a policy."""
+    hrbp = login("hrbp")
+    pid = "WF-TEST-POLICY"
+    version = call("POST", f"/policy/{pid}/versions", hrbp,
+                   {"content": {"policy_name": "WF Test", "rules": []}, "changelog": "workflow test"})
+    vid = version["version_id"]
+    request_id = call("POST", f"/policy/versions/{vid}/submit", hrbp, {"approvers": ["hrbp"]})["request_id"]
+    call("POST", f"/policy/approvals/{request_id}", hrbp, {"approved": True, "comments": "ok"})
+    call("POST", f"/policy/versions/{vid}/activate", hrbp)
+
+    listed = call("GET", "/policy/list", hrbp)["policies"]
+    assert any(p["policy_id"] == pid for p in listed), "policy missing from the list"
+
+    block = call("POST", "/policy/ledger/commit", hrbp, {"policy_id": pid, "version_id": vid})
+    assert len(block.get("block_hash", "")) == 64, f"ledger did not return a sha256 hash: {block}"
+
+
 def wf_rbac():
     """RBAC still denies what it should."""
     emp = login("employee")
@@ -127,6 +185,9 @@ def main():
     print("HiRo persona workflow tests\n")
     check("employee -> manager leave approval round trip", wf_leave_approval)
     check("leave rejection records REJECTED", wf_leave_rejection)
+    check("employee -> manager expense approval round trip", wf_expense_approval)
+    check("timesheet pre-check blocks 45h, approval round trip", wf_timesheet_approval)
+    check("HRBP policy lifecycle draft -> activate -> ledger", wf_policy_lifecycle)
     check("HRBP reads decrypted compensation", wf_compensation)
     check("document ingestion persists a real job", wf_ingestion)
     check("analytics derive from the real workforce", wf_analytics_real)

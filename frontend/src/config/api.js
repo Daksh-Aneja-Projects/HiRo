@@ -327,6 +327,15 @@ export const submitExpense = (data, receiptFile) => {
          }
     });
 };
+export const getExpenses = (params = {}) => api.get('/hr/expenses', { params });
+export const decideExpense = (expenseId, approved, comments = '') =>
+    api.post(`/hr/expenses/${encodeURIComponent(expenseId)}/decision`, { approved, comments });
+export const getPendingTimesheets = (limit = 100) => api.get('/hr/timesheets/pending', { params: { limit } });
+export const decideTimesheet = (timesheetId, approved, comments = '') =>
+    api.post(`/hr/timesheets/${encodeURIComponent(timesheetId)}/decision`, { approved, comments });
+export const createRequisition = (data) => api.post('/mss/hiring/requisitions', data);
+export const assignHRSDTicket = (ticketId, assignee) =>
+    api.put(`/hrsd/tickets/${encodeURIComponent(ticketId)}/assign`, { assignee });
 export const getAuditTrace = (params = {}) => api.get('/hr/audit/trace', { params });
 export const getTeamPerformanceTrend = () => api.get('/hr/performance/team-trend');
 export const scanExpenseReceipt = (file) => {

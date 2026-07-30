@@ -397,6 +397,67 @@ class HRModulesService:
             raise HTTPException(status_code=404, detail="Document not found.")
         return {"status": "DELETED", "document_id": document_id}
 
+    async def get_expenses(self, employee_id: Optional[str] = None, status: Optional[str] = None, limit: int = 100) -> list:
+        """Expense claims. Scoped to one employee, or across everyone for approvers."""
+        q: Dict[str, Any] = {}
+        if employee_id:
+            q["employee_uuid"] = employee_id
+        if status:
+            q["status"] = status.upper()
+        lim = max(1, min(int(limit or 100), 500))
+        cursor = self.expenses.find(q, {"_id": 0}).sort("submitted_at", -1).limit(lim)
+        return await cursor.to_list(length=lim)
+
+    async def decide_expense(self, expense_id: str, approved: bool, decided_by: str, comments: str = "") -> Dict[str, Any]:
+        """Approve or reject a submitted expense claim."""
+        status = "APPROVED" if approved else "REJECTED"
+        result = await self.expenses.update_one(
+            {"expense_id": expense_id},
+            {"$set": {
+                "status": status,
+                "decided_by": decided_by,
+                "decided_at": datetime.now(timezone.utc).isoformat(),
+                "decision_comments": comments,
+            }},
+        )
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Expense claim not found.")
+        return {"status": status, "expense_id": expense_id}
+
+    async def get_timesheets_for_approval(self, status: str = "SUBMITTED", limit: int = 100) -> list:
+        """Timesheets awaiting a manager decision (the approvals queue was leave-only)."""
+        lim = max(1, min(int(limit or 100), 500))
+        cursor = self.timesheets.find({"status": status.upper()}, {"_id": 0}).sort("submitted_at", -1).limit(lim)
+        rows = await cursor.to_list(length=lim)
+        return [
+            {
+                "request_id": r.get("timesheet_id"),
+                "type": "TIMESHEET",
+                "employee_uuid": r.get("user_id"),
+                "hours": r.get("total_hours", 0),
+                "week_ending": r.get("week_ending"),
+                "status": r.get("status"),
+                "submitted_at": r.get("submitted_at"),
+            }
+            for r in rows
+        ]
+
+    async def decide_timesheet(self, timesheet_id: str, approved: bool, decided_by: str, comments: str = "") -> Dict[str, Any]:
+        """Approve or reject a submitted timesheet."""
+        status = "APPROVED" if approved else "REJECTED"
+        result = await self.timesheets.update_one(
+            {"timesheet_id": timesheet_id},
+            {"$set": {
+                "status": status,
+                "decided_by": decided_by,
+                "decided_at": datetime.now(timezone.utc).isoformat(),
+                "decision_comments": comments,
+            }},
+        )
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Timesheet not found.")
+        return {"status": status, "timesheet_id": timesheet_id}
+
     async def submit_expense(self, employee_id: str, expense: Dict[str, Any], receipt_filename: Optional[str] = None) -> Dict[str, Any]:
         doc = {
             "expense_id": f"EXP-{uuid.uuid4().hex[:8].upper()}",

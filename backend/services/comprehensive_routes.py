@@ -330,9 +330,24 @@ async def create_ticket(req: Request, subject: str = Body(...), description: str
 async def resolve_ticket(req: Request, ticket_id: str, resolution_summary: str = Body(..., embed=True), payload: Dict=Depends(manager_role_required)):
     hrsd_system: MultiAgentHRSDSystem = getattr(req.app.state, "hrsd_system", None)
     if not hrsd_system: raise HTTPException(status_code=503, detail="HRSD System unavailable.")
-    await hrsd_system.resolve_ticket_by_agent(ticket_id, 
+    await hrsd_system.resolve_ticket_by_agent(ticket_id,
                                             resolution_summary, payload['sub'])
     return {"status": "Resolved"}
+
+@hrsd_router.put("/tickets/{ticket_id}/assign")
+async def assign_ticket(req: Request, ticket_id: str, assignee: str = Body(..., embed=True), payload: Dict=Depends(manager_role_required)):
+    """Assign a case to an owner. The UI rendered assigned_to but nothing could set it."""
+    try:
+        result = await pg_client.execute(
+            "UPDATE hrsd_tickets SET assigned_agent = $1 WHERE ticket_id = $2",
+            assignee, ticket_id,
+        )
+    except Exception as e:
+        logger.error(f"assign ticket failed: {e}")
+        raise HTTPException(status_code=500, detail="Could not assign the case.")
+    if isinstance(result, str) and result.endswith("0"):
+        raise HTTPException(status_code=404, detail="Ticket not found.")
+    return {"status": "Assigned", "ticket_id": ticket_id, "assigned_agent": assignee}
 
 @hrsd_router.get("/monitoring/overview")
 async def get_hrsd_overview(req: Request, payload: Dict=Depends(manager_role_required)):
@@ -916,6 +931,28 @@ async def submit_expense(req: Request, expense_data: str = Form(...), receipt: O
     data = json.loads(expense_data)
     return await _hr(req).submit_expense(_self_uuid(payload), data, receipt.filename if receipt else None)
 
+@hr_router.get("/expenses")
+async def list_expenses(req: Request, status: Optional[str] = Query(None), limit: int = Query(100), payload: Dict=Depends(employee_role_required)):
+    """Employees see their own claims; manager+ see everyone's for approval."""
+    role = (payload.get("role") or "").lower()
+    employee_id = _self_uuid(payload) if role == "employee" else None
+    return await _hr(req).get_expenses(employee_id, status=status, limit=limit)
+
+@hr_router.post("/expenses/{expense_id}/decision")
+async def decide_expense(req: Request, expense_id: str, approved: bool = Body(...), comments: str = Body(""), payload: Dict=Depends(manager_role_required)):
+    """Approve or reject an expense claim."""
+    return await _hr(req).decide_expense(expense_id, approved, payload["sub"], comments)
+
+@hr_router.get("/timesheets/pending")
+async def list_pending_timesheets(req: Request, limit: int = Query(100), payload: Dict=Depends(manager_role_required)):
+    """Timesheets awaiting a decision. The approvals queue previously covered leave only."""
+    return await _hr(req).get_timesheets_for_approval(limit=limit)
+
+@hr_router.post("/timesheets/{timesheet_id}/decision")
+async def decide_timesheet(req: Request, timesheet_id: str, approved: bool = Body(...), comments: str = Body(""), payload: Dict=Depends(manager_role_required)):
+    """Approve or reject a submitted timesheet."""
+    return await _hr(req).decide_timesheet(timesheet_id, approved, payload["sub"], comments)
+
 @hr_router.get("/audit/trace")
 async def get_audit_trace(req: Request, employee_id: Optional[str] = Query(None), action: Optional[str] = Query(None), limit: int = Query(50), payload: Dict=Depends(policy_admin_role_required)):
     """Real audit trail from the Postgres policy_audit_log."""
@@ -1135,6 +1172,30 @@ async def get_requisitions(req: Request, manager_id: Optional[str] = Query(None)
         query["status"] = status
     cursor = mongo_client[settings.MONGO_DB_NAME]["requisitions"].find(query, {"_id": 0}).sort("created_at", -1).limit(200)
     return {"requisitions": await cursor.to_list(length=200)}
+
+@mss_router.post("/hiring/requisitions")
+async def create_requisition(req: Request, data: Dict[str, Any], payload: Dict=Depends(manager_role_required)):
+    """Open a hiring requisition. There was previously no way to create one."""
+    title = (data.get("title") or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="title is required.")
+    mongo_client = getattr(req.app.state, "mongo_client", None)
+    if not mongo_client:
+        raise HTTPException(status_code=503, detail="Requisition store unavailable.")
+    doc = {
+        "requisition_id": f"REQ-{random.getrandbits(24):06x}".upper(),
+        "title": title,
+        "department": data.get("department", ""),
+        "headcount": int(data.get("headcount", 1) or 1),
+        "seniority": data.get("seniority", ""),
+        "justification": data.get("justification", ""),
+        "status": "OPEN",
+        "manager_id": payload.get("employee_uuid") or payload.get("sub"),
+        "created_by": payload.get("sub"),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await mongo_client[settings.MONGO_DB_NAME]["requisitions"].insert_one(dict(doc))
+    return {"status": "OPEN", "requisition": doc}
 
 @mss_router.get("/team/{manager_id}")
 async def mss_team(req: Request, manager_id: str, payload: Dict=Depends(manager_role_required)):
