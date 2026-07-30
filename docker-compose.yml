@@ -172,7 +172,11 @@ services:
           cpus: '0.1'
           memory: 128M
 
+  # Containerized Ollama is opt-in (docker compose --profile container-llm up).
+  # By default the backend targets the host's Ollama (http://host.docker.internal:11434),
+  # matching this project's local-Ollama design and avoiding a duplicate 5GB model.
   ollama:
+    profiles: ["container-llm"]
     build:
       context: .
       dockerfile: Dockerfile.ollama
@@ -265,7 +269,7 @@ services:
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-secure_admin_password}
       AGENT_SIGNING_SECRET: ${AGENT_SIGNING_SECRET:-hiro_zero_trust_shared_key_993478}
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       LLM_MODEL_NAME: ${LLM_MODEL_NAME:-qwen2.5:7b}
       # Explicit Ollama model override (matches the model baked into the ollama image)
       LLM_OLLAMA_MODEL_NAME: ${LLM_OLLAMA_MODEL_NAME:-qwen2.5:7b}
@@ -296,10 +300,11 @@ services:
         condition: service_healthy
       dgraph-alpha:
         condition: service_healthy
-      ollama:
-        condition: service_healthy
       mock-regulatory-service:
         condition: service_healthy
+    # Reach the host's Ollama from inside the container (portable across Docker Desktop/Linux).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "8001:8001"
     # Removed unsafe source code volume mount:
