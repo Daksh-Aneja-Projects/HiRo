@@ -27,6 +27,15 @@ class HRModulesService:
         self.db = mongo_client[settings.MONGO_DB_NAME]
         self.timesheets = self.db[TIMESHEET_COLLECTION]
         self.users = self.db["users"]
+        # Real persistence for employee self-service surfaces.
+        self.documents = self.db["employee_documents"]
+        self.expenses = self.db["expenses"]
+        self.skills = self.db["employee_skills"]
+        self.preferences = self.db["employee_preferences"]
+        self.peer_feedback = self.db["peer_feedback"]
+        self.general_feedback = self.db["employee_feedback"]
+        self.profile_change_requests = self.db["profile_change_requests"]
+        self.offboarding_knowledge = self.db["offboarding_knowledge"]
         logger.info(" ✓  HR Modules Initialized.")
 
     async def _get_user_context(self, username: str) -> Optional[Dict[str, Any]]:
@@ -339,3 +348,142 @@ class HRModulesService:
             "used_hours": float(data.get("used_hours", 0.0)),
             "policy": data.get("policy_id")
         }
+
+    # ---- Employee self-service (real Mongo-backed persistence) ----
+
+    async def update_employee_profile(self, employee_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Profile edits are governed changes: record a request for HR review rather
+        than mutating PII directly."""
+        allowed = {k: v for k, v in (data or {}).items() if k in {"phone", "address", "emergency_contact", "email"}}
+        if not allowed:
+            raise HTTPException(status_code=400, detail="No updatable profile fields supplied.")
+        req = {
+            "request_id": f"PCR-{uuid.uuid4().hex[:8].upper()}",
+            "employee_uuid": employee_id,
+            "requested_changes": allowed,
+            "status": "PENDING_REVIEW",
+            "submitted_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await self.profile_change_requests.insert_one(dict(req))
+        return {"status": "CHANGE_REQUESTED", "request_id": req["request_id"], "requested_changes": allowed}
+
+    async def upload_document(self, employee_id: str, doc_type: str, filename: str, size: int = 0) -> Dict[str, Any]:
+        doc = {
+            "document_id": f"DOC-{uuid.uuid4().hex[:10].upper()}",
+            "employee_uuid": employee_id,
+            "doc_type": doc_type,
+            "filename": filename,
+            "size_bytes": int(size or 0),
+            "uploaded_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await self.documents.insert_one(dict(doc))
+        return {"status": "UPLOADED", **doc}
+
+    async def get_employee_documents(self, employee_id: Optional[str] = None) -> list:
+        q = {"employee_uuid": employee_id} if employee_id else {}
+        cursor = self.documents.find(q, {"_id": 0}).sort("uploaded_at", -1).limit(200)
+        return await cursor.to_list(length=200)
+
+    async def get_document_details(self, document_id: str) -> Dict[str, Any]:
+        doc = await self.documents.find_one({"document_id": document_id}, {"_id": 0})
+        if not doc:
+            raise HTTPException(status_code=404, detail="Document not found.")
+        return doc
+
+    async def delete_document(self, document_id: str) -> Dict[str, Any]:
+        res = await self.documents.delete_one({"document_id": document_id})
+        if res.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Document not found.")
+        return {"status": "DELETED", "document_id": document_id}
+
+    async def submit_expense(self, employee_id: str, expense: Dict[str, Any], receipt_filename: Optional[str] = None) -> Dict[str, Any]:
+        doc = {
+            "expense_id": f"EXP-{uuid.uuid4().hex[:8].upper()}",
+            "employee_uuid": employee_id,
+            "amount": float(expense.get("amount", 0) or 0),
+            "currency": expense.get("currency", "USD"),
+            "category": expense.get("category", "General"),
+            "description": expense.get("description", ""),
+            "receipt": receipt_filename,
+            "status": "SUBMITTED",
+            "submitted_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await self.expenses.insert_one(dict(doc))
+        return {"status": "SUBMITTED", "expense": doc}
+
+    async def get_skills(self, employee_id: str) -> Dict[str, Any]:
+        rec = await self.skills.find_one({"employee_uuid": employee_id}, {"_id": 0})
+        return {"employee_id": employee_id, "skills": (rec or {}).get("skills", [])}
+
+    async def save_skills(self, employee_id: str, skills: list) -> Dict[str, Any]:
+        clean = [str(s).strip() for s in (skills or []) if str(s).strip()]
+        await self.skills.update_one(
+            {"employee_uuid": employee_id},
+            {"$set": {"skills": clean, "updated_at": datetime.now(timezone.utc).isoformat()}},
+            upsert=True,
+        )
+        return {"status": "SAVED", "skills": clean}
+
+    async def get_retention_preference(self, employee_id: str) -> Dict[str, Any]:
+        rec = await self.preferences.find_one({"employee_uuid": employee_id}, {"_id": 0})
+        return {"preference": (rec or {}).get("retention_preference")}
+
+    async def save_retention_preference(self, employee_id: str, preference: str) -> Dict[str, Any]:
+        await self.preferences.update_one(
+            {"employee_uuid": employee_id},
+            {"$set": {"retention_preference": preference, "updated_at": datetime.now(timezone.utc).isoformat()}},
+            upsert=True,
+        )
+        return {"status": "SAVED", "preference": preference}
+
+    async def submit_feedback(self, employee_id: str, feedback: str) -> Dict[str, Any]:
+        doc = {
+            "feedback_id": f"FB-{uuid.uuid4().hex[:8].upper()}",
+            "employee_uuid": employee_id,
+            "feedback": feedback,
+            "submitted_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await self.general_feedback.insert_one(dict(doc))
+        return {"status": "SUBMITTED", "feedback_id": doc["feedback_id"]}
+
+    async def get_peer_feedback(self, employee_id: str) -> list:
+        cursor = self.peer_feedback.find({"employee_uuid": employee_id}, {"_id": 0}).sort("submitted_at", -1).limit(50)
+        return await cursor.to_list(length=50)
+
+    async def submit_offboarding_knowledge(self, employee_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        doc = {
+            "entry_id": f"OKB-{uuid.uuid4().hex[:8].upper()}",
+            "employee_uuid": employee_id,
+            "title": data.get("title", "Untitled"),
+            "content": data.get("content", ""),
+            "submitted_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await self.offboarding_knowledge.insert_one(dict(doc))
+        return {"status": "SUBMITTED", "entry_id": doc["entry_id"]}
+
+    async def get_career_path(self, employee_id: str) -> Dict[str, Any]:
+        """Derive a forward career ladder from the employee's current job title."""
+        query = "SELECT job_title, role FROM employee_pii WHERE employee_uuid = $1"
+        rows = await self.vault.execute_pii_query(query, "employee_pii", "HRModulesService", None, employee_id)
+        current = (rows[0].get("job_title") if rows else None) or "Analyst"
+        ladder = ["Analyst", "Senior Analyst", "Team Lead", "Manager", "Senior Manager", "Director", "VP"]
+        lc = current.lower()
+        idx = next((i for i, step in enumerate(ladder) if step.lower() in lc or lc in step.lower()), 0)
+        return {"employee_id": employee_id, "current": current, "path": ladder[idx:idx + 4]}
+
+    async def get_payslips(self, employee_id: str, limit: int = 12) -> list:
+        """Payslip history derived from the real comp_history ledger."""
+        query = """
+            SELECT effective_date, new_salary
+            FROM comp_history WHERE employee_uuid = $1
+            ORDER BY effective_date DESC LIMIT $2
+        """
+        try:
+            rows = await pg_client.fetch(query, employee_id, max(1, min(int(limit or 12), 60)))
+        except Exception as e:
+            logger.warning(f"Payslip history query failed: {e}")
+            return []
+        return [
+            {"period": str(r["effective_date"]), "gross": float(r["new_salary"]) / 12 if r["new_salary"] else 0.0}
+            for r in rows
+        ]

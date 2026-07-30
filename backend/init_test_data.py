@@ -109,9 +109,33 @@ CREATE TABLE IF NOT EXISTS public.policy_audit_log (
     context_json JSONB
 );
 
+-- Compensation change ledger (written by HRModulesService.update_compensation,
+-- read by payslip history). Was referenced but never created.
+CREATE TABLE IF NOT EXISTS public.comp_history (
+    id SERIAL PRIMARY KEY,
+    employee_uuid VARCHAR(50),
+    new_salary NUMERIC,
+    new_grade VARCHAR(50),
+    effective_date DATE,
+    updated_by VARCHAR(50),
+    updated_at TEXT
+);
+
+-- Leave requests (written by ESS submit / read by leave history + MSS approvals).
+-- Was referenced but never created.
+CREATE TABLE IF NOT EXISTS public.leave_requests (
+    request_id VARCHAR(50) PRIMARY KEY,
+    employee_uuid VARCHAR(50),
+    start_date DATE,
+    end_date DATE,
+    hours NUMERIC,
+    status VARCHAR(20),
+    submitted_at TEXT
+);
+
 -- CRITICAL FIX: TRUNCATE ALL TABLES TO ENSURE IDEMPOTENCY AND CLEAR DUPLICATE KEYS
 TRUNCATE public.performance_reviews, public.leave_balance, public.hrsd_tickets, public.employee_pii RESTART IDENTITY CASCADE;
-TRUNCATE public.dao_proposals, public.policy_audit_log;
+TRUNCATE public.dao_proposals, public.policy_audit_log, public.comp_history, public.leave_requests;
 """
 
 # --- CORE DEMO USERS (Logic remains the same, ensures unique ID strings E00001-E00010) ---
