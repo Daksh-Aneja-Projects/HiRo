@@ -16,6 +16,7 @@ class AuthPayload(BaseModel):
     role: str  # user role (e.g., 'hrit_admin')
     user_id: str
     email: str
+    employee_uuid: Optional[str] = None  # maps the user to their Postgres employee record
     exp: Optional[int] = None
 
 # Global instance of the service wrapper

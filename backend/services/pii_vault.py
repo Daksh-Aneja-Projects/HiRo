@@ -60,10 +60,10 @@ class PIIVault:
             for field in fields:
                 # Check if the field was actually returned by the SQL query and contains a value
                 encrypted_value = row.get(field)
-                if encrypted_value and isinstance(encrypted_value, str) and encrypted_value.startswith('MOCK_CIPHER_FOR_') : # Simple check if it looks encrypted
+                if encrypted_value and isinstance(encrypted_value, str):  # attempt decrypt on any stored ciphertext (real Fernet tokens)
                     try:
                         # PQC Decrypt (Synchronous operation, assumed fast enough or managed by `to_thread` in caller if needed)
-                        val = self.pqc.decrypt(encrypted_value) 
+                        val = self.pqc.decrypt(encrypted_value)
                         new_row[field.replace('_encrypted', '')] = val # Store decrypted value under the clear name
                         del new_row[field] # Remove the encrypted field
                     except Exception:

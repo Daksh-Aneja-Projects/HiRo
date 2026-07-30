@@ -20,12 +20,10 @@ class MSSService:
         query = "SELECT employee_uuid, full_name_encrypted, email_encrypted FROM employee_pii WHERE manager_id = $1"
         
         try:
+            # Signature: execute_pii_query(query, table_name, agent_id, auth=None, *query_args)
             data = await self.pii_vault.execute_pii_query(
-                query=query,
-                table_name="employee_pii",
-                requesting_agent_id=requesting_agent_id,
-                # CRITICAL FIX: The target ID for the PII query is the manager_id itself
-                employee_id=manager_id 
+                query, "employee_pii", requesting_agent_id,
+                {"role": requesting_agent_id}, manager_id,
             )
             return {"manager": manager_id, "team": data}
         except Exception as e:

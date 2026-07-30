@@ -74,12 +74,15 @@ class AuthService:
             logger.info("Skipping test user seeding in %s environment", settings.ENV)
             return
 
+        # employee_uuid maps each login to its Postgres employee record (see
+        # init_test_data.get_core_demo_employees), so ESS/MSS dashboards resolve.
         test_users = [
             {
                 "username": "admin",
                 "email": "admin@hiro.ai",
                 "full_name": "System Admin",
                 "role": "hrit_admin",
+                "employee_uuid": "EMP-001",
                 "is_active": True,
             },
             {
@@ -87,6 +90,7 @@ class AuthService:
                 "email": "hritmanager@hiro.ai",
                 "full_name": "Alice HRIT",
                 "role": "hrit_admin",
+                "employee_uuid": "EMP-002",
                 "is_active": True,
             },
             {
@@ -94,6 +98,7 @@ class AuthService:
                 "email": "hrbp@hiro.ai",
                 "full_name": "Bob HRBP Lead",
                 "role": "hrbp",
+                "employee_uuid": "EMP-003",
                 "is_active": True,
             },
             {
@@ -101,6 +106,7 @@ class AuthService:
                 "email": "manager@hiro.ai",
                 "full_name": "Charlie Manager",
                 "role": "manager",
+                "employee_uuid": "EMP-004",
                 "is_active": True,
             },
             {
@@ -108,6 +114,7 @@ class AuthService:
                 "email": "employee@hiro.ai",
                 "full_name": "Dana Employee",
                 "role": "employee",
+                "employee_uuid": "EMP-005",
                 "is_active": True,
             },
         ]
@@ -124,6 +131,7 @@ class AuthService:
                         "email": user_spec["email"],
                         "full_name": user_spec["full_name"],
                         "role": user_spec["role"],
+                        "employee_uuid": user_spec.get("employee_uuid"),
                         "is_active": user_spec["is_active"],
                     }},
                 )
@@ -170,6 +178,7 @@ class AuthService:
             "full_name": user.get("full_name"),
             "is_active": user.get("is_active", True),
             "user_id": user.get("user_id", str(user.get("_id"))),
+            "employee_uuid": user.get("employee_uuid"),
             "_id": user.get("_id"),
         }
 

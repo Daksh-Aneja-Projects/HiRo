@@ -52,6 +52,57 @@ class WorkforcePlanningService:
             "skill_gaps": await self._derive_skill_gaps(total),
         }
 
+    async def get_analytics_charts(self, scatter_limit: int = 200) -> Dict[str, Any]:
+        """Real chart series aggregated from the employee UDM + performance reviews.
+
+        Feeds the Advanced Analytics dashboards with live data instead of placeholders:
+        headcount and average attrition-risk per department, plus a performance-vs-tenure
+        scatter sampled across the workforce.
+        """
+        dept_rows = await pg_client.fetch(
+            """
+            SELECT department,
+                   COUNT(*)                                   AS headcount,
+                   ROUND(AVG(dtla_risk_score)::numeric, 3)    AS avg_risk
+            FROM public.employee_pii
+            GROUP BY department
+            ORDER BY headcount DESC
+            """
+        ) or []
+        headcount_by_department = [
+            {"name": r.get("department") or "Unknown", "value": int(r.get("headcount") or 0)}
+            for r in dept_rows
+        ]
+        attrition_by_department = [
+            {"name": r.get("department") or "Unknown",
+             "value": round(float(r.get("avg_risk") or 0.0) * 100, 1)}
+            for r in dept_rows
+        ]
+
+        scatter_rows = await pg_client.fetch(
+            """
+            SELECT e.tenure_months AS tenure, p.overall_rating AS rating, e.department
+            FROM public.employee_pii e
+            JOIN public.performance_reviews p ON p.employee_uuid = e.employee_uuid
+            WHERE e.tenure_months IS NOT NULL AND p.overall_rating IS NOT NULL
+            ORDER BY random()
+            LIMIT $1
+            """,
+            scatter_limit,
+        ) or []
+        perf_vs_tenure = [
+            {"tenure": int(r.get("tenure") or 0),
+             "rating": round(float(r.get("rating") or 0.0), 2),
+             "department": r.get("department") or "Unknown"}
+            for r in scatter_rows
+        ]
+
+        return {
+            "headcount_by_department": headcount_by_department,
+            "attrition_by_department": attrition_by_department,
+            "perf_vs_tenure": perf_vs_tenure,
+        }
+
     async def _derive_skill_gaps(self, total_employees: int) -> Dict[str, str]:
         """Derives skill-gap severity from real department under-representation.
 

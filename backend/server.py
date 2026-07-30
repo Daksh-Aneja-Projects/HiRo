@@ -285,7 +285,13 @@ async def lifespan(app: FastAPI):
         # FIX START: Initialize the missing dependency services FIRST
         app.state.wfm_service = WorkforcePlanningService(publisher=app.state.event_publisher)
         app.state.ta_service = TalentAcquisitionService(publisher=app.state.event_publisher)
-        
+
+        # ESS/MSS services power the Employee and Manager self-service portals.
+        from services.ess_service import ESSService
+        from services.mss_service import MSSService
+        app.state.ess_service = ESSService(publisher=app.state.event_publisher)
+        app.state.mss_service = MSSService(publisher=app.state.event_publisher)
+
         # FIX END
         
         # CRITICAL FIX 4: Correctly inject WFMService and TAService into DigitalTwinAgent (Fixed in previous step by class replacement)
@@ -604,7 +610,8 @@ async def login_user(request: Request):
                 "sub": user["username"],
                 "role": user["role"],
                 "user_id": user_id_str,
-                "email": user.get("email", "")
+                "email": user.get("email", ""),
+                "employee_uuid": user.get("employee_uuid"),
             },
             expires_delta=timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
         )

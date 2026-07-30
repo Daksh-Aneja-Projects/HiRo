@@ -129,6 +129,27 @@ class AIService:
 
         return (message.get("content") or "").strip()
 
+    async def get_ai_models(self) -> List[Dict[str, str]]:
+        """Real list of available local Ollama models ([{name, label}]) for the
+        provider/model pickers. Falls back to the configured model if Ollama is
+        unreachable, so the UI never breaks."""
+        def _label(name: str) -> str:
+            base = name.split(":")[0].replace("-", " ").replace("_", " ")
+            return f"{base.title()} ({name.split(':')[1]})" if ":" in name else base.title()
+
+        if HTTPX_AVAILABLE and self.http_client is not None:
+            try:
+                res = await self.http_client.get(f"{self.base_url}/api/tags", timeout=5.0)
+                res.raise_for_status()
+                models = res.json().get("models", [])
+                out = [{"name": m["name"], "label": _label(m["name"])}
+                       for m in models if m.get("name")]
+                if out:
+                    return out
+            except Exception as e:
+                logger.warning(f"Could not list Ollama models ({e}); using configured default.")
+        return [{"name": self.model, "label": _label(self.model)}]
+
     async def generate_text(self, prompt: str, system_instruction: str = "", task_type: str = "general") -> str:
         result = await self._with_retry(self._call_ollama, prompt, system_instruction, tools=None)
         if isinstance(result, dict) and "tool_calls" in result:

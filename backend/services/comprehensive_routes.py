@@ -817,13 +817,15 @@ async def get_employee_documents(req: Request, payload: Dict = Depends(manager_r
 # 7. ESS & MSS ROUTERS (Fixed/Complete)
 # ======================================
 @ess_router.get("/dashboard/{employee_id}")
-async def ess_dash(req: Request, employee_id: str, payload: Dict=Depends(employee_role_required)): 
-    if employee_id != payload['sub']:
-        raise HTTPException(403, "Access Denied")
-    
+async def ess_dash(req: Request, employee_id: str, payload: Dict=Depends(employee_role_required)):
+    # The frontend passes the caller's own id (user.id); always serve the
+    # authenticated user's own record, resolved to their Postgres employee_uuid.
+    emp_uuid = payload.get("employee_uuid")
+    if not emp_uuid:
+        raise HTTPException(404, "No employee record linked to this account.")
     ess_service: ESSService = getattr(req.app.state, "ess_service", None)
     if not ess_service: raise HTTPException(status_code=503, detail="ESS Service unavailable.")
-    return await ess_service.get_employee_dashboard_data(employee_id, payload['role'])
+    return await ess_service.get_employee_dashboard_data(emp_uuid, payload['role'])
 
 @ess_router.post("/leave/submit")
 async def ess_leave(req: Request, data: LeaveRequestSubmit, payload: Dict=Depends(employee_role_required)): 
@@ -859,9 +861,11 @@ async def get_requisitions(req: Request, manager_id: Optional[str] = Query(None)
 
 @mss_router.get("/team/{manager_id}")
 async def mss_team(req: Request, manager_id: str, payload: Dict=Depends(manager_role_required)):
+    # Resolve the caller's own manager record (frontend passes user.id in the path).
+    mgr_uuid = payload.get("employee_uuid") or manager_id
     mss_service: MSSService = getattr(req.app.state, "mss_service", None)
     if not mss_service: raise HTTPException(status_code=503, detail="MSS Service unavailable.")
-    return await mss_service.get_manager_team_data(manager_id, payload['role'])
+    return await mss_service.get_manager_team_data(mgr_uuid, payload['role'])
 
 @mss_router.post("/leave/approve")
 async def mss_approve(req: Request, request_id: str = Body(...), approved: bool = Body(...), comments: str = Body(""), payload: Dict=Depends(manager_role_required)):
@@ -1089,6 +1093,15 @@ async def get_advanced_analytics(req: Request, metric_type: Optional[str] = Quer
     """Real composite workforce-health analytics."""
     a = await _workforce_analytics(req)
     return {"metric": "Composite Workforce Health", "value": a["key_metric"], "trend": "up", **a}
+
+@analytics_router.get("/charts")
+async def get_analytics_charts(req: Request, payload: Dict=Depends(manager_role_required)):
+    """Real chart series (headcount + attrition by department, perf-vs-tenure scatter)
+    aggregated from the employee UDM, for the Advanced Analytics dashboards."""
+    wfm = getattr(req.app.state, "wfm_service", None)
+    if not wfm:
+        raise HTTPException(status_code=503, detail="WFM Service unavailable.")
+    return await wfm.get_analytics_charts()
 
 @analytics_router.post("/metrics/aggregate")
 async def aggregate_metrics(req: Request, payload_data: Dict, payload: Dict=Depends(manager_role_required)):

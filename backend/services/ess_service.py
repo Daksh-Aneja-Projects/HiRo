@@ -43,13 +43,11 @@ class ESSService:
         # 1. Fetch PII Data (Securely via Vault)
         pii_query = "SELECT full_name_encrypted, email_encrypted FROM employee_pii WHERE employee_uuid = $1"
         try:
+            # Signature: execute_pii_query(query, table_name, agent_id, auth=None, *query_args)
             sensitive_data = await self.pii_vault.execute_pii_query(
-                query=pii_query, 
-                table_name="employee_pii",
-                requesting_agent_id=requesting_agent_id,
-                employee_id=employee_id,
-                # CRITICAL FIX: Explicitly pass the PII purpose for auditing and policy enforcement
-                purpose=POLICY_ESS_PURPOSE 
+                pii_query, "employee_pii", requesting_agent_id,
+                {"role": requesting_agent_id, "purpose": POLICY_ESS_PURPOSE},
+                employee_id,
             )
         except PermissionError:
             sensitive_data = [{}] # Deny sensitive data but allow 

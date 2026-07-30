@@ -52,7 +52,29 @@ def test_projections_empty_db(monkeypatch):
     assert proj["skill_gaps"] == {}               # no headcount -> no derivation, no crash
 
 
-_TESTS = [test_projections_map_real_aggregates, test_projections_empty_db]
+class FakeChartsPg:
+    """Routes the dept-aggregate vs scatter queries by keyword."""
+    async def fetch(self, query, *args):
+        if "JOIN public.performance_reviews" in query:
+            return [{"tenure": 36, "rating": 3.5, "department": "Sales"},
+                    {"tenure": 12, "rating": 4.0, "department": "Engineering"}]
+        return [{"department": "Engineering", "headcount": 8000, "avg_risk": 0.30},
+                {"department": "Sales", "headcount": 3000, "avg_risk": 0.55}]
+
+
+def test_analytics_charts_shapes(monkeypatch):
+    monkeypatch.setattr(wfp_mod, "pg_client", FakeChartsPg())
+    charts = asyncio.run(_svc().get_analytics_charts())
+
+    assert charts["headcount_by_department"][0] == {"name": "Engineering", "value": 8000}
+    # avg_risk 0.55 -> 55.0 on a 0-100 scale
+    assert charts["attrition_by_department"][1] == {"name": "Sales", "value": 55.0}
+    pts = charts["perf_vs_tenure"]
+    assert pts[0] == {"tenure": 36, "rating": 3.5, "department": "Sales"}
+    assert all({"tenure", "rating", "department"} == set(p) for p in pts)
+
+
+_TESTS = [test_projections_map_real_aggregates, test_projections_empty_db, test_analytics_charts_shapes]
 
 if __name__ == "__main__":
     import sys as _sys
