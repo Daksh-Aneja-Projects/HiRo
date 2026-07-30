@@ -16,10 +16,12 @@ const COLORS = [
 // never a hardcoded demo distribution.
 const PieChartWidget = ({ data = [], minHeight = "200px", label }) => {
   return (
-    <div style={{ width: '100%', height: '100%', minHeight, display: 'flex', flexDirection: 'column' }}>
+    // `height` must be DEFINITE (not 100%) or recharts' ResponsiveContainer
+    // resolves against an auto-height parent and grows without bound.
+    <div style={{ width: '100%', height: minHeight, minHeight, display: 'flex', flexDirection: 'column' }}>
       {label && <div style={{ fontSize: tokens.typography?.small?.fontSize, color: tokens.color?.['muted-500'], marginBottom: tokens.spacing?.sm }}>{label}</div>}
       {(!data || data.length === 0) ? <ChartEmptyState /> : (
-        <div style={{ flexGrow: 1 }}>
+        <div style={{ flexGrow: 1, minHeight: 0 }}>
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <Pie

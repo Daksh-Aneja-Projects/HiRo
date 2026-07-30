@@ -4,16 +4,20 @@ import { useLocation } from 'react-router-dom';
 import { theme as tokens } from '../theme';
 
 // CRITICAL API IMPORTS
-import { 
-    getActivePolicy, getPolicyHistory, submitPolicyDraft, 
-    getComplianceDashboardData, getHRSDTickets, getEmployeeCompensation, 
-    uploadIngestionFile 
-} from '../config/api'; 
+import {
+    getActivePolicy, getPolicyHistory, submitPolicyDraft,
+    getComplianceDashboardData, getHRSDTickets, getEmployeeCompensation,
+    uploadIngestionFile, getAnalyticsCharts, getTeamPerformanceTrend,
+    getWFPProjections
+} from '../config/api';
 import { useApi } from '../hooks/useApi';
 
 // UI COMPONENTS (Assume these exist and are stable)
-import ChartPlaceholder from '../components/ChartPlaceholder';
 import DataCard from '../components/DataCard';
+import AreaChartWidget from '../components/charts/AreaChartWidget';
+import BarChartWidget from '../components/charts/BarChartWidget';
+import PieChartWidget from '../components/charts/PieChartWidget';
+import { countBy, skillGapSeries, readinessSeries } from '../utils/chartData';
 import { 
     BookOpen, DollarSign, Users, FileText, Briefcase, 
     Search, Loader2, ArrowLeft, AlertTriangle, CheckCircle
@@ -32,6 +36,20 @@ const PolicyModule = memo(() => {
         isLoading: isComplianceLoading, 
         error: complianceError 
     } = useApi(getComplianceDashboardData, [], true, 300000); // FIX: Polling interval set to 5 minutes (300000ms)
+
+    // Real monthly workforce-performance series (proxy for compliance-health trend over time).
+    const { data: trend } = useApi(getTeamPerformanceTrend, [], true);
+
+    // Real decision breakdown from the live compliance engine (approved vs denied).
+    const violationBreakdown = useMemo(() => {
+        const total = Number(complianceData?.total_decisions) || 0;
+        const denials = Number(complianceData?.denials) || 0;
+        if (total <= 0) return [];
+        return [
+            { name: 'Compliant', value: Math.max(0, total - denials) },
+            { name: 'Denied / Violation', value: denials },
+        ];
+    }, [complianceData]);
 
     const styles = useMemo(() => ({
         grid: { display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: tokens.spacing?.lg, marginBottom: tokens.spacing?.lg },
@@ -91,10 +109,14 @@ const PolicyModule = memo(() => {
                 
                 {/* Charts */}
                 <div style={styles.chart}>
-                    <ChartPlaceholder label="Compliance Score Trend" minHeight="100%" />
+                    <DataCard title="Workforce Performance Trend (monthly)" isChart minHeight="300px">
+                        <AreaChartWidget data={trend || []} minHeight="240px" color={tokens.color?.success} />
+                    </DataCard>
                 </div>
                 <div style={styles.chart}>
-                    <ChartPlaceholder label="Violation Type Breakdown" minHeight="100%" />
+                    <DataCard title="Compliance Decision Breakdown" isChart minHeight="300px">
+                        <PieChartWidget data={violationBreakdown} minHeight="240px" />
+                    </DataCard>
                 </div>
             </div>
 
@@ -111,7 +133,10 @@ const CompensationModule = memo(() => {
         data: compensationData, 
         isLoading, 
         error 
-    } = useApi(getEmployeeCompensation, [], true, 0); 
+    } = useApi(getEmployeeCompensation, [], true, 0);
+
+    // Real headcount distribution across departments from the employee UDM.
+    const { data: charts } = useApi(getAnalyticsCharts, [], true);
 
     const styles = useMemo(() => ({
         grid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: tokens.spacing?.lg, marginBottom: tokens.spacing?.lg },
@@ -157,7 +182,9 @@ const CompensationModule = memo(() => {
                     </DataCard>
                 </div>
             </div>
-            <ChartPlaceholder label="Salary Grade Distribution" minHeight="400px" />
+            <DataCard title="Headcount Distribution by Department" isChart minHeight="400px">
+                <BarChartWidget data={charts?.headcount_by_department || []} minHeight="340px" color={tokens.color?.['accent-primary']} />
+            </DataCard>
         </div>
     );
 });
@@ -166,17 +193,29 @@ CompensationModule.displayName = 'CompensationModule';
 
 // --- 7.3. Sub-Module: Talent Insights (Mocked) ---
 const TalentModule = memo(() => {
-    // This module is mostly charts and placeholder components
+    // Real workforce-planning projections (skill gaps per department) + attrition by dept.
+    const { data: wfp } = useApi(getWFPProjections, [], true);
+    const { data: charts } = useApi(getAnalyticsCharts, [], true);
+
+    const readiness = useMemo(() => readinessSeries(wfp?.skill_gaps || {}), [wfp]);
+    const gaps = useMemo(() => skillGapSeries(wfp?.skill_gaps || {}), [wfp]);
+
     return (
         <div className="talent-module">
             <h2 style={{ color: tokens.color?.['accent-primary'], marginBottom: tokens.spacing?.lg }}>Talent Insights & Planning</h2>
-            <ChartPlaceholder label="Succession Pipeline Readiness" minHeight="400px" />
+            <DataCard title="Succession Pipeline Readiness by Department" isChart minHeight="400px">
+                <BarChartWidget data={readiness} minHeight="340px" color={tokens.color?.success} label="Higher bar = readier bench (inverse of skill gap)" />
+            </DataCard>
             <div style={{ display: 'flex', gap: tokens.spacing?.lg, marginTop: tokens.spacing?.lg }}>
                 <div style={{ flex: 1 }}>
-                    <ChartPlaceholder label="Skills Gap Analysis" minHeight="300px" />
+                    <DataCard title="Skills Gap Analysis by Department" isChart minHeight="300px">
+                        <BarChartWidget data={gaps} minHeight="240px" color={tokens.color?.warning} label="Higher bar = larger skill gap" />
+                    </DataCard>
                 </div>
                 <div style={{ flex: 1 }}>
-                    <ChartPlaceholder label="High Potential Retention Risk" minHeight="300px" />
+                    <DataCard title="Attrition Risk by Department" isChart minHeight="300px">
+                        <BarChartWidget data={charts?.attrition_by_department || []} minHeight="240px" color={tokens.color?.danger} />
+                    </DataCard>
                 </div>
             </div>
         </div>
@@ -256,6 +295,10 @@ const CasesModule = memo(() => {
         error: ticketsError, 
     } = useApi(getHRSDTickets, [], true, 60000); // Polling every 60 seconds
 
+    // Real distributions derived from the live ticket set (no fabricated series).
+    const byAssignee = useMemo(() => countBy(tickets || [], (t) => t.assigned_to), [tickets]);
+    const byPriority = useMemo(() => countBy(tickets || [], (t) => t.priority), [tickets]);
+
     const styles = useMemo(() => ({
         grid: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: tokens.spacing?.lg },
         ticketCard: (isHighPriority) => ({
@@ -283,8 +326,12 @@ const CasesModule = memo(() => {
                             <p style={{ margin: 0, fontSize: tokens.typography?.small?.fontSize, color: tokens.color?.['muted-500'] }}>Assigned to: {ticket.assigned_to}</p>
                         </div>
                     ))}
-                    {/* Placeholder chart in column 1 */}
-                    <ChartPlaceholder label="Resolution Time by Agent" minHeight="250px" style={{ marginTop: tokens.spacing?.lg }} />
+                    {/* Real: open cases grouped by assignee */}
+                    <div style={{ marginTop: tokens.spacing?.lg }}>
+                        <DataCard title="Open Cases by Assignee" isChart minHeight="250px">
+                            <BarChartWidget data={byAssignee} minHeight="200px" color={tokens.color?.['accent-primary']} />
+                        </DataCard>
+                    </div>
                 </div>
                 <div>
                     <h3 style={{ borderBottom: `1px solid ${tokens.color?.['border-600']}`, paddingBottom: tokens.spacing?.xs, marginBottom: tokens.spacing?.md }}>Normal & Low Priority Cases</h3>
@@ -294,8 +341,12 @@ const CasesModule = memo(() => {
                             <p style={{ margin: 0, fontSize: tokens.typography?.small?.fontSize, color: tokens.color?.['muted-500'] }}>Assigned to: {ticket.assigned_to}</p>
                         </div>
                     ))}
-                    {/* Placeholder chart in column 2 */}
-                    <ChartPlaceholder label="Ticket Volume by Type" minHeight="250px" style={{ marginTop: tokens.spacing?.lg }} />
+                    {/* Real: ticket volume grouped by priority */}
+                    <div style={{ marginTop: tokens.spacing?.lg }}>
+                        <DataCard title="Ticket Volume by Priority" isChart minHeight="250px">
+                            <BarChartWidget data={byPriority} minHeight="200px" color={tokens.color?.warning} />
+                        </DataCard>
+                    </div>
                 </div>
             </div>
         </div>

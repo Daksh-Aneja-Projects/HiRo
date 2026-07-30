@@ -8,10 +8,12 @@ import ChartEmptyState from './ChartEmptyState';
 const AreaChartWidget = ({ data = [], minHeight = "200px", color = tokens.color?.['accent-primary'] || '#0071e3', label }) => {
   const gradientId = `colorValueArea-${useId()}`; // scoped so multiple instances on one page don't collide
   return (
-    <div style={{ width: '100%', height: '100%', minHeight, display: 'flex', flexDirection: 'column' }}>
+    // `height` must be DEFINITE (not 100%) or recharts' ResponsiveContainer
+    // resolves against an auto-height parent and grows without bound.
+    <div style={{ width: '100%', height: minHeight, minHeight, display: 'flex', flexDirection: 'column' }}>
       {label && <div style={{ fontSize: tokens.typography?.small?.fontSize, color: tokens.color?.['muted-500'], marginBottom: tokens.spacing?.sm }}>{label}</div>}
       {(!data || data.length === 0) ? <ChartEmptyState /> : (
-        <div style={{ flexGrow: 1 }}>
+        <div style={{ flexGrow: 1, minHeight: 0 }}>
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
               <defs>

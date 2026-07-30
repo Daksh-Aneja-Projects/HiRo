@@ -5,7 +5,9 @@ import { useApi } from '../hooks/useApi';
 import { useToast } from '../hooks/use-toast';
 import { getHRSDMonitoringOverview, syncServiceNow } from '../config/api'; // CRITICAL FIX: Import stabilized API functions
 import DataCard from './DataCard';
-import ChartPlaceholder from './ChartPlaceholder';
+import BarChartWidget from './charts/BarChartWidget';
+import PieChartWidget from './charts/PieChartWidget';
+import { objToSeries } from '../utils/chartData';
 import { MessageCircle, CheckCircle, AlertTriangle, Loader2, RefreshCw, Clock } from 'lucide-react'; // Added Clock icon
 
 const HRSDMonitoringDashboard = memo(() => {
@@ -36,6 +38,13 @@ const HRSDMonitoringDashboard = memo(() => {
         }
     }, [toast, refetch]);
 
+    // Real ticket distributions from the monitoring overview.
+    const statusDist = useMemo(() => objToSeries(overview?.tickets_by_status || {}), [overview]);
+    const ticketVolume = useMemo(() => ([
+        { name: 'Active', value: Number(overview?.active_tickets) || 0 },
+        { name: 'SLA Breaches', value: Number(overview?.sla_breaches) || 0 },
+        { name: 'Total', value: Number(overview?.total_tickets) || 0 },
+    ]), [overview]);
 
     const styles = useMemo(() => ({
         grid: { display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: tokens.spacing?.lg, marginBottom: tokens.spacing?.lg },
@@ -105,10 +114,14 @@ const HRSDMonitoringDashboard = memo(() => {
 
             {/* Charts */}
             <div style={styles.chart}>
-                <ChartPlaceholder label="Autonomous Resolution Success Trend" minHeight="100%" />
+                <DataCard title="Tickets by Status" isChart minHeight="300px">
+                    <PieChartWidget data={statusDist} minHeight="240px" />
+                </DataCard>
             </div>
             <div style={styles.chart}>
-                <ChartPlaceholder label="Ticket Volume by Channel" minHeight="100%" />
+                <DataCard title="Ticket Volume Overview" isChart minHeight="300px">
+                    <BarChartWidget data={ticketVolume} minHeight="240px" color={tokens.color?.['accent-primary']} />
+                </DataCard>
             </div>
             
             <style>{`

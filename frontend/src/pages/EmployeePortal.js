@@ -5,17 +5,19 @@ import { theme as tokens } from '../theme';
 import { useAuth } from '../contexts/AuthContext';
 
 // CRITICAL API IMPORTS
-import { 
-    getEmployeeDashboard, submitLeaveRequest, getLeaveBalance, 
-    getPersonalInfo, recordConsentChange, getEmployeeBenefits, 
-    getUnmaskedPII
-} from '../config/api'; 
+import {
+    getEmployeeDashboard, submitLeaveRequest, getLeaveBalance,
+    getPersonalInfo, recordConsentChange, getEmployeeBenefits,
+    getUnmaskedPII, getWFPProjections, getRecognitionLeaderboard,
+    getLeaveHistory
+} from '../config/api';
 import { useApi } from '../hooks/useApi';
 import { useToast } from '../hooks/use-toast';
 
 // UI & NEW COMPONENTS
 import DataCard from '../components/DataCard';
-import ChartPlaceholder from '../components/ChartPlaceholder';
+import BarChartWidget from '../components/charts/BarChartWidget';
+import { skillGapSeries, countBy } from '../utils/chartData';
 import DigitalTwinChat from '../components/DigitalTwinChat'; // CRITICAL: Import DigitalTwinChat
 import { 
     User, Calendar, Shield, CreditCard, 
@@ -37,6 +39,15 @@ const EmployeeDashboardModule = memo(() => {
         isLoading, 
         error 
     } = useApi(getEmployeeDashboard, [user?.id], true, 0); // CRITICAL FIX: Polling disabled (0ms)
+
+    // Real workforce-planning skill gaps + live recognition leaderboard.
+    const { data: wfp } = useApi(getWFPProjections, [], true);
+    const { data: leaderboard } = useApi(getRecognitionLeaderboard, [], true);
+    const skillGaps = useMemo(() => skillGapSeries(wfp?.skill_gaps || {}), [wfp]);
+    const recognition = useMemo(
+        () => (leaderboard || []).map((u) => ({ name: u.user_name, value: Number(u.stars) || 0 })),
+        [leaderboard]
+    );
 
     const styles = useMemo(() => ({
         grid: { display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: tokens.spacing?.lg, marginBottom: tokens.spacing?.lg },
@@ -92,10 +103,14 @@ const EmployeeDashboardModule = memo(() => {
             </div>
             
             <div style={styles.chart}>
-                <ChartPlaceholder label="Career Path & Skill Gap Visualization" minHeight="350px" />
+                <DataCard title="Skill Gap by Department (workforce planning)" isChart minHeight="350px">
+                    <BarChartWidget data={skillGaps} minHeight="290px" color={tokens.color?.['accent-primary']} label="Higher bar = larger organizational skill gap" />
+                </DataCard>
             </div>
              <div style={styles.chart}>
-                <ChartPlaceholder label="Peer Feedback & Recognition Trend" minHeight="350px" />
+                <DataCard title="Recognition Leaderboard (stars)" isChart minHeight="350px">
+                    <BarChartWidget data={recognition} minHeight="290px" color={tokens.color?.warning} />
+                </DataCard>
             </div>
         </div>
     );
@@ -116,6 +131,13 @@ const LeaveModule = memo(() => {
         error: balanceError, 
         refetch: refetchBalance 
     } = useApi(getLeaveBalance, [], true, 0); // CRITICAL FIX: Polling disabled (0ms)
+
+    // Real leave history grouped by approval status.
+    const { data: leaveHistory } = useApi(getLeaveHistory, [], true, 0);
+    const leaveByStatus = useMemo(
+        () => countBy(Array.isArray(leaveHistory) ? leaveHistory : (leaveHistory?.requests || []), (r) => r.status),
+        [leaveHistory]
+    );
 
     // CRITICAL: Handle Leave Submission
     const handleSubmitLeave = useCallback(async (e) => {
@@ -215,7 +237,9 @@ const LeaveModule = memo(() => {
             </div>
 
              <div style={{ gridColumn: 'span 2' }}>
-                <ChartPlaceholder label="Leave History & Approval Status" minHeight="250px" />
+                <DataCard title="Leave History & Approval Status" isChart minHeight="250px">
+                    <BarChartWidget data={leaveByStatus} minHeight="200px" color={tokens.color?.['accent-secondary']} />
+                </DataCard>
             </div>
         </div>
     );

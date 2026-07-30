@@ -4,8 +4,7 @@ import { theme as tokens } from '../theme';
 import { useAuth } from '../contexts/AuthContext';
 import { useApi } from '../hooks/useApi';
 import { useToast } from '../hooks/use-toast';
-import { synthesizeLearningCurriculum, getLearningModules, getDigitalTwinXai } from '../config/api'; 
-import ChartPlaceholder from './ChartPlaceholder';
+import { synthesizeLearningCurriculum, getLearningModules, getDigitalTwinXai } from '../config/api';
 import { Zap, Loader2, BookOpen, User, Send, TrendingUp, AlertTriangle } from 'lucide-react';
 
 const TalentExperienceHub = memo(() => {

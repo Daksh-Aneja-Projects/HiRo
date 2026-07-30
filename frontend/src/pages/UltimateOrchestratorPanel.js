@@ -13,7 +13,8 @@ import { useToast } from '../hooks/use-toast';
 // UI COMPONENTS
 import DataCard from '../components/DataCard';
 import CommandResultModal from '../components/CommandResultModal';
-import ChartPlaceholder from '../components/ChartPlaceholder';
+import AreaChartWidget from '../components/charts/AreaChartWidget';
+import { useMetricSeries } from '../components/live/LivePrimitives';
 import { 
     Settings, Zap, AlertTriangle, Cpu, 
     Trash2, Loader2, ArrowRight 
@@ -172,6 +173,9 @@ const DangerModule = memo(() => {
     const { toast } = useToast();
     const [isPurging, setIsPurging] = useState(false);
     const [isExecuting, setIsExecuting] = useState(false);
+
+    // Genuinely live kernel activity (rolling window over the real telemetry feed).
+    const kernelSeries = useMetricSeries('agent_activity', { intervalMs: 3000, scale: 100 });
     
     // CRITICAL: Handle Hard Data Purge (Using the API function we stabilized earlier)
     const handleHardPurge = useCallback(async () => {
@@ -262,7 +266,9 @@ const DangerModule = memo(() => {
             </div>
             
             <div style={{ gridColumn: 'span 12' }}>
-                <ChartPlaceholder label="Governor Action Trace Log" minHeight="250px" />
+                <DataCard title="Live Kernel Activity" isChart minHeight="250px">
+                    <AreaChartWidget data={kernelSeries} minHeight="200px" color={tokens.color?.warning} label="Rolling agent-activity telemetry (live)" />
+                </DataCard>
             </div>
         </div>
     );

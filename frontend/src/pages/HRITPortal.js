@@ -4,16 +4,20 @@ import { useLocation } from 'react-router-dom';
 import { theme as tokens } from '../theme';
 
 // CRITICAL API IMPORTS - FIX: Using absolute path aliases
-import { 
-    createNewAIAgent, getHRITDashboardData, getAutonomousHealingLog, 
-    getServiceNowHealth, resetHRITData 
-} from '../config/api'; 
+import {
+    createNewAIAgent, getHRITDashboardData, getAutonomousHealingLog,
+    getServiceNowHealth, resetHRITData, getOrchestratorDashboardData
+} from '../config/api';
 import { useApi } from '../hooks/useApi';
 import { useToast } from '../hooks/use-toast';
 
 // UI & NEW COMPONENTS - FIX: Using absolute path aliases
 import DataCard from '../components/DataCard';
-import ChartPlaceholder from '../components/ChartPlaceholder';
+import BarChartWidget from '../components/charts/BarChartWidget';
+import AreaChartWidget from '../components/charts/AreaChartWidget';
+import PieChartWidget from '../components/charts/PieChartWidget';
+import { useMetricSeries } from '../components/live/LivePrimitives';
+import { countBy } from '../utils/chartData';
 // CRITICAL INTEGRATION: Live Telemetry Feed (WebSocket)
 import LiveTelemetryFeed from '../components/LiveTelemetryFeed'; 
 import { 
@@ -30,6 +34,13 @@ const AgentFactoryModule = memo(() => {
     const { toast } = useToast();
     const [agentData, setAgentData] = useState({ name: '', role: 'Governance', model: 'llama3.1:8b' });
     const [isCreating, setIsCreating] = useState(false);
+
+    // Real orchestration snapshot: active agents vs active tasks.
+    const { data: orch } = useApi(getOrchestratorDashboardData, [], true, 60000);
+    const agentDist = useMemo(() => ([
+        { name: 'Active Agents', value: Number(orch?.agents) || 0 },
+        { name: 'Active Tasks', value: Number(orch?.active_tasks) || 0 },
+    ]), [orch]);
     
     // CRITICAL: Handle Agent Creation
     const handleCreateAgent = useCallback(async (e) => {
@@ -118,9 +129,9 @@ const AgentFactoryModule = memo(() => {
             {/* Agent Status Overview */}
             <div style={styles.card}>
                 <h3 style={{ color: tokens.color?.['text-100'] }}>Active Agent Landscape</h3>
-                <ChartPlaceholder label="Agent Distribution by Role and Health" minHeight="250px" />
+                <BarChartWidget data={agentDist} minHeight="250px" color={tokens.color?.['accent-primary']} />
                 <p style={{ color: tokens.color?.['muted-500'], fontSize: tokens.typography?.small?.fontSize, marginTop: tokens.spacing?.md }}>
-                    Total Agents: 12. Average Latency: 45ms.
+                    System health: {orch?.system_health || 'LIVE'} | Message bus: {orch?.message_bus_connected ? 'connected' : 'offline'}.
                 </p>
                 <button style={{ marginTop: tokens.spacing?.md, padding: '8px 15px', background: tokens.color?.['panel-800'], border: `1px solid ${tokens.color?.['border-600']}`, borderRadius: tokens.border?.radius?.button, color: tokens.color?.['text-100'], cursor: 'pointer' }}>
                     View Agent Logs
@@ -148,7 +159,14 @@ const GovernanceModule = memo(() => {
         data: serviceNowHealth, 
         isLoading: isHealthLoading, 
         error: healthError 
-    } = useApi(getServiceNowHealth, [], true, {}); 
+    } = useApi(getServiceNowHealth, [], true, {});
+
+    // Genuinely live series: no historical "healing rate" endpoint exists, so we build a
+    // rolling window from the real psutil-backed agent-activity telemetry (polled every 3s).
+    const healingSeries = useMetricSeries('agent_activity', { intervalMs: 3000, scale: 100 });
+
+    // Real distribution of remediation outcomes from the healing trace log.
+    const violationDist = useMemo(() => countBy(healingLog || [], (l) => l.status), [healingLog]);
 
     const styles = useMemo(() => ({
         grid: { display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: tokens.spacing?.lg, marginBottom: tokens.spacing?.lg },
@@ -190,7 +208,9 @@ const GovernanceModule = memo(() => {
                 </DataCard>
             </div>
              <div style={{ gridColumn: 'span 6' }}>
-                <ChartPlaceholder label="Autonomous Healing Success Rate Trend" minHeight="150px" />
+                <DataCard title="Live Autonomous Agent Activity" isChart minHeight="150px">
+                    <AreaChartWidget data={healingSeries} minHeight="150px" color={tokens.color?.success} label="Rolling agent-activity telemetry (live)" />
+                </DataCard>
             </div>
 
             {/* Autonomous Healing Log */}
@@ -212,7 +232,9 @@ const GovernanceModule = memo(() => {
             </div>
             
             <div style={styles.healthWidget}>
-                <ChartPlaceholder label="Policy Violation Distribution" minHeight="100%" />
+                <DataCard title="Remediation Outcome Distribution" isChart minHeight="100%">
+                    <PieChartWidget data={violationDist} minHeight="340px" />
+                </DataCard>
             </div>
         </div>
     );

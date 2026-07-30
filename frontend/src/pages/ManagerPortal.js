@@ -4,18 +4,18 @@ import { useLocation } from 'react-router-dom';
 import { theme as tokens } from '../theme';
 
 // CRITICAL API IMPORTS
-import { 
-    getTeamRoster, getApprovalQueue, actionApproval, 
-    runSimulation, runAttritionSimulation, 
-    getDigitalTwinHistory 
-} from '../config/api'; 
+import {
+    getTeamRoster, getApprovalQueue, actionApproval,
+    runSimulation, runAttritionSimulation,
+    getDigitalTwinHistory, getAnalyticsCharts
+} from '../config/api';
 import { useApi } from '../hooks/useApi';
 
 // UI & NEW COMPONENTS
 import DataCard from '../components/DataCard';
 import DigitalTwinChat from '../components/DigitalTwinChat';
 import DigitalTwinRiskChart from '../components/DigitalTwinRiskChart';
-import ChartPlaceholder from '../components/ChartPlaceholder';
+import BarChartWidget from '../components/charts/BarChartWidget';
 import { 
     Users, Clock, CheckCircle, TrendingDown, 
     AlertTriangle, MessageCircle, Loader2 
@@ -35,8 +35,11 @@ const TeamOverviewModule = memo(() => {
         error: rosterError 
     } = useApi(getTeamRoster, [], true, 300000); // FIX: Polling interval set to 5 minutes (300000ms) to prevent 429 errors
     
-    // FIX: Safely initialize teamRoster to an empty array if the API returns null/undefined (Prevents TypeError: reading 'map')
-    const teamRoster = teamRosterRaw || []; 
+    // Backend returns { manager_id, roster: [...] }; accept either shape and
+    // always end up with an array so .map/.length are safe.
+    const teamRoster = Array.isArray(teamRosterRaw)
+        ? teamRosterRaw
+        : (teamRosterRaw?.roster || teamRosterRaw?.team || []);
     
     // State for the currently selected employee for the Digital Twin Chat
     const [selectedEmployee, setSelectedEmployee] = useState(null);
@@ -121,6 +124,9 @@ const ApprovalsQueueModule = memo(() => {
         error: queueError, 
         refetch 
     } = useApi(getApprovalQueue, [], true, []);
+
+    // Real attrition-risk distribution by department from the employee UDM.
+    const { data: charts } = useApi(getAnalyticsCharts, [], true);
 
     // CRITICAL: Action Approval (Approve/Reject)
     const handleAction = useCallback(async (item, action) => {
@@ -207,7 +213,9 @@ const ApprovalsQueueModule = memo(() => {
                 ))}
             </div>
             
-            <ChartPlaceholder label="Approval Processing Time Trend" minHeight="300px" />
+            <DataCard title="Attrition Risk by Department" isChart minHeight="300px">
+                <BarChartWidget data={charts?.attrition_by_department || []} minHeight="240px" color={tokens.color?.warning} />
+            </DataCard>
         </>
     );
 });
@@ -315,7 +323,10 @@ const AttritionSimulationModule = memo(() => {
                         mitigationFactors={simulationResult.mitigation_factors}
                     />
                 ) : (
-                    <ChartPlaceholder label="Simulation Results Pending" minHeight="100%" />
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: '300px', gap: tokens.spacing?.sm, color: tokens.color?.['muted-500'], textAlign: 'center' }}>
+                        <TrendingDown size={28} color={tokens.color?.['accent-primary']} />
+                        <p style={{ margin: 0 }}>Run a what-if simulation to see the projected attrition-risk change for this employee.</p>
+                    </div>
                 )}
             </div>
         </div>

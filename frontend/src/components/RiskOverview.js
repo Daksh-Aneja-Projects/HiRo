@@ -2,9 +2,10 @@
 import React, { useMemo, memo } from 'react';
 import { theme as tokens } from '../theme';
 import { useApi } from '../hooks/useApi';
-import { predictAttritionRisk, getComplianceDashboardData } from '../config/api'; // CRITICAL FIX: Import stabilized API functions
+import { predictAttritionRisk, getComplianceDashboardData, getAnalyticsCharts } from '../config/api'; // CRITICAL FIX: Import stabilized API functions
 import DataCard from './DataCard';
-import ChartPlaceholder from './ChartPlaceholder';
+import BarChartWidget from './charts/BarChartWidget';
+import PieChartWidget from './charts/PieChartWidget';
 import { AlertTriangle, TrendingDown, Shield, Loader2, Zap } from 'lucide-react';
 
 const RiskOverview = memo(() => {
@@ -22,6 +23,18 @@ const RiskOverview = memo(() => {
         isLoading: isAttrLoading, 
         error: attrError 
     } = useApi(() => predictAttritionRisk({ organizational_scope: 'global' }), [], true, {});
+
+    // Real attrition-by-department series + compliance decision breakdown.
+    const { data: charts } = useApi(getAnalyticsCharts, [], true);
+    const decisionBreakdown = useMemo(() => {
+        const total = Number(complianceData?.total_decisions) || 0;
+        const denials = Number(complianceData?.denials) || 0;
+        if (total <= 0) return [];
+        return [
+            { name: 'Compliant', value: Math.max(0, total - denials) },
+            { name: 'Denied / Violation', value: denials },
+        ];
+    }, [complianceData]);
 
     const isLoading = isCompLoading || isAttrLoading;
 
@@ -86,10 +99,14 @@ const RiskOverview = memo(() => {
             
             {/* Charts */}
             <div style={styles.chartHalf}>
-                <ChartPlaceholder label="Attrition Risk Trend by Department" minHeight="100%" />
+                <DataCard title="Attrition Risk by Department" isChart minHeight="300px">
+                    <BarChartWidget data={charts?.attrition_by_department || []} minHeight="240px" color={tokens.color?.danger} />
+                </DataCard>
             </div>
             <div style={styles.chartHalf}>
-                <ChartPlaceholder label="Policy Violation Trend (Past 30 Days)" minHeight="100%" />
+                <DataCard title="Compliance Decision Breakdown" isChart minHeight="300px">
+                    <PieChartWidget data={decisionBreakdown} minHeight="240px" />
+                </DataCard>
             </div>
         </div>
     );

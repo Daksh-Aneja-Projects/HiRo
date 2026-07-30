@@ -2,9 +2,10 @@
 import React, { useMemo, memo } from 'react';
 import { theme as tokens } from '../theme';
 import { useApi } from '../hooks/useApi';
-import { getGovernanceDashboardData, getComplianceDashboardData } from '../config/api'; // CRITICAL FIX: Import stabilized API functions
+import { getGovernanceDashboardData, getComplianceDashboardData, getAnalyticsCharts } from '../config/api'; // CRITICAL FIX: Import stabilized API functions
 import DataCard from './DataCard';
-import ChartPlaceholder from './ChartPlaceholder';
+import BarChartWidget from './charts/BarChartWidget';
+import PieChartWidget from './charts/PieChartWidget';
 import { Shield, Users, Loader2, AlertTriangle, BookOpen, Clock } from 'lucide-react';
 
 const PolicyGovernanceDashboard = memo(() => {
@@ -24,11 +25,32 @@ const PolicyGovernanceDashboard = memo(() => {
         error: compError 
     } = useApi(getComplianceDashboardData, [], true, 60000); // CRITICAL FIX: Polling interval set to 60000ms (60 seconds)
 
+    // Real attrition-by-department series (proxy for compliance risk by group).
+    const { data: charts } = useApi(getAnalyticsCharts, [], true);
+
     const isLoading = isGovLoading || isCompLoading;
 
     // Data stabilization and display logic
     const policyViolationCount = complianceData?.high_severity_violations || 0;
     const isPolicyUpToDate = complianceData?.latest_version_applied === true;
+
+    // Real compliance decision split (approved vs denied) from the live compliance engine.
+    const decisionSplit = useMemo(() => {
+        const total = Number(complianceData?.total_decisions) || 0;
+        const denials = Number(complianceData?.denials) || 0;
+        if (total <= 0) return [];
+        return [
+            { name: 'Approved', value: Math.max(0, total - denials) },
+            { name: 'Denied', value: denials },
+        ];
+    }, [complianceData]);
+
+    // Real governance activity snapshot from the DAO dashboard.
+    const governanceActivity = useMemo(() => ([
+        { name: 'Active Proposals', value: Number(governanceData?.active_proposals) || 0 },
+        { name: 'Members Voting', value: Number(governanceData?.members_voting) || 0 },
+        { name: 'Ledger Commits (24h)', value: Number(governanceData?.ledger_commits_24h) || 0 },
+    ]), [governanceData]);
 
     const styles = useMemo(() => ({
         grid: { display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: tokens.spacing?.lg, marginBottom: tokens.spacing?.lg },
@@ -105,14 +127,20 @@ const PolicyGovernanceDashboard = memo(() => {
 
             {/* Policy Audit and Workflow Status */}
             <div style={styles.chartHalf}>
-                <ChartPlaceholder label="Policy Audit Queue Trend (Real-Time)" minHeight="100%" />
+                <DataCard title="Compliance Decision Split" isChart minHeight="300px">
+                    <PieChartWidget data={decisionSplit} minHeight="240px" />
+                </DataCard>
             </div>
             <div style={styles.chartHalf}>
-                <ChartPlaceholder label="Policy Versioning & Rollback History" minHeight="100%" />
+                <DataCard title="Governance Activity" isChart minHeight="300px">
+                    <BarChartWidget data={governanceActivity} minHeight="240px" color={tokens.color?.['accent-primary']} />
+                </DataCard>
             </div>
-            
+
             <div style={{ gridColumn: 'span 12' }}>
-                <ChartPlaceholder label="Compliance Risk Breakdown by Geography" minHeight="250px" />
+                <DataCard title="Compliance Risk by Department" isChart minHeight="250px">
+                    <BarChartWidget data={charts?.attrition_by_department || []} minHeight="200px" color={tokens.color?.warning} />
+                </DataCard>
             </div>
         </div>
     );

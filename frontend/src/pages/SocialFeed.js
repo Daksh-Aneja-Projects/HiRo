@@ -1,19 +1,19 @@
-// /frontend/src/pages/SocialFeed.js - FINAL PRODUCTION-READY REPLACEMENT (ChartPlaceholder Import and Polling Fix)
+// /frontend/src/pages/SocialFeed.js - live social feed, recognition leaderboard, and innovation-vote chart
 import React, { useMemo, memo, useState, useCallback } from 'react';
 import { theme as tokens } from '../theme';
 
 // CRITICAL API IMPORTS
-import { 
-    getSocialFeed, postSocialPost, getRecognitionLeaderboard, 
-    giveRecognitionStar 
-} from '../config/api'; 
+import {
+    getSocialFeed, postSocialPost, getRecognitionLeaderboard,
+    giveRecognitionStar, getInnovationIdeas
+} from '../config/api';
 import { useApi } from '../hooks/useApi';
 import { useToast } from '../hooks/use-toast';
 import { useAuth } from '../contexts/AuthContext';
 
 // UI COMPONENTS
 import DataCard from '../components/DataCard';
-import ChartPlaceholder from '../components/ChartPlaceholder'; // CRITICAL FIX: Add missing ChartPlaceholder import
+import BarChartWidget from '../components/charts/BarChartWidget';
 import { 
     MessageCircle, Zap, Star, Users, 
     Send, Loader2, ArrowUp, ArrowDown 
@@ -202,7 +202,16 @@ export const SocialFeed = memo(() => {
         error: leaderboardError, 
         refetch: refetchLeaderboard
     } = useApi(getRecognitionLeaderboard, [], true, []);
-    
+
+    // CRITICAL API INTEGRATION 5: Innovation ideas, charted by real vote counts.
+    const { data: ideas } = useApi(getInnovationIdeas, [], true);
+    const ideaVotes = useMemo(
+        () => (Array.isArray(ideas) ? ideas : (ideas?.ideas || []))
+            .map((i) => ({ name: i.title || i.name || i.idea || 'Idea', value: Number(i.votes ?? i.upvotes ?? i.score) || 0 }))
+            .slice(0, 8),
+        [ideas]
+    );
+
     const styles = useMemo(() => ({
         grid: { display: 'grid', gridTemplateColumns: '2fr 1fr', gap: tokens.spacing?.lg },
         feedColumn: { gridColumn: 'span 2' }, // Take full width initially
@@ -255,7 +264,9 @@ export const SocialFeed = memo(() => {
                         refetchLeaderboard={refetchLeaderboard}
                     />
                      <div style={{ marginTop: tokens.spacing?.lg }}>
-                        <ChartPlaceholder label="Innovation Ideas Voting Trend" minHeight="250px" />
+                        <DataCard title="Innovation Ideas by Votes" isChart minHeight="250px">
+                            <BarChartWidget data={ideaVotes} minHeight="200px" color={tokens.color?.['accent-primary']} />
+                        </DataCard>
                     </div>
                 </div>
             </div>
