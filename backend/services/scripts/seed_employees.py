@@ -1,4 +1,4 @@
-# /backend/services/scripts/seed_employees.py - FINAL SYNCHRONIZED VERSION
+# backend/services/scripts/seed_employees.py
 """
 seed_employees.py
 Idempotent seeder that ensures hrsd_tickets table exists and (optionally) seeds sample rows.
@@ -7,7 +7,7 @@ Idempotent seeder that ensures hrsd_tickets table exists and (optionally) seeds 
 import asyncio
 import os
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 import asyncpg
 
@@ -38,7 +38,7 @@ ON public.hrsd_tickets (status, created_at);
 SEED_ROWS = [
     {
         "ticket_id": "TICKET-0001",
-        "created_at": datetime.now(timezone.utc), 
+        "created_at": datetime.now(timezone.utc),
         "status": "NEW",
         "assigned_agent": "HR_Triage_Agent",
         "priority": "HIGH",
@@ -72,7 +72,7 @@ async def run_seeder(database_url: str, seed_example_rows: bool = True):
         logger.info("Ensuring hrsd_tickets table exists...")
         await conn.execute(DDL_HRSD_TICKETS)
         await conn.execute(IDX_HRSD_TICKETS)
-        
+
         # 2. Seed Rows (if enabled)
         if seed_example_rows:
             logger.info("Inserting example rows (idempotent)...")

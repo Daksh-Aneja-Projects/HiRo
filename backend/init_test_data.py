@@ -71,13 +71,20 @@ CREATE TABLE IF NOT EXISTS public.performance_reviews (
     reviewer_id VARCHAR(50)
 );
 
+-- Schema matches what multi_agent_hrsd.py._save_ticket actually writes (employee_id
+-- lives in the metadata JSONB, not a dedicated column/FK -- see that module for why).
 CREATE TABLE IF NOT EXISTS public.hrsd_tickets (
     ticket_id VARCHAR(50) PRIMARY KEY,
-    employee_uuid VARCHAR(50) REFERENCES public.employee_pii(employee_uuid),
-    status VARCHAR(20),
-    severity VARCHAR(20),
-    created_at TIMESTAMP WITH TIME ZONE
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    status VARCHAR(20) NOT NULL DEFAULT 'NEW',
+    assigned_agent VARCHAR(100),
+    priority VARCHAR(20) DEFAULT 'MEDIUM',
+    subject TEXT,
+    description TEXT,
+    metadata JSONB
 );
+CREATE INDEX IF NOT EXISTS idx_hrsd_tickets_status_created_at
+    ON public.hrsd_tickets (status, created_at);
 
 -- DAO governance world-state (written by hyperledger_chaincode, read by /dao/* dashboards).
 CREATE TABLE IF NOT EXISTS public.dao_proposals (

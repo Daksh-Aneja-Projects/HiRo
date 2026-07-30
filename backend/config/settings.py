@@ -102,8 +102,8 @@ class Settings:
     
     # --- Local AI Service (Ollama only) ---
     OLLAMA_BASE_URL: str = get_env_variable("OLLAMA_BASE_URL", "http://ollama:11434")
-    # Default local model: qwen2.5 7B — lightweight, tool-calling capable, CPU-friendly.
-    LLM_MODEL_NAME: str = get_env_variable("LLM_MODEL_NAME", "qwen2.5:7b")
+    # Default local model: llama3.1 8B — already pulled on this host, tool-calling capable, CPU-friendly.
+    LLM_MODEL_NAME: str = get_env_variable("LLM_MODEL_NAME", "llama3.1:8b")
     # Local embedding model (nomic-embed-text -> 768-dim vectors, matches the pgvector column).
     EMBEDDING_MODEL: str = get_env_variable("EMBEDDING_MODEL", "nomic-embed-text")
     EMBEDDING_DIM: int = int(get_env_variable("EMBEDDING_DIM", "768"))
