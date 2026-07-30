@@ -28,7 +28,7 @@ import {
  */
 const AgentFactoryModule = memo(() => {
     const { toast } = useToast();
-    const [agentData, setAgentData] = useState({ name: '', role: 'Governance', model: 'Gemini-Flash' });
+    const [agentData, setAgentData] = useState({ name: '', role: 'Governance', model: 'llama3.1:8b' });
     const [isCreating, setIsCreating] = useState(false);
     
     // CRITICAL: Handle Agent Creation
@@ -42,7 +42,7 @@ const AgentFactoryModule = memo(() => {
             const response = await createNewAIAgent(agentData);
             
             toast({ title: 'Agent Deployed', description: `Agent "${agentData.name}" created with ID: ${response.data.agent_id}.`, variant: 'success' });
-            setAgentData({ name: '', role: 'Governance', model: 'Gemini-Flash' });
+            setAgentData({ name: '', role: 'Governance', model: 'llama3.1:8b' });
         } catch (error) {
             console.error("Agent creation failed:", error);
             toast({ title: 'Deployment Failed', description: error.response?.data?.detail || error.message, variant: 'destructive' });
@@ -98,9 +98,9 @@ const AgentFactoryModule = memo(() => {
                             onChange={(e) => setAgentData(prev => ({ ...prev, model: e.target.value }))}
                             required
                         >
-                            <option value="Gemini-Flash">Gemini 2.5 Flash (Default)</option>
-                            <option value="Gemini-Pro">Gemini 2.5 Pro (Advanced)</option>
-                            <option value="Legacy-Agent">Legacy Model (Deprecated)</option>
+                            <option value="llama3.1:8b">Llama 3.1 8B (Default)</option>
+                            <option value="qwen2.5-coder:7b">Qwen 2.5 Coder 7B</option>
+                            <option value="mistral:7b-instruct">Mistral 7B Instruct</option>
                         </select>
                     </div>
                     <button 

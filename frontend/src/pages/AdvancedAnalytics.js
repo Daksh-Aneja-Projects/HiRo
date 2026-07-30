@@ -5,17 +5,11 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { theme as tokens } from '../theme';
 import { TrendingUp, BarChart3, ScatterChart, Zap, Loader2, Filter, Cpu, AlertTriangle, Scale, Send, Clock } from 'lucide-react';
 // FIX: Using absolute path aliases
-import { aggregateMetrics, getAdvancedAnalytics } from '../config/api';
+import { aggregateMetrics, getAdvancedAnalytics, getAnalyticsCharts } from '../config/api';
 import { useToast } from '../hooks/use-toast';
 import DataCard from '../components/DataCard';
-import ChartPlaceholder from '../components/ChartPlaceholder'; 
-
-const MOCK_ANALYTICS_RESULT = {
-    metric: 'Average Attrition Time',
-    result: '15.5 months',
-    breakdown: [{ value: 0.15, label: 'Low Engagement' }, { value: 0.85,
-    label: 'High Compa-Ratio' }],
-};
+import BarChartWidget from '../components/charts/BarChartWidget';
+import { ScatterChart, Scatter, XAxis as RXAxis, YAxis as RYAxis, ZAxis, CartesianGrid as RGrid, Tooltip as RTooltip, ResponsiveContainer as RContainer } from 'recharts';
 
 // --- Static Style Definitions ---
 const getStyles = (tokens) => ({
@@ -96,10 +90,51 @@ const getStyles = (tokens) => ({
 });
 
 
+// Empty-state wrapper so a chart never renders fake data before real data arrives.
+const EmptyChart = memo(({ minHeight = '200px', label }) => (
+    <div style={{ minHeight, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        color: tokens.color?.['muted-500'], fontSize: tokens.typography?.small?.fontSize, gap: 8 }}>
+        <Loader2 size={16} className="animate-spin" /> {label || 'Loading live data...'}
+    </div>
+));
+EmptyChart.displayName = 'EmptyChart';
+
+const ChartOrEmpty = memo(({ data, minHeight, color, label }) => (
+    (data && data.length)
+        ? <BarChartWidget data={data} minHeight={minHeight} color={color} label={label} />
+        : <EmptyChart minHeight={minHeight} />
+));
+ChartOrEmpty.displayName = 'ChartOrEmpty';
+
+// Real performance-vs-tenure scatter across the sampled workforce.
+const PerfTenureScatter = memo(({ points }) => {
+    if (!points || !points.length) return <EmptyChart minHeight="300px" />;
+    return (
+        <div style={{ width: '100%', height: '100%', minHeight: '300px' }}>
+            <RContainer width="100%" height="100%">
+                <ScatterChart margin={{ top: 10, right: 20, bottom: 10, left: -10 }}>
+                    <RGrid strokeDasharray="3 3" stroke={tokens.color?.['border-600'] || '#e5e5e5'} />
+                    <RXAxis type="number" dataKey="tenure" name="Tenure (months)" unit="mo"
+                        tick={{ fill: tokens.color?.['muted-500'] || '#888', fontSize: 12 }} axisLine={false} tickLine={false} />
+                    <RYAxis type="number" dataKey="rating" name="Rating" domain={[0, 5]}
+                        tick={{ fill: tokens.color?.['muted-500'] || '#888', fontSize: 12 }} axisLine={false} tickLine={false} />
+                    <ZAxis range={[40, 40]} />
+                    <RTooltip cursor={{ strokeDasharray: '3 3' }}
+                        contentStyle={{ backgroundColor: tokens.color?.['panel-800'] || '#fff', borderRadius: '8px', border: `1px solid ${tokens.color?.['border-600'] || '#e5e5e5'}` }}
+                        itemStyle={{ color: tokens.color?.['text-100'] || '#000' }} />
+                    <Scatter name="Employees" data={points} fill={tokens.color?.['accent-primary'] || '#0071e3'} fillOpacity={0.6} />
+                </ScatterChart>
+            </RContainer>
+        </div>
+    );
+});
+PerfTenureScatter.displayName = 'PerfTenureScatter';
+
 // --- Sub-Component: AnalyticsDashboard (Hoisted) ---
 const AnalyticsDashboard = memo(() => {
     const { toast } = useToast();
     const [data, setData] = useState({ key_metric: 'N/A', retention: 'N/A' });
+    const [charts, setCharts] = useState({ headcount_by_department: [], attrition_by_department: [], perf_vs_tenure: [] });
     const [filters, setFilters] = useState({ department: 'All', time: 'Q4' });
     const [isLoading, setIsLoading] = useState(false);
 
@@ -110,9 +145,7 @@ const AnalyticsDashboard = memo(() => {
         setIsLoading(true);
         try {
             const response = await aggregateMetrics({ filters });
-            const advancedData = response.data || { key_metric: '92.5%', retention: '90%', attrition_risk: '4.5/10',
-            ml_score: '98.1%' };
-            setData(advancedData);
+            setData(response.data || { key_metric: 'N/A', retention: 'N/A', attrition_risk: 'N/A', ml_score: 'N/A' });
         } catch (error) {
             toast({ title: "API Error", description: "Failed to load advanced metrics.", variant: 'destructive' });
             setData({ key_metric: 'N/A', retention: 'N/A', attrition_risk: 'N/A', ml_score: 'N/A' });
@@ -125,6 +158,15 @@ const AnalyticsDashboard = memo(() => {
     useEffect(() => {
         fetchData();
     }, [fetchData]);
+
+    // Real chart series from the employee UDM (headcount/attrition by dept, perf-vs-tenure).
+    useEffect(() => {
+        let alive = true;
+        getAnalyticsCharts()
+            .then(res => { if (alive && res?.data) setCharts(res.data); })
+            .catch(() => { /* leave empty; widgets show their own empty state */ });
+        return () => { alive = false; };
+    }, []);
 
     const handleFilterChange = useCallback((e) => {
         setFilters(prev => ({ ...prev, [e.target.name]: e.target.value }));
@@ -199,22 +241,24 @@ const AnalyticsDashboard = memo(() => {
                 ))}
             </div>
             <div style={styles.grid}>
-                {/* Scatter Chart - span 8 */}
+                {/* Scatter Chart - span 8 (real perf vs tenure across the workforce) */}
                 <div style={{ gridColumn: 'span 8' }}>
                     <DataCard title="Performance vs. Tenure Regression" isChart={true} minHeight="300px">
-                        <ChartPlaceholder label="Scatter Plot: Performance vs Tenure" minHeight="300px" />
+                        <PerfTenureScatter points={charts.perf_vs_tenure} />
                     </DataCard>
                 </div>
-                {/* Bar Chart - span 4 */}
+                {/* Bar Chart - span 4 (real headcount by department) */}
                 <div style={{ gridColumn: 'span 4' }}>
-                    <DataCard title="Diversity Distribution" isChart={true} minHeight="300px">
-                        <ChartPlaceholder label="Bar Chart: Headcount by Demographic" minHeight="300px" />
+                    <DataCard title="Headcount by Department" isChart={true} minHeight="300px">
+                        <ChartOrEmpty data={charts.headcount_by_department} minHeight="300px"
+                            color={tokens.color?.['accent-primary']} label="Employees per department" />
                     </DataCard>
                 </div>
-                {/* Deep Dive (Full Width) */}
+                {/* Attrition risk by department (real avg risk, 0-100) */}
                 <div style={{ gridColumn: 'span 12' }}>
-                    <DataCard title="Unstructured Data Analysis (AI Insights)" isChart={true} minHeight="250px">
-                        <ChartPlaceholder label="Unstructured Text Cluster Map" minHeight="250px" />
+                    <DataCard title="Attrition Risk by Department" isChart={true} minHeight="250px">
+                        <ChartOrEmpty data={charts.attrition_by_department} minHeight="250px"
+                            color={tokens.color?.['warning']} label="Average attrition-risk index (0-100)" />
                     </DataCard>
                 </div>
             </div>

@@ -11,7 +11,7 @@ const ConfigurationAgentPanel = memo(() => {
     const [prompt, setPrompt] = useState('Tune the HRBP agent to prioritize cost-of-living adjustments.');
     const [output, setOutput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
-    const [currentProvider, setCurrentProvider] = useState('Gemini-Flash');
+    const [currentProvider, setCurrentProvider] = useState('llama3.1:8b');
     const eventSourceRef = useRef(null);
     
     // CRITICAL API INTEGRATION 1: Fetch Available AI Models

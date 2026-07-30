@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { theme as tokens } from '../theme';
 import { SIDEBAR_NAV, hasAccess } from '../config/portalAccess'; // CRITICAL FIX: Import NAV config
 import RoleNavCard from './RoleNavCard'; // Assuming RoleNavCard exists
-import { Home, Users } from 'lucide-react';
+import { Home, Users, AlertTriangle } from 'lucide-react';
 
 /**
  * Renders a dashboard showing all portals/roles the current user has access to.

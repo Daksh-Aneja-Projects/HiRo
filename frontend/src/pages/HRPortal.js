@@ -16,7 +16,7 @@ import ChartPlaceholder from '../components/ChartPlaceholder';
 import DataCard from '../components/DataCard';
 import { 
     BookOpen, DollarSign, Users, FileText, Briefcase, 
-    Search, Loader2, ArrowLeft, AlertTriangle // Added AlertTriangle
+    Search, Loader2, ArrowLeft, AlertTriangle, CheckCircle
 } from 'lucide-react';
 import PolicyGovernanceDashboard from '../components/PolicyGovernanceDashboard'; // Assumed complex component for Policy tab
 

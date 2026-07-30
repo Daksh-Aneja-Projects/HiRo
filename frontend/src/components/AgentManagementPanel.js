@@ -7,7 +7,7 @@ import { Zap, Loader2, CheckCircle, XCircle } from 'lucide-react';
 
 const AgentManagementPanel = memo(() => {
     const { toast } = useToast();
-    const [agentData, setAgentData] = useState({ name: '', role: 'Governance', model: 'Gemini-Flash' });
+    const [agentData, setAgentData] = useState({ name: '', role: 'Governance', model: 'llama3.1:8b' });
     const [isCreating, setIsCreating] = useState(false);
     const [deployId, setDeployId] = useState(null); // ID used for approval step
 
@@ -27,7 +27,7 @@ const AgentManagementPanel = memo(() => {
             setDeployId(newDeployId);
             
             toast({ title: 'Agent Queued', description: `Agent "${agentData.name}" created. Pending final deployment approval.`, variant: 'info' });
-            setAgentData({ name: '', role: 'Governance', model: 'Gemini-Flash' });
+            setAgentData({ name: '', role: 'Governance', model: 'llama3.1:8b' });
         } catch (error) {
             console.error("Agent creation failed:", error);
             toast({ title: 'Deployment Failed', description: error.response?.data?.detail || error.message, variant: 'destructive' });
@@ -75,9 +75,9 @@ const AgentManagementPanel = memo(() => {
                     <option value="XAI">XAI & Simulation Agent</option>
                 </select>
                 <select style={styles.input} value={agentData.model} onChange={e => setAgentData(p => ({ ...p, model: e.target.value }))}>
-                    <option value="Gemini-Flash">Gemini 2.5 Flash</option>
-                    <option value="Gemini-Pro">Gemini 2.5 Pro</option>
-                    <option value="Legacy-Agent">Legacy Model</option>
+                    <option value="llama3.1:8b">Llama 3.1 8B (Default)</option>
+                    <option value="qwen2.5-coder:7b">Qwen 2.5 Coder 7B</option>
+                    <option value="mistral:7b-instruct">Mistral 7B Instruct</option>
                 </select>
                 <button type="submit" style={styles.button(tokens.color?.['accent-primary'])} disabled={isCreating} className="agent-create-hover">
                     {isCreating ? <Loader2 size={16} className="animate-spin" /> : <Zap size={16} />}
