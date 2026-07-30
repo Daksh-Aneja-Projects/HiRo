@@ -25,18 +25,3 @@ export const settings = {
     HRBP_PRIMARY_COLOR: '#F44336', // Danger Red
 };
 
-// --- Data Structures (Initialized as empty objects/arrays for import safety) ---
-// These exports prevent import errors in existing files
-export const MOCK_USER_DATA = {};
-export const MOCK_EMPLOYEES = [];
-export const MOCK_HRSD_TICKETS = [];
-export const MOCK_HEALTH_STATUS = {};
-export const MOCK_LEAVE_BALANCE = {};
-export const MOCK_LEAVE_HISTORY = [];
-export const MOCK_APPROVALS_QUEUE = {};
-export const MOCK_SIMULATION_RESULT = {};
-export const MOCK_GOVERNANCE_DATA = {};
-export const MOCK_HEALING_LOG = [];
-export const MOCK_RLFF_FEEDBACK = {};
-export const MOCK_SERVICENOW_HEALTH = {};
-export const MOCK_HRIT_TELEMETRY = {};
