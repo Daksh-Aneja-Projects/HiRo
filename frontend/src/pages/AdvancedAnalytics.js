@@ -182,7 +182,7 @@ const AnalyticsDashboard = memo(() => {
         setFilters(prev => ({ ...prev, [e.target.name]: e.target.value }));
     }, []);
 
-    const mockStats = useMemo(() => [
+    const statCards = useMemo(() => [
         { id: 1, title: 'Composite workforce health', value: data.key_metric, unit: 'overall', icon: Zap, color: tokens.color?.['success'], span: 3 },
         { id: 2, title: 'Projected retention', value: data.retention, unit: 'of the workforce', icon: TrendingUp, color: tokens.color?.['warning'], span: 3 },
         // The band comes from the backend; it used to be the constant "Low"
@@ -224,7 +224,7 @@ const AnalyticsDashboard = memo(() => {
 
             <div style={styles.grid}>
                 {/* Stat Cards - span 3 each */}
-                {mockStats.map(stat =>
+                {statCards.map(stat =>
                     (
                         <div key={stat.id} style={{ gridColumn: 'span 3' }}>
                             <DataCard title={stat.title}>

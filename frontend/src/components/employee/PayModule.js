@@ -114,7 +114,11 @@ const PayModule = memo(() => {
                                 <span style={ui.rowMeta}>Your employer matches contributions up to this share of salary</span>
                             </div>
                             <span style={{ flexShrink: 0, color: tokens.color?.success, fontWeight: 600 }}>
-                                <CountUp value={Number(benefits.retirement_match_pct) || 0} suffix="%" />
+                                {/* A null match is "not recorded", not 0%. Rendering 0
+                                    told the employee their employer matches nothing. */}
+                                {benefits.retirement_match_pct == null
+                                    ? <span style={{ color: tokens.color?.['muted-500'], fontWeight: 500 }}>Not recorded</span>
+                                    : <CountUp value={Number(benefits.retirement_match_pct)} suffix="%" />}
                             </span>
                         </div>
                         <div style={ui.listRow}>

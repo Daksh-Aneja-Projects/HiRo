@@ -10,7 +10,7 @@ import { useAuth } from '../contexts/AuthContext';
 import {
     getEmployeeDashboard, submitLeaveRequest, getLeaveBalance, getLeaveHistory,
     getPersonalInfo, recordConsentChange, revealOwnPII, getRecognitionLeaderboard,
-    getTimesheets, getRetentionPreference, saveRetentionPreference, submitFeedback,
+    getTimesheets, getRetentionPreference, saveRetentionPreference, submitFeedback, getAnnouncements,
 } from '../config/api';
 import { useApi } from '../hooks/useApi';
 import { useToast } from '../hooks/use-toast';
@@ -57,6 +57,9 @@ const EmployeeDashboardModule = memo(() => {
     const { data: rawHistory } = useApi(getLeaveHistory, [], true);
     const { data: rawSheets } = useApi(getTimesheets, [], true);
     const { data: leaderboard } = useApi(getRecognitionLeaderboard, [], true);
+    // Announcements are a broadcast: everyone signed in should see them.
+    const { data: announcementsResp } = useApi(getAnnouncements, [], true);
+    const announcements = useMemo(() => announcementsResp?.announcements || [], [announcementsResp]);
 
     const sheets = useMemo(() => (Array.isArray(rawSheets) ? rawSheets : []), [rawSheets]);
     const history = useMemo(
@@ -168,6 +171,25 @@ const EmployeeDashboardModule = memo(() => {
                     <AreaChartWidget data={hoursTrend} minHeight="260px" color={tokens.color?.['accent-primary']}
                         label="Built from the timesheets you submitted, oldest first." />
                 </DataCard>
+            </div>
+
+            <div style={{ ...ui.panel, gridColumn: 'span 12' }}>
+                <h3 style={ui.h3}>Announcements</h3>
+                {announcements.length === 0 ? (
+                    <p style={ui.hint}>Nothing has been announced yet.</p>
+                ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: tokens.spacing?.xs, marginTop: tokens.spacing?.xs }}>
+                        {announcements.slice(0, 5).map((a) => (
+                            <div key={a.id} style={ui.listRow}>
+                                <div style={ui.rowMain}>
+                                    <span style={ui.rowTitle}>{a.title}</span>
+                                    <span style={ui.rowMeta}>{a.content}</span>
+                                </div>
+                                <span style={ui.rowMeta}>{fmtDate(a.created_at)}</span>
+                            </div>
+                        ))}
+                    </div>
+                )}
             </div>
 
             <div style={{ gridColumn: 'span 12' }}>

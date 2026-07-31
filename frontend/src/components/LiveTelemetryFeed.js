@@ -26,25 +26,39 @@ const LiveTelemetryFeed = memo(() => {
             ws = createTelemetryWebSocket('/api/admin/telemetry/live'); 
 
             ws.onopen = () => {
-                console.log('Telemetry WebSocket connected.');
                 setStatus('ONLINE');
+                // The server only pushes to subscribers. Without this the socket
+                // opened, reported ONLINE and then received nothing at all.
+                ws.send(JSON.stringify({ type: 'subscribe_telemetry' }));
             };
 
             ws.onmessage = (event) => {
                 try {
                     const data = JSON.parse(event.data);
-                    if (data.type === 'metric') {
-                        // Update metrics in a robust way
-                        setMetrics(prev => ({ ...prev, ...data.payload }));
+                    // The server sends {type:'telemetry_metrics', data:{...}}. This
+                    // listened for {type:'metric', payload:{...}}, so every frame
+                    // was discarded and the panel sat on "waiting for data".
+                    if (data.type === 'telemetry_metrics') {
+                        const m = data.data || {};
+                        setMetrics(prev => ({
+                            ...prev,
+                            cpu_load: Number(m.cpu_load) || 0,
+                            memory_load: Number(m.memory_load) || 0,
+                            events_per_second: Number(m.events_per_second) || 0,
+                            active_nodes: Number(m.active_nodes) || 0,
+                        }));
+                        setLog(prev => [{
+                            time: new Date().toLocaleTimeString(),
+                            message: `Processor ${Number(m.cpu_load || 0).toFixed(0)} percent, memory ${Number(m.memory_load || 0).toFixed(0)} percent`,
+                        }, ...prev].slice(0, 50));
                     } else if (data.type === 'log') {
-                        // Add log entry, keeping the log array manageable
-                        setLog(prev => {
-                            const newLog = [{ time: new Date().toLocaleTimeString(), message: data.payload.message }, ...prev];
-                            return newLog.slice(0, 50); // Keep only the last 50 entries
-                        });
+                        setLog(prev => [{
+                            time: new Date().toLocaleTimeString(),
+                            message: data.payload?.message ?? data.data?.message ?? '',
+                        }, ...prev].slice(0, 50));
                     }
                 } catch (e) {
-                    console.error("Error parsing WebSocket message:", e);
+                    console.error('Could not read a telemetry message:', e);
                 }
             };
 
@@ -90,7 +104,8 @@ const LiveTelemetryFeed = memo(() => {
                     memory_load: Number(d.memory_load) || 0,
                     // agent_activity is a 0..1 index; surface it as events/sec-equivalent load.
                     events_per_second: Math.round((Number(d.agent_activity) || 0) * 100),
-                    active_nodes: prev.active_nodes || 1,
+                    // Left as-is: node count only arrives over the message bus.
+                    active_nodes: prev.active_nodes,
                 }));
                 setStatus((s) => (s === 'ONLINE' ? s : 'POLLING'));
             })

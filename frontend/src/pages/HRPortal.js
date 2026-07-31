@@ -203,7 +203,7 @@ const CompensationModule = memo(() => {
 CompensationModule.displayName = 'CompensationModule';
 
 
-// --- 7.3. Sub-Module: Talent Insights (Mocked) ---
+// --- 7.3. Sub-Module: Talent Insights ---
 const TalentModule = memo(() => {
     // Real workforce-planning projections (skill gaps per department) + attrition by dept.
     const { data: wfp } = useApi(getWFPProjections, [], true);
@@ -235,7 +235,7 @@ const TalentModule = memo(() => {
 });
 TalentModule.displayName = 'TalentModule';
 
-// --- 7.4. Sub-Module: AI Document Ingestion (Mocked) ---
+// --- 7.4. Sub-Module: AI Document Ingestion ---
 const IngestionModule = memo(() => {
     const { toast } = useToast();
     const [file, setFile] = useState(null);

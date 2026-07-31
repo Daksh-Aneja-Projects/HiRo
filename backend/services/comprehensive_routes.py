@@ -570,7 +570,12 @@ async def integrity_check(req: Request, service: str = Body(..., embed=True), pa
     return {"service": service, "status": "INTEGRITY_VERIFIED" if ok else "INTEGRITY_FAILED", "detail": detail}
 
 @admin_router.get("/announcement")
-async def get_announcements(req: Request, limit: int = Query(50), offset: int = Query(0), payload: Dict=Depends(hrit_admin_role_required)):
+async def get_announcements(req: Request, limit: int = Query(50), offset: int = Query(0), payload: Dict=Depends(employee_role_required)):
+    """Anyone signed in can read announcements; only admins publish them.
+
+    This was admin-only, so a broadcast the console described as visible to
+    everyone in fact reached other admins alone.
+    """
     items = await _require_admin_service(req).get_announcements(limit=limit, offset=offset)
     return {"announcements": items, "count": len(items)}
 
