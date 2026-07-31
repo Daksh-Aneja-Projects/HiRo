@@ -9,6 +9,10 @@
 module.exports = {
   root: true,
   extends: ['react-app', 'react-app/jest'],
+  // `.d.ts` files are type declarations, not runtime code; linting them with the
+  // JS parser flags every `React`/`JSX` type reference as undefined. There is no
+  // tsconfig here for a type-aware pass, so exclude them.
+  ignorePatterns: ['**/*.d.ts'],
   rules: {
     'no-undef': 'error',
   },
