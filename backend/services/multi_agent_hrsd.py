@@ -145,7 +145,70 @@ class MultiAgentHRSDSystem:
             "sla_breaches": (breach["c"] if breach else 0),
             "tickets_by_status": by_status,
             "total_tickets": sum(by_status.values()),
-            "agent_status": "Online",
+            # This was the literal "Online", so a dead triage model still read as
+            # healthy. It now reflects whether classification can actually run.
+            "agent_status": "Online" if await self._triage_available() else "Degraded",
+        }
+
+    async def _triage_available(self) -> bool:
+        """Whether the model that classifies incoming cases can be reached."""
+        try:
+            models = await self.ai_service.get_ai_models()
+            return bool(models)
+        except Exception:
+            return False
+
+    async def _classify(self, ticket: HRSDTicket) -> Dict[str, Any]:
+        """Ask the local model what this ticket is about and how urgent it is.
+
+        If the model is unreachable the ticket stays where a person will see it,
+        at its submitted priority, rather than being given a confident-looking
+        category nobody computed.
+        """
+        schema = {
+            "type": "object",
+            "properties": {
+                "category": {"type": "string", "enum": list(self._ROUTES.keys())},
+                "priority": {"type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]},
+                "summary": {"type": "string"},
+            },
+            "required": ["category", "priority", "summary"],
+        }
+        prompt = (
+            "Read this HR service request and classify it.\n\n"
+            f"Subject: {ticket.title}\n"
+            f"Description: {ticket.description}\n\n"
+            f"category must be one of: {', '.join(self._ROUTES)}.\n"
+            "priority: CRITICAL only if someone cannot be paid or cannot work at all; "
+            "HIGH if it affects pay, benefits or access this week; MEDIUM by default; "
+            "LOW for questions with no deadline.\n"
+            "summary: one sentence a support agent can read at a glance."
+        )
+        try:
+            result = await self.ai_service.generate_json_response(prompt, schema, task_type="hrsd_triage")
+        except Exception as e:
+            logger.warning(f"Triage model unavailable for {ticket.ticket_id}: {e}")
+            result = {}
+
+        category = str(result.get("category") or "").lower()
+        if category not in self._ROUTES:
+            return {
+                "new_status": TicketStatus.NEW.value,
+                "new_priority": ticket.priority.value if hasattr(ticket.priority, "value") else str(ticket.priority),
+                "next_agent": HRSDSubAgent.TRIAGE,
+                "summary": "This could not be classified automatically, so a person needs to look at it.",
+                "classified": False,
+            }
+
+        priority = str(result.get("priority") or "MEDIUM").upper()
+        if priority not in ("LOW", "MEDIUM", "HIGH", "CRITICAL"):
+            priority = "MEDIUM"
+        return {
+            "new_status": TicketStatus.TRIAGE.value,
+            "new_priority": priority,
+            "next_agent": self._ROUTES[category],
+            "summary": str(result.get("summary") or "").strip() or ticket.title,
+            "classified": True,
         }
 
     async def create_ticket(self, employee_id: str, subject: str, description: str) -> HRSDTicket:
@@ -168,20 +231,29 @@ class MultiAgentHRSDSystem:
         )
         return new_ticket
 
+    # Which specialist handles what. The model picks one of these keys; anything
+    # it invents falls back to human triage rather than being routed at random.
+    _ROUTES = {
+        "payroll": HRSDSubAgent.PAYROLL,
+        "benefits": HRSDSubAgent.BENEFITS,
+        "time_off": HRSDSubAgent.TIME_OFF,
+        "it_support": HRSDSubAgent.IT_SUPPORT,
+        "other": HRSDSubAgent.TRIAGE,
+    }
+
     async def triage_ticket(self, ticket_id: str) -> HRSDTicket:
-        """AI-driven triage, assigns priority and next agent."""
+        """Read the ticket and route it to the right specialist.
+
+        This used to be a fixed dict: every ticket, whatever it said, came out as
+        a HIGH priority IT access issue. A payroll complaint was routed to IT
+        support. `self.ai_service` was assigned in the constructor and never read.
+        """
         ticket = await self._get_ticket(ticket_id)
         if not ticket:
             raise ValueError(f"Ticket {ticket_id} not found.")
 
-        # 1. AI Triage Mock
-        triage_data = {
-            "new_status": "IN_TRIAGE",
-            "new_priority": "HIGH",
-            "next_agent": HRSDSubAgent.IT_SUPPORT,
-            "summary": "IT system access issue."
-        }
-        
+        triage_data = await self._classify(ticket)
+
         # 2. Update ticket
         ticket.status = TicketStatus(triage_data.get("new_status", "IN_TRIAGE")) # FIX: Use TicketStatus Enum string input
         ticket.priority = TicketPriority(triage_data.get("new_priority", "MEDIUM")) # FIX: Use TicketPriority Enum string input

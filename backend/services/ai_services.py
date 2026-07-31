@@ -150,6 +150,37 @@ class AIService:
                 logger.warning(f"Could not list Ollama models ({e}); using configured default.")
         return [{"name": self.model, "label": _label(self.model)}]
 
+    async def generate_embedding(self, text: str) -> List[float]:
+        """A real embedding vector from the local embedding model.
+
+        The endpoint that calls this returned a 500 on every request because
+        this method did not exist. It uses a dedicated embedding model: a chat
+        model cannot produce one, so this fails loudly rather than returning
+        something vector-shaped that means nothing.
+        """
+        if not text or not text.strip():
+            raise AIServiceError("There is nothing to embed.")
+        if not (HTTPX_AVAILABLE and self.http_client is not None):
+            raise AIServiceError("No HTTP client is available to reach the embedding model.")
+
+        model = os.environ.get("LLM_EMBEDDING_MODEL") or "nomic-embed-text"
+        try:
+            res = await self.http_client.post(
+                f"{self.base_url}/api/embeddings",
+                json={"model": model, "prompt": text},
+                timeout=60.0,
+            )
+            res.raise_for_status()
+            vector = res.json().get("embedding") or []
+        except Exception as e:
+            raise AIServiceError(
+                f"The embedding model '{model}' could not be reached. "
+                f"Pull it with 'ollama pull {model}' if it is not installed. ({e})") from e
+
+        if not vector:
+            raise AIServiceError(f"The embedding model '{model}' returned no vector.")
+        return vector
+
     async def generate_text(self, prompt: str, system_instruction: str = "", task_type: str = "general") -> str:
         result = await self._with_retry(self._call_ollama, prompt, system_instruction, tools=None)
         if isinstance(result, dict) and "tool_calls" in result:

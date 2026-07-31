@@ -326,7 +326,38 @@ async def create_ticket(req: Request, subject: str = Body(...), description: str
     if not hrsd_system: raise HTTPException(status_code=503, detail="HRSD System unavailable.")
     
     ticket = await hrsd_system.create_ticket(employee_id, subject, description)
-    return {"ticket_id": ticket.ticket_id, "status": "Triage Initiated"}
+
+    # Actually triage it. This route reported "Triage Initiated" while calling
+    # nothing: triage_ticket had no caller anywhere in the codebase, so every
+    # case sat at NEW with no owner until a person happened to notice it.
+    try:
+        ticket = await hrsd_system.triage_ticket(ticket.ticket_id)
+        routed = ticket.assigned_agent
+    except Exception as e:
+        logger.warning(f"Could not triage {ticket.ticket_id}: {e}")
+        routed = None
+
+    return {
+        "ticket_id": ticket.ticket_id,
+        "status": ticket.status.value if hasattr(ticket.status, "value") else str(ticket.status),
+        "priority": ticket.priority.value if hasattr(ticket.priority, "value") else str(ticket.priority),
+        "assigned_to": routed,
+        "message": (f"Your case was raised and passed to the {_readable_agent(routed)}."
+                    if routed and routed != "TriageAgent"
+                    else "Your case was raised and is waiting for someone to pick it up."),
+    }
+
+
+def _readable_agent(agent: Optional[str]) -> str:
+    """Nobody outside the system should be shown a class name like PayrollAgent."""
+    return {
+        "PayrollAgent": "payroll team",
+        "BenefitsAgent": "benefits team",
+        "TimeOffAgent": "time off team",
+        "ITSupportAgent": "IT support team",
+        "ProjectFollowupAgent": "project team",
+        "TriageAgent": "HR service desk",
+    }.get(str(agent or ""), "HR service desk")
 
 @hrsd_router.put("/tickets/{ticket_id}/resolve")
 async def resolve_ticket(req: Request, ticket_id: str, resolution_summary: str = Body(..., embed=True), payload: Dict=Depends(manager_role_required)):
@@ -1712,14 +1743,32 @@ async def get_active_ai_provider(req: Request, payload: Dict=Depends(hrit_admin_
 
 @ai_router.post("/provider/switch")
 async def set_ai_provider(req: Request, provider: str = Body(..., embed=True), payload: Dict=Depends(hrit_admin_role_required)):
-    """Switch the default model on the live AI service (Ollama tag)."""
+    """Switch the model the AI service uses, to one that is actually installed.
+
+    This used to probe for a `set_default_model` method and a `default_model`
+    attribute, neither of which exists on AIService (its field is `model`). So
+    it created an orphan attribute, reported "Switched" for any string at all,
+    including models that do not exist, and carried on serving from the old one.
+    """
     ai_service: AIService = getattr(req.app.state, "ai_service", None)
     if not ai_service: raise HTTPException(status_code=503, detail="AI Service unavailable.")
-    if hasattr(ai_service, "set_default_model"):
-        ai_service.set_default_model(provider)
-    elif hasattr(ai_service, "default_model"):
-        ai_service.default_model = provider
-    return {"status": "Switched", "new_provider": provider}
+
+    available = [m.get("name") for m in await ai_service.get_ai_models()]
+    if provider not in available:
+        raise HTTPException(
+            status_code=400,
+            detail=(f"'{provider}' is not installed on this machine. "
+                    f"Available models: {', '.join(available) or 'none'}."))
+
+    previous = ai_service.model
+    ai_service.model = provider
+    logger.info(f"AI model switched from {previous} to {provider} by {payload['sub']}")
+    return {
+        "status": "Switched",
+        "previous_model": previous,
+        "new_provider": provider,
+        "message": f"HiRo is now answering with {provider}.",
+    }
 
 @ai_router.post("/command")
 async def legacy_ai_command(req: Request, payload_data: Dict, payload: Dict=Depends(employee_role_required)):

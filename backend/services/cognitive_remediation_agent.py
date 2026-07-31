@@ -23,7 +23,9 @@ class CognitiveRemediationAgent:
         if 'leave_request' in transaction_keys or 'leave_submission' in transaction_keys:
             return TriggerType.LEAVE_REQUEST_SUBMIT.value
         if 'timesheet_id' in transaction_keys or 'total_hours' in transaction_keys:
-            return TriggerType.TIMESHEET_SUBMISSION.value
+            # Timesheets go through TIME_CLOCK_IN; there is no TIMESHEET_SUBMISSION
+            # member, so this used to raise AttributeError after the LLM work was done.
+            return TriggerType.TIME_CLOCK_IN.value
         if 'compensation' in transaction_keys or 'salary_change' in transaction_keys:
             return "compensation_change" # Using the string from UDM/PolicyScraping
         
