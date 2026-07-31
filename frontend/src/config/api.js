@@ -270,7 +270,7 @@ export const runSimulation = (employeeId, adjustments) => api.post('/simulation/
 export const autoResolveAudit = (auditId, failedTransaction, policyText) => api.post(`/remediation/audit/${encodeURIComponent(auditId)}/auto-resolve`, { failed_transaction: failedTransaction, policy_text: policyText, auto_apply: false });
 export const remediateAuditLog = (payload) => api.post('/remediation/audit-fail', payload);
 export const getSimulationHistory = (employeeId, limit = 10) => api.get(`/simulation/history/${encodeURIComponent(employeeId)}?limit=${limit}`);
-export const getRemediationHistory = (auditId, limit = 10) => api.get(`/remediation/audit/${encodeURIComponent(auditId)}/remediation-history?limit=${limit}`);
+export const getRemediationHistory = (auditId) => api.get(`/remediation/history/${encodeURIComponent(auditId)}`);
 export const getCurrentMetrics = () => api.get('/telemetry/metrics/live');
 export const getAgentActivity = (timeWindowMinutes = 60) => api.get(`/telemetry/agents/activity?time_window_minutes=${timeWindowMinutes}`);
 // CRITICAL FIX: Export the stream function correctly

@@ -1789,9 +1789,33 @@ async def get_compliance_dashboard_data(req: Request, payload: Dict = Depends(po
     return await get_compliance_overview()
 
 @compliance_router.post("/monitor_feeds")
-async def monitor_regulatory_feeds(req: Request, jurisdictions: List[str] = Body(..., embed=True), payload: Dict = Depends(hrit_admin_role_required)):
-    """FIX: Added missing compliance endpoint."""
-    return {"status": "Monitoring Started", "jurisdictions": jurisdictions}
+async def monitor_regulatory_feeds(req: Request, jurisdictions: List[str] = Body(..., embed=True), payload: Dict = Depends(policy_admin_role_required)):
+    """Record which jurisdictions are being watched.
+
+    This used to return "Monitoring Started" without storing anything. The
+    subscription is now persisted, and the response says plainly whether a live
+    feed is attached or only the intent has been recorded.
+    """
+    mongo_client = getattr(req.app.state, "mongo_client", None)
+    if not mongo_client:
+        raise HTTPException(status_code=503, detail="Subscription store unavailable.")
+    now = datetime.now(timezone.utc).isoformat()
+    col = mongo_client[settings.MONGO_DB_NAME]["regulatory_subscriptions"]
+    for j in jurisdictions:
+        await col.update_one(
+            {"jurisdiction": j},
+            {"$set": {"jurisdiction": j, "requested_by": payload.get("sub"), "updated_at": now}},
+            upsert=True,
+        )
+    live = bool(getattr(settings, "ENABLE_POLICY_SCRAPING", False))
+    return {
+        "status": "Subscription recorded",
+        "jurisdictions": jurisdictions,
+        "live_feed_active": live,
+        "note": "The policy scraping agent is running and will apply updates."
+                if live else
+                "Saved. Updates will be applied once the policy scraping agent is enabled.",
+    }
 
 @social_router.get("/feed")
 async def get_social_feed(req: Request, payload: Dict = Depends(employee_role_required)):
@@ -2147,7 +2171,36 @@ async def auto_resolve_audit(req: Request, audit_id: str, data: RemediationReque
 
 @remediation_router.post("/apply-fix/{audit_id}")
 async def apply_remediation_fix(req: Request, audit_id: str, fixed_payload: Dict, payload: Dict = Depends(hrit_admin_role_required)):
-    return {"status": "Fix Applied", "audit_id": audit_id, "applied_by": payload['sub']}
+    """Record an accepted remediation against the audit entry.
+
+    This previously returned "Fix Applied" without writing anything anywhere.
+    The decision is now persisted and retrievable.
+    """
+    mongo_client = getattr(req.app.state, "mongo_client", None)
+    if not mongo_client:
+        raise HTTPException(status_code=503, detail="Remediation store unavailable.")
+    record = {
+        "audit_id": audit_id,
+        "fixed_payload": fixed_payload,
+        "applied_by": payload["sub"],
+        "applied_at": datetime.now(timezone.utc).isoformat(),
+        "status": "APPLIED",
+    }
+    await mongo_client[settings.MONGO_DB_NAME]["remediations"].update_one(
+        {"audit_id": audit_id}, {"$set": record}, upsert=True
+    )
+    return {"status": "Fix Applied", **record}
+
+@remediation_router.get("/history/{audit_id}")
+async def get_remediation_history(req: Request, audit_id: str, payload: Dict = Depends(hrit_admin_role_required)):
+    """Remediations recorded against an audit entry (empty when there are none)."""
+    mongo_client = getattr(req.app.state, "mongo_client", None)
+    if not mongo_client:
+        return []
+    cursor = mongo_client[settings.MONGO_DB_NAME]["remediations"].find(
+        {"audit_id": audit_id}, {"_id": 0}
+    ).sort("applied_at", -1).limit(50)
+    return await cursor.to_list(length=50)
 
 
 @telemetry_router.get("/metrics/live")
