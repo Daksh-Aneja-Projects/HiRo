@@ -143,8 +143,14 @@ def wf_expense_approval():
 def wf_timesheet_approval():
     """Employee submits a timesheet, it reaches the manager queue, approval sticks."""
     emp, mgr = login("employee"), login("manager")
-    pre = call("POST", "/hr/timesheets/pre-check", emp, {"hours": 45})
-    assert pre["status"] == "FAIL", "a 45h week should fail the 40h policy pre-check"
+    # The working-time rule blocks above 48h without an overtime agreement, and
+    # the pre-check must return the SAME verdict the submission path would.
+    pre = call("POST", "/hr/timesheets/pre-check", emp, {"hours": 60})
+    assert pre["status"] == "FAIL", f"a 60h week should fail the working-time rule: {pre}"
+    assert pre.get("audit_id"), "the pre-check did not go through the policy engine"
+
+    ok = call("POST", "/hr/timesheets/pre-check", emp, {"hours": 37})
+    assert ok["status"] == "PASS", f"a 37h week should pass: {ok}"
 
     created = call("POST", "/hr/timesheets", emp, {"total_hours": 37, "week_ending": "2026-09-25"})
     tid = created["timesheet_id"]
@@ -327,7 +333,7 @@ def main():
     check("employee -> manager leave approval round trip", wf_leave_approval)
     check("leave rejection records REJECTED", wf_leave_rejection)
     check("employee -> manager expense approval round trip", wf_expense_approval)
-    check("timesheet pre-check blocks 45h, approval round trip", wf_timesheet_approval)
+    check("timesheet policy check is real, approval round trip", wf_timesheet_approval)
     check("HRBP policy lifecycle draft -> activate -> ledger", wf_policy_lifecycle)
     check("HRBP reads decrypted compensation", wf_compensation)
     check("document ingestion persists a real job", wf_ingestion)

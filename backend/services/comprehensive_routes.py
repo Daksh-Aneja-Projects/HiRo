@@ -892,22 +892,57 @@ async def submit_timesheet(req: Request, data: Dict, payload: Dict=Depends(emplo
 
 @hr_router.post("/timesheets/pre-check")
 async def run_timesheet_pre_check(req: Request, data: Dict, payload: Dict=Depends(employee_role_required)):
-    """FIX: Added endpoint for running a compliance pre-check on a timesheet."""
-    hours = data.get("hours", 0)
-    is_overtime = hours > 40
-    
-    if is_overtime:
-        return {
-            "status": "FAIL", 
-            "messages": ["Violation: Exceeds 40h standard work week policy."],
-            "reason": "Overtime policy failure"
-        }
-    else:
-        return {
-            "status": "PASS", 
-            "messages": ["Compliance Check Passed: Within standard limit."],
-            "reason": "Success"
-        }
+    """Run the SAME policy engine that gates submission, without saving anything.
+
+    This used to be an inline `hours > 40` literal with invented policy prose, so
+    the pre-check could tell someone they were fine and submission could then
+    refuse them (or the reverse). A dry run must use the real decision path.
+    """
+    from services.agent_spec_dsl import TriggerType
+
+    try:
+        hours = float(data.get("hours", 0) or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="hours must be a number.")
+
+    employee_uuid = payload.get("employee_uuid")
+    jurisdiction = None
+    if employee_uuid:
+        try:
+            row = await pg_client.fetchrow(
+                "SELECT jurisdiction_code FROM employee_pii WHERE employee_uuid = $1", employee_uuid
+            )
+            jurisdiction = (row or {}).get("jurisdiction_code")
+        except Exception as e:
+            logger.warning(f"pre-check jurisdiction lookup failed: {e}")
+
+    context = {
+        "employee_id": employee_uuid,
+        "Proposed": {"Hours": hours, "SubmittedDate": datetime.now(timezone.utc).isoformat()},
+        "Policy_Context": {
+            "jurisdiction": jurisdiction,
+            "employment_type": data.get("employment_type", "FULL_TIME"),
+            "total_hours_this_week": hours,
+        },
+    }
+
+    try:
+        result = await runtime_enforcer(TriggerType.TIME_CLOCK_IN.value, context)
+    except Exception as e:
+        logger.error(f"Timesheet pre-check enforcement failed: {e}")
+        raise HTTPException(status_code=503, detail="The policy engine is unavailable, so this cannot be checked now.")
+
+    decision = (result.get("decision") or "").upper()
+    blocked = decision in ("DENY", "STOP", "BLOCK", "ERROR")
+    reason = result.get("reason") or ("Blocked by policy" if blocked else "Within policy")
+    return {
+        "status": "FAIL" if blocked else "PASS",
+        "decision": decision,
+        "messages": [reason],
+        "reason": reason,
+        "audit_id": result.get("audit_id"),
+        "jurisdiction": jurisdiction,
+    }
 
 @hr_router.get("/leave/balance")
 async def get_leave_balance(req: Request, payload: Dict=Depends(employee_role_required)):

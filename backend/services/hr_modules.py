@@ -221,7 +221,14 @@ class HRModulesService:
 
         decision = enforcer_result.get("decision", "ERROR").upper()
         
-        # 3. Handle Enforcement Result (BLOCK/ERROR path)
+        # 3. Handle the enforcement result.
+        #
+        # DENY is deliberately NOT a hard block here: a week over the working-time
+        # limit is a legitimate thing to record, it just cannot be self-approved.
+        # It is routed to manager review below with policy_status DENY, and the
+        # violation is still published. STOP/BLOCK/ERROR remain hard failures.
+        # (Leave requests differ: there DENY does block, because the balance
+        # simply is not available.)
         if decision in ["STOP", "BLOCK", "ERROR"]:
             await self.pub.publish_event(
                 topic=self.pub.TOPIC_POLICY_VIOLATION,
