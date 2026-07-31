@@ -39,6 +39,31 @@ if not hasattr(_pydantic.BaseModel, "model_validate"):
 logger = logging.getLogger(__name__)
 
 # --- Environment Loading (Standard Practice) ---
+# Local runs keep their config in backend/.env.local. Load it here so starting
+# uvicorn directly behaves the same as starting it through run_local.ps1; a
+# forgotten export otherwise silently falls back to the Docker hostnames and the
+# server dials a `postgres_db` that does not exist outside compose.
+# Real environment variables always win, so this is inert in any deployment.
+def _load_env_file() -> None:
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env.local")
+    if not os.path.exists(path):
+        return
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            # Overrides deliberately: server.py loads the committed `.env` (which
+            # carries the Docker hostnames) before this module is imported, so a
+            # setdefault here would always lose to it and the local run would dial
+            # `postgres_db`. `.env.local` is gitignored and absent in any real
+            # deployment, which makes this inert outside a developer machine.
+            os.environ[key.strip()] = value.strip()
+
+_load_env_file()
+
+
 def get_env_variable(key: str, default: Optional[str] = None) -> str:
     """Helper function to retrieve environment variables."""
     value = os.environ.get(key)
