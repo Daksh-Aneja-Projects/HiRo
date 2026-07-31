@@ -125,7 +125,20 @@ class MultiAgentHRSDSystem:
                 limit, offset,
             )
         tickets = [self._row_to_ticket(r).model_dump(mode="json") for r in rows]
-        return {"tickets": tickets, "count": len(tickets)}
+
+        # `count` used to be the size of this page, so a screen showing 50 rows
+        # out of 808 reported "50 cases" while the monitoring panel beside it
+        # reported 808. The caller needs both numbers to say which it is showing.
+        if employee_id:
+            total_row = await pg_client.fetchrow(
+                f"SELECT COUNT(*) AS n FROM {HRSD_DB_TABLE} WHERE metadata->>'employee_id' = $1",
+                employee_id)
+        else:
+            total_row = await pg_client.fetchrow(f"SELECT COUNT(*) AS n FROM {HRSD_DB_TABLE}")
+        total = int((total_row or {}).get("n") or 0)
+
+        return {"tickets": tickets, "count": len(tickets), "total": total,
+                "limit": limit, "offset": offset}
 
     async def get_overview(self, sla_hours: Optional[int] = None) -> Dict[str, Any]:
         """Real HRSD monitoring counts: active tickets, SLA breaches, by-status breakdown."""

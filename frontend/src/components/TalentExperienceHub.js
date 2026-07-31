@@ -110,9 +110,30 @@ const TalentExperienceHub = memo(() => {
                 setCurriculum(null);
                 toast({ title: 'The model could not build a curriculum', description: body.details || body.error, variant: 'destructive' });
             } else {
-                const plan = body.path || body.curriculum || body.modules || [];
-                setCurriculum(Array.isArray(plan) ? plan : []);
-                toast({ title: 'Curriculum ready', description: `Built a learning path toward ${role}.`, variant: 'success' });
+                // The backend returns {curriculum: {curriculum_name, modules: [...]}}.
+                // `body.curriculum` is an object, so this used to be truthy but
+                // not an array and every real module was discarded: a success
+                // toast fired while the panel below rendered "empty plan".
+                const plan = body.path
+                    || body.curriculum?.modules
+                    || body.modules
+                    || (Array.isArray(body.curriculum) ? body.curriculum : [])
+                    || [];
+                const modules = Array.isArray(plan) ? plan : [];
+                setCurriculum(modules);
+                if (modules.length) {
+                    toast({
+                        title: 'Curriculum ready',
+                        description: `${modules.length} module${modules.length === 1 ? '' : 's'} toward ${role}.`,
+                        variant: 'success',
+                    });
+                } else {
+                    toast({
+                        title: 'No curriculum came back',
+                        description: 'The model did not return any modules for that role. Try a more specific one.',
+                        variant: 'destructive',
+                    });
+                }
             }
         } catch (err) {
             toast({ title: 'Curriculum request failed', description: err.response?.data?.detail || err.message, variant: 'destructive' });

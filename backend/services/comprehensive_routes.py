@@ -371,7 +371,10 @@ async def list_tickets(req: Request, employee_id: Optional[str] = Query(None), l
     hrsd_system: MultiAgentHRSDSystem = getattr(req.app.state, "hrsd_system", None)
     if not hrsd_system:
         raise HTTPException(status_code=503, detail="HRSD system unavailable.")
-    return await hrsd_system.list_tickets(employee_id)
+    # limit and offset were accepted and then never forwarded, so the case list
+    # and both its charts covered the newest 50 of 808 while the monitoring
+    # panel on the same screen reported 605 open.
+    return await hrsd_system.list_tickets(employee_id, limit=limit, offset=offset)
 
 @hrsd_router.post("/tickets")
 async def create_ticket(req: Request, subject: str = Body(...), description: str = Body(...), employee_id: str = Body(...), payload: Dict=Depends(employee_role_required)):
@@ -587,9 +590,11 @@ async def get_admin_dashboard(req: Request, payload: Dict=Depends(hrit_admin_rol
         "integrity_score": round(compliance["score"] * 100, 1) if compliance else None,
         "integrity_available": compliance is not None,
         "active_pqc_keys": active_pqc_keys,
+        # This is host memory, and it used to be served under the alias
+        # cache_util_pct as well, which the admin console rendered as "Cache in
+        # use ... percent full". The alias is gone so it cannot be mislabelled
+        # again by anything reading this response.
         "memory_util_pct": memory_util_pct,
-        # Kept for existing callers; same value, correctly named above.
-        "cache_util_pct": memory_util_pct,
         "critical_alerts": compliance["high_severity_violations"] if compliance else None,
     }
 
@@ -988,7 +993,13 @@ async def get_comp(req: Request, employee_id: str, payload: Dict=Depends(manager
     return await hr_modules_service.get_employee_compensation(employee_id, payload['role'])
 
 @hr_router.post("/comp/update")
-async def update_comp(req: Request, data: CompensationUpdateRequest, payload: Dict=Depends(hrit_admin_role_required)):
+async def update_comp(req: Request, data: CompensationUpdateRequest, payload: Dict=Depends(policy_admin_role_required)):
+    """Record a pay change.
+
+    This required hrit_admin, but the Compensation Workbench ships under HR
+    Operations and only an HRBP ever opens it, so the save button returned 403
+    for every person who could reach it.
+    """
     hr_modules_service: HRModulesService = getattr(req.app.state, "hr_modules_service", None)
     if not hr_modules_service: raise HTTPException(status_code=503, detail="HR Modules Service unavailable.")
     return await hr_modules_service.update_compensation(
@@ -1207,8 +1218,15 @@ async def get_benefits(req: Request, payload: Dict=Depends(employee_role_require
     }
 
 @hr_router.post("/feedback")
-async def submit_feedback(req: Request, feedback: str = Body(..., embed=True), payload: Dict=Depends(employee_role_required)):
-    return await _hr(req).submit_feedback(_self_uuid(payload), feedback)
+async def submit_feedback(req: Request, feedback: str = Body(..., embed=True),
+                          about_employee_id: Optional[str] = Body(None, embed=True),
+                          payload: Dict=Depends(employee_role_required)):
+    """Leave feedback, either general or about a named colleague.
+
+    Without somewhere to say who the feedback is about, nothing could ever write
+    peer feedback, and the "feedback about you" panel was permanently empty.
+    """
+    return await _hr(req).submit_feedback(_self_uuid(payload), feedback, about_employee_id)
 
 @hr_router.get("/retention/preference")
 async def get_retention_preference(req: Request, payload: Dict=Depends(employee_role_required)):

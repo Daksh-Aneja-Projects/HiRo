@@ -368,12 +368,13 @@ const SystemModule = memo(() => {
             </div>
             <div style={{ gridColumn: 'span 3' }}>
                 <DataCard
-                    title="Cache in use"
-                    value={<CountUp value={dash?.cache_util_pct ?? 0} decimals={1} />}
+                    title="Memory in use"
+                    value={<CountUp value={dash?.memory_util_pct ?? 0} decimals={1} />}
                     unit="%"
                     color={tokens.color?.success}
                     icon={<Database size={16} />}
-                    footer={<LiveMeter pct={Number(dash?.cache_util_pct) || 0} color={tokens.color?.success} />}
+                    subtitle="On the machine running HiRo"
+                    footer={<LiveMeter pct={Number(dash?.memory_util_pct) || 0} color={tokens.color?.success} />}
                 />
             </div>
             <div style={{ gridColumn: 'span 3' }}>
@@ -443,7 +444,6 @@ const SystemModule = memo(() => {
                 <h3 style={ui.h3}>Cache maintenance</h3>
                 <p style={ui.hint}>
                     Emptying the cache forces every lookup back to the source of truth. Use it when people report stale figures.
-                    {dash?.cache_util_pct != null ? ` The cache is currently ${Number(dash.cache_util_pct).toFixed(1)} percent full.` : ''}
                 </p>
                 <div style={{ marginTop: tokens.spacing?.md }}>
                     <Btn tone="ghost" icon={Database} loading={clearing} onClick={handleClearCache}>{clearing ? 'Clearing the cache' : 'Empty the cache'}</Btn>

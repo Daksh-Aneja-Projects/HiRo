@@ -356,10 +356,14 @@ const CasesModule = memo(() => {
         isLoading: isTicketsLoading,
         error: ticketsError,
         refetch: refetchTickets,
-    } = useApi(getHRSDTickets, [], true, 60000);
+    } = useApi(getHRSDTickets, [{ limit: 200 }], true, 60000);
 
     // Backend returns { tickets: [...], count }; normalize to an array.
     const tickets = useMemo(() => toArray(ticketsResp), [ticketsResp]);
+    // How many cases exist, as opposed to how many are on this page. These read
+    // "38 open of 50 on the desk" while the monitoring panel directly above said
+    // 605 open of 808, because the page size was being reported as the total.
+    const ticketTotal = Number(ticketsResp?.total) || tickets.length;
     const open = useMemo(() => tickets.filter(isOpenCase), [tickets]);
 
     const [draft, setDraft] = useState({ subject: '', description: '', employee_id: '' });
@@ -460,12 +464,12 @@ const CasesModule = memo(() => {
                     </div>
 
                     <div style={{ marginTop: tokens.spacing?.lg }}>
-                        <DataCard title="Open cases by triage agent" isChart minHeight="260px">
+                        <DataCard title="Open cases by triage agent" subtitle={`Across the ${tickets.length.toLocaleString()} most recent cases`} isChart minHeight="260px">
                             <BarChartWidget data={byAgent} minHeight="200px" color={tokens.color?.['accent-primary']} />
                         </DataCard>
                     </div>
                     <div style={{ marginTop: tokens.spacing?.lg }}>
-                        <DataCard title="Open cases by urgency" isChart minHeight="260px">
+                        <DataCard title="Open cases by urgency" subtitle={`Across the ${tickets.length.toLocaleString()} most recent cases`} isChart minHeight="260px">
                             <BarChartWidget data={byPriority} minHeight="200px" color={tokens.color?.warning} />
                         </DataCard>
                     </div>
@@ -475,7 +479,8 @@ const CasesModule = memo(() => {
                     <div style={{ ...ps.row, justifyContent: 'space-between' }}>
                         <h3 style={ps.sectionTitle}><ClipboardCheck size={16} color={tokens.color?.success} /> Cases still open</h3>
                         <span style={{ fontSize: 12.5, color: tokens.color?.['muted-600'] }}>
-                            {open.length.toLocaleString()} open of {tickets.length.toLocaleString()} on the desk
+                            {open.length.toLocaleString()} open in the {tickets.length.toLocaleString()} most recent
+                            {ticketTotal > tickets.length ? ` of ${ticketTotal.toLocaleString()} cases` : ' cases'}
                         </span>
                     </div>
 

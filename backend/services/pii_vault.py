@@ -33,6 +33,22 @@ class PIIVault:
         if not PIIVault._instance: PIIVault._instance = PIIVault()
         return PIIVault._instance
 
+    def encrypt(self, plaintext: str, data_context: str = "default"):
+        """Encrypt a value for storage in one of the *_encrypted columns.
+
+        The vault only ever exposed a read path, so update_compensation called
+        self.vault.encrypt(...) and raised AttributeError before it touched the
+        database. Every pay change in the product failed at the first line, and
+        comp_history never held a row.
+
+        Returns (ciphertext, metadata) to match the crypto layer it delegates to.
+        """
+        return self.pqc.encrypt(plaintext, data_context=data_context)
+
+    def decrypt(self, ciphertext: str, data_context: str = "default") -> str:
+        """Read a single value back out of an encrypted column."""
+        return self.pqc.decrypt(ciphertext, data_context=data_context)
+
     # CRITICAL FIX: Clarify the `auth` argument is optional, as calling functions often only pass agent_id string.
     async def execute_pii_query(self, query: str, table_name: str, agent_id: str, auth: Optional[Union[AuthPayload, Dict[str, Any]]] = None, *args) -> List[Dict]:
         """

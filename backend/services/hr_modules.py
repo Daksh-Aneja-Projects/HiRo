@@ -17,6 +17,16 @@ from config.settings import settings
 from services.pii_vault_core_logic_conceptual import POLICY_ESS_PURPOSE # CRITICAL: Import PII purpose constant
 
 logger = logging.getLogger(__name__)
+
+def _as_date(value):
+    """Coerce an ISO date string to a date object for asyncpg DATE columns."""
+    if isinstance(value, str):
+        return datetime.strptime(value[:10], "%Y-%m-%d").date()
+    if isinstance(value, datetime):
+        return value.date()
+    return value
+
+
 TIMESHEET_COLLECTION = "timesheets"
 
 class HRModulesService:
@@ -309,7 +319,13 @@ class HRModulesService:
                 INSERT INTO comp_history (employee_uuid, new_salary, new_grade, effective_date, updated_by, updated_at)
                 VALUES ($1, $2, $3, $4, $5, $6)
             """
-            await pg_client.execute(insert_history_query, employee_id, new_salary, new_grade, effective_date, updated_by, datetime.now(timezone.utc).isoformat())
+            # effective_date is a DATE column and needs a real date object, while
+            # updated_at is TEXT and needs the string. Getting either wrong raised
+            # DataError, which is why comp_history had never held a single row.
+            await pg_client.execute(
+                insert_history_query, employee_id, new_salary, new_grade,
+                _as_date(effective_date), updated_by,
+                datetime.now(timezone.utc).isoformat())
 
         # 4. Publish NATS event
         await self.pub.publish_event(
@@ -586,15 +602,26 @@ class HRModulesService:
         )
         return {"status": "SAVED", "preference": preference}
 
-    async def submit_feedback(self, employee_id: str, feedback: str) -> Dict[str, Any]:
+    async def submit_feedback(self, employee_id: str, feedback: str,
+                              about_employee_id: Optional[str] = None) -> Dict[str, Any]:
+        """Record feedback, either general or about a named colleague.
+
+        Feedback was only ever written to employee_feedback while the "feedback
+        about you" panel read peer_feedback, a collection nothing in the codebase
+        writes. The panel told people "when colleagues submit feedback about your
+        work it appears here" and it never could.
+        """
         doc = {
             "feedback_id": f"FB-{uuid.uuid4().hex[:8].upper()}",
-            "employee_uuid": employee_id,
+            "employee_uuid": about_employee_id or employee_id,
+            "author_uuid": employee_id,
             "feedback": feedback,
             "submitted_at": datetime.now(timezone.utc).isoformat(),
         }
-        await self.general_feedback.insert_one(dict(doc))
-        return {"status": "SUBMITTED", "feedback_id": doc["feedback_id"]}
+        collection = self.peer_feedback if about_employee_id else self.general_feedback
+        await collection.insert_one(dict(doc))
+        return {"status": "SUBMITTED", "feedback_id": doc["feedback_id"],
+                "about": doc["employee_uuid"]}
 
     async def get_peer_feedback(self, employee_id: str) -> list:
         cursor = self.peer_feedback.find({"employee_uuid": employee_id}, {"_id": 0}).sort("submitted_at", -1).limit(50)

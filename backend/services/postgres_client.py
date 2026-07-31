@@ -6,6 +6,7 @@ import asyncio
 import json
 from typing import Optional, Dict, Any, List, Tuple, Union
 from contextlib import asynccontextmanager
+from contextvars import ContextVar
 
 try:
     import asyncpg
@@ -61,6 +62,30 @@ class PostgresClient:
             logger.critical(f"❌ Failed to connect to Postgres: {e}")
             raise
 
+    # The connection belonging to the transaction this task is inside, if any.
+    #
+    # transaction() yields a dedicated connection, but most callers wrote
+    # `async with pg_client.transaction(...)` without binding it and then used
+    # pg_client.execute(), which acquired a *different* pooled connection. Those
+    # statements ran outside the transaction entirely: a compensation change
+    # committed to employee_pii while its comp_history row rolled back, leaving
+    # a pay rise with no audit record. Routing every call through the active
+    # connection fixes that here rather than at each of the call sites, and
+    # means new code cannot make the same mistake.
+    _active_conn: ContextVar = ContextVar("pg_active_conn", default=None)
+
+    @asynccontextmanager
+    async def _conn(self):
+        """The transaction's connection when inside one, otherwise a pooled one."""
+        existing = PostgresClient._active_conn.get()
+        if existing is not None:
+            yield existing
+            return
+        if not self.pool:
+            await self.connect()
+        async with self.pool.acquire() as conn:
+            yield conn
+
     async def close(self):
         """Closes the pool."""
         if self.pool and self.is_connected:
@@ -73,7 +98,7 @@ class PostgresClient:
         if not self.pool:
             await self.connect() 
             
-        async with self.pool.acquire() as conn:
+        async with self._conn() as conn:
             try:
                 records = await conn.fetch(query, *args)
                 return [dict(r) for r in records]
@@ -87,7 +112,7 @@ class PostgresClient:
         if not self.pool:
             await self.connect()
             
-        async with self.pool.acquire() as conn:
+        async with self._conn() as conn:
             try:
                 record = await conn.fetchrow(query, *args)
                 return dict(record) if record else None
@@ -100,7 +125,7 @@ class PostgresClient:
         if not self.pool:
             await self.connect()
             
-        async with self.pool.acquire() as conn:
+        async with self._conn() as conn:
             try:
                 return await conn.execute(query, *args)
             except Exception as e:
@@ -117,7 +142,7 @@ class PostgresClient:
         if not self.pool:
             await self.connect()
 
-        async with self.pool.acquire() as conn:
+        async with self._conn() as conn:
             try:
                 # Use conn.executemany for efficiency
                 await conn.executemany(query, args_list)
@@ -135,12 +160,15 @@ class PostgresClient:
             
         async with self.pool.acquire() as conn:
             async with conn.transaction():
+                token = PostgresClient._active_conn.set(conn)
                 try:
                     yield conn
                 except Exception as e:
                     # CRITICAL FIX: Log the rollback for security/audit purposes
                     logger.error(f"TRANSACTION ROLLBACK ({requesting_agent_id}/{purpose}): {type(e).__name__}: {e}")
                     raise
+                finally:
+                    PostgresClient._active_conn.reset(token)
 
 # Global instance
 pg_client = PostgresClient()

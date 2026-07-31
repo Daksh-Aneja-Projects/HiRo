@@ -62,7 +62,7 @@ def test_admin_dashboard_maps_real_signals(monkeypatch):
     assert out["integrity_score"] == 82.0
     assert out["active_pqc_keys"] == 1
     assert out["critical_alerts"] == 4
-    assert out["cache_util_pct"] != None   # psutil value or "N/A", never crashes
+    assert out["memory_util_pct"] != None  # psutil value or "N/A", never crashes
 
 
 _TESTS = [test_workforce_analytics_math, test_financial_impact_estimate, test_admin_dashboard_maps_real_signals]

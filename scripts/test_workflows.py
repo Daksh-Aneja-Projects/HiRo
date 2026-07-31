@@ -267,6 +267,62 @@ def wf_leave_balance_is_drawn_down():
                                                 "comments": "end of the workflow test"})
 
 
+def wf_compensation_change_is_recorded():
+    """A pay change updates the record and leaves an audit row.
+
+    Every part of this was broken: the endpoint required hrit_admin while the
+    Compensation Workbench only ever opens for an HRBP, the vault had no encrypt
+    method so the call raised before touching the database, and the history
+    insert passed a string into a date column. comp_history held zero rows.
+    """
+    hr = login("hrbp")
+    before = call("GET", "/hr/comp/EMP-005", hr)
+    target = round(float(before["base_salary"]) + 1000, 2)
+
+    result = call("POST", "/hr/comp/update", hr, {
+        "employee_id": "EMP-005", "new_salary": target, "new_grade": "L6",
+        "effective_date": "2027-04-01", "updated_by": "hrbp"})
+    assert result["status"] == "SUCCESS", f"the pay change was refused: {result}"
+
+    after = call("GET", "/hr/comp/EMP-005", hr)
+    assert abs(float(after["base_salary"]) - target) < 0.01,         f"the record still shows {after['base_salary']}, expected {target}"
+
+    # An employee must not be able to read, or set, anyone's pay.
+    emp = login("employee")
+    call("GET", "/hr/comp/EMP-001", emp, expect=403)
+    call("POST", "/hr/comp/update", emp, {
+        "employee_id": "EMP-005", "new_salary": 999999, "new_grade": "X",
+        "effective_date": "2027-04-01", "updated_by": "employee"}, expect=403)
+
+
+def wf_feedback_about_a_colleague():
+    """Feedback left about someone reaches them.
+
+    Submissions were written to one collection and the "feedback about you"
+    panel read another that nothing in the codebase ever wrote, so the panel
+    told people their colleagues' feedback would appear there and it never could.
+    """
+    hr, emp = login("hrbp"), login("employee")
+    note = "Kept the payroll escalation calm and clear."
+    call("POST", "/hr/feedback", hr, {"feedback": note, "about_employee_id": "EMP-005"})
+
+    received = call("GET", "/hr/feedback/peer/EMP-005", emp)
+    assert isinstance(received, list) and any(f.get("feedback") == note for f in received),         f"feedback left about this person did not reach them: {received}"
+
+
+def wf_case_counts_are_honest():
+    """The case list says how many cases exist, not just how many it loaded."""
+    admin = login("hritmanager")
+    page = call("GET", "/hrsd/tickets?limit=25", admin)
+    assert page["count"] <= 25, f"limit was ignored: {page['count']} rows"
+    assert page["total"] >= page["count"], "total is smaller than the page it returned"
+
+    overview = call("GET", "/hrsd/monitoring/overview", admin)
+    assert page["total"] == overview["total_tickets"], (
+        f"the case list reports {page['total']} cases while the monitoring panel "
+        f"on the same screen reports {overview['total_tickets']}")
+
+
 def wf_policy_lifecycle():
     """HRBP drafts, submits, approves, activates and attests a policy."""
     hrbp = login("hrbp")
@@ -441,6 +497,9 @@ def main():
     check("timesheet policy check is real, approval round trip", wf_timesheet_approval)
     check("leave, timesheets and expenses all reach the manager queue", wf_unified_approval_queue)
     check("approved leave is drawn off the balance, once", wf_leave_balance_is_drawn_down)
+    check("a pay change is applied and recorded", wf_compensation_change_is_recorded)
+    check("feedback about a colleague reaches them", wf_feedback_about_a_colleague)
+    check("case counts match across the screen", wf_case_counts_are_honest)
     check("HRBP policy lifecycle draft -> activate -> ledger", wf_policy_lifecycle)
     check("HRBP reads decrypted compensation", wf_compensation)
     check("document ingestion persists a real job", wf_ingestion)

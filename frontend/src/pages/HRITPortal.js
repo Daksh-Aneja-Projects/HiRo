@@ -134,9 +134,11 @@ const DECISION_COPY = {
 
 const GovernanceModule = memo(() => {
     const { data: hrsd, isLoading: hrsdLoading, error: hrsdError } = useApi(getServiceNowHealth, [], true, 60000);
-    const { data: provider } = useApi(getActiveAIProvider, [], true);
-    const model = provider?.default_model || '';
-    const { data: audit, isLoading: auditLoading, error: auditError } = useApi(getModelAuditLog, [model, 40], Boolean(model));
+    // This panel shows the decisions the policy engine made. It used to pass the
+    // language model's name into an endpoint whose path segment is a decision
+    // trigger, so it asked for decisions of type "llama3.1:8b" and the log was
+    // permanently empty while 266 decisions sat in the table.
+    const { data: audit, isLoading: auditLoading, error: auditError } = useApi(getModelAuditLog, ['all', 40], true);
 
     const lifecycle = useMemo(
         () => objToSeries(hrsd?.tickets_by_status).map((s) => ({
@@ -145,7 +147,12 @@ const GovernanceModule = memo(() => {
         })),
         [hrsd],
     );
-    const rows = useMemo(() => (Array.isArray(audit) ? audit : []), [audit]);
+    // The response is {decisions: [...]}, so array-checking the envelope left
+    // this empty even once the parameter above was right.
+    const rows = useMemo(
+        () => (Array.isArray(audit?.decisions) ? audit.decisions : Array.isArray(audit) ? audit : []),
+        [audit],
+    );
     const decisions = useMemo(() => countBy(rows, (r) => (String(r.decision).toUpperCase().startsWith('APPROV') ? 'Allowed' : 'Blocked')), [rows]);
     const autoResolved = Number(hrsd?.tickets_by_status?.RESOLVED_BY_AGENT) || 0;
     const agentOnline = String(hrsd?.agent_status || '').toLowerCase() === 'online';
