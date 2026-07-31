@@ -476,28 +476,35 @@ async def rlff_command(req: Request, command: str = Body(..., embed=True), paylo
 
 @admin_router.get("/dashboard")
 async def get_admin_dashboard(req: Request, payload: Dict=Depends(hrit_admin_role_required)):
-    """Real system + governance health for the admin portal cards
-    (integrity_score, active_pqc_keys, cache_util_pct, critical_alerts)."""
+    """Real system + governance health for the admin console."""
     from services.enforcement_engine import get_compliance_overview
+
+    # If the compliance aggregate fails we must NOT report a perfect score:
+    # this previously fell back to 1.0 and rendered "100.0 integrity" on failure.
+    compliance = None
     try:
         compliance = await get_compliance_overview()
     except Exception as e:
         logger.warning(f"Admin dashboard: compliance aggregate failed: {e}")
-        compliance = {"score": 1.0, "high_severity_violations": 0}
 
     pqc = getattr(req.app.state, "pqc_wrapper", None)
     active_pqc_keys = 1 if pqc and getattr(pqc, "master_key_bytes", None) else 0
 
     try:
-        cache_util_pct = round(psutil.virtual_memory().percent, 1)
+        # Host memory utilisation. This was previously labelled "cache
+        # utilisation", which it never was.
+        memory_util_pct = round(psutil.virtual_memory().percent, 1)
     except Exception:
-        cache_util_pct = "N/A"
+        memory_util_pct = None
 
     return {
-        "integrity_score": round(compliance["score"] * 100, 1),
+        "integrity_score": round(compliance["score"] * 100, 1) if compliance else None,
+        "integrity_available": compliance is not None,
         "active_pqc_keys": active_pqc_keys,
-        "cache_util_pct": cache_util_pct,
-        "critical_alerts": compliance["high_severity_violations"],
+        "memory_util_pct": memory_util_pct,
+        # Kept for existing callers; same value, correctly named above.
+        "cache_util_pct": memory_util_pct,
+        "critical_alerts": compliance["high_severity_violations"] if compliance else None,
     }
 
 def _require_admin_service(req: Request) -> AdminService:
@@ -860,9 +867,11 @@ async def get_team_performance(req: Request, month: Optional[str] = Query(None),
 
 @hr_router.get("/performance/{employee_id}")
 async def get_perf(req: Request, employee_id: str, payload: Dict=Depends(manager_role_required)):
+    """A line manager sees their own reports; HR roles see anyone."""
     hr_modules_service: HRModulesService = getattr(req.app.state, "hr_modules_service", None)
     if not hr_modules_service: raise HTTPException(status_code=503, detail="HR Modules Service unavailable.")
-    return await hr_modules_service.get_employee_performance(employee_id, payload['role'])
+    scoped = await _scoped_employee_id(payload, employee_id)
+    return await hr_modules_service.get_employee_performance(scoped, payload['role'])
 
 @hr_router.get("/timesheets")
 async def get_timesheets(req: Request, limit: int = Query(50), offset: int = Query(0), payload: Dict=Depends(employee_role_required)):
@@ -945,11 +954,11 @@ async def submit_review(req: Request, data: Dict, payload: Dict=Depends(manager_
 
 @hr_router.get("/career/path/{employee_id}")
 async def get_career_path(req: Request, employee_id: str, payload: Dict=Depends(employee_role_required)):
-    return await _hr(req).get_career_path(_scoped_employee_id(payload, employee_id))
+    return await _hr(req).get_career_path(await _scoped_employee_id(payload, employee_id))
 
 @hr_router.get("/feedback/peer/{employee_id}")
 async def get_peer_feedback(req: Request, employee_id: str, payload: Dict=Depends(employee_role_required)):
-    return await _hr(req).get_peer_feedback(_scoped_employee_id(payload, employee_id))
+    return await _hr(req).get_peer_feedback(await _scoped_employee_id(payload, employee_id))
 
 @hr_router.get("/profile/skills")
 async def get_skills(req: Request, payload: Dict=Depends(employee_role_required)):
@@ -1004,10 +1013,12 @@ async def submit_expense(req: Request, expense_data: str = Form(...), receipt: O
 
 @hr_router.get("/expenses")
 async def list_expenses(req: Request, status: Optional[str] = Query(None), limit: int = Query(100), payload: Dict=Depends(employee_role_required)):
-    """Employees see their own claims; manager+ see everyone's for approval."""
+    """Employees see their own claims; a manager sees their direct reports';
+    HR roles see everyone's."""
     role = (payload.get("role") or "").lower()
     employee_id = _self_uuid(payload) if role == "employee" else None
-    return await _hr(req).get_expenses(employee_id, status=status, limit=limit)
+    team_of = payload.get("employee_uuid") if role == "manager" else None
+    return await _hr(req).get_expenses(employee_id, status=status, limit=limit, team_of=team_of)
 
 @hr_router.post("/expenses/{expense_id}/decision")
 async def decide_expense(req: Request, expense_id: str, approved: bool = Body(...), comments: str = Body(""), payload: Dict=Depends(manager_role_required)):
@@ -1016,8 +1027,14 @@ async def decide_expense(req: Request, expense_id: str, approved: bool = Body(..
 
 @hr_router.get("/timesheets/pending")
 async def list_pending_timesheets(req: Request, limit: int = Query(100), payload: Dict=Depends(manager_role_required)):
-    """Timesheets awaiting a decision. The approvals queue previously covered leave only."""
-    return await _hr(req).get_timesheets_for_approval(limit=limit)
+    """Timesheets awaiting a decision, scoped to the caller's own team.
+
+    A line manager should not see, let alone approve, the whole company's
+    timesheets. HR roles still see everything.
+    """
+    role = (payload.get("role") or "").lower()
+    team_of = payload.get("employee_uuid") if role == "manager" else None
+    return await _hr(req).get_timesheets_for_approval(limit=limit, team_of=team_of)
 
 @hr_router.post("/timesheets/{timesheet_id}/decision")
 async def decide_timesheet(req: Request, timesheet_id: str, approved: bool = Body(...), comments: str = Body(""), payload: Dict=Depends(manager_role_required)):
@@ -1071,26 +1088,51 @@ async def scan_expense_receipt(req: Request, file: UploadFile = File(...), paylo
 async def submit_offboarding_knowledge(req: Request, data: Dict, payload: Dict=Depends(employee_role_required)):
     return await _hr(req).submit_offboarding_knowledge(_self_uuid(payload), data)
 
-def _scoped_employee_id(payload: Dict, requested: str) -> str:
-    """Employees may only ever act on their own record.
+async def _reports_to(employee_id: str, manager_uuid: Optional[str]) -> bool:
+    """True when employee_id is a direct report of manager_uuid."""
+    if not manager_uuid:
+        return False
+    try:
+        row = await pg_client.fetchrow(
+            "SELECT 1 AS ok FROM employee_pii WHERE employee_uuid = $1 AND manager_id = $2",
+            employee_id, manager_uuid,
+        )
+    except Exception as e:
+        logger.error(f"reporting-line check failed: {e}")
+        raise HTTPException(status_code=500, detail="Could not verify the reporting line.")
+    return bool(row)
 
-    Without this an `employee` token could read or modify any colleague's
-    PII by putting their id in the path. Manager+ may target anyone.
+async def _scoped_employee_id(payload: Dict, requested: str) -> str:
+    """Restrict a personnel lookup to what the caller is entitled to see.
+
+    - employee: only their own record.
+    - manager:  themselves and their direct reports. A line manager has no
+                business reading an arbitrary colleague's record, and this used
+                to let them read anyone in the organisation.
+    - hrbp / hrit_admin: anyone, since HR administers the whole population.
     """
-    if (payload.get("role") or "").lower() == "employee":
+    role = (payload.get("role") or "").lower()
+    own = payload.get("employee_uuid")
+
+    if role == "employee":
         own = _self_uuid(payload)
         if requested and requested != own:
             raise HTTPException(status_code=403, detail="You can only access your own record.")
         return own
+
+    if role == "manager" and requested and requested != own:
+        if not await _reports_to(requested, own):
+            raise HTTPException(status_code=403, detail="You can only access your own direct reports.")
+
     return requested
 
 @hr_router.get("/profile/{employee_id}")
 async def get_employee_profile(req: Request, employee_id: str, payload: Dict=Depends(employee_role_required)):
-    return await _hr(req).get_employee_profile(_scoped_employee_id(payload, employee_id))
+    return await _hr(req).get_employee_profile(await _scoped_employee_id(payload, employee_id))
 
 @hr_router.put("/profile/{employee_id}")
 async def update_employee_profile(req: Request, employee_id: str, data: Dict, payload: Dict=Depends(employee_role_required)):
-    return await _hr(req).update_employee_profile(_scoped_employee_id(payload, employee_id), data)
+    return await _hr(req).update_employee_profile(await _scoped_employee_id(payload, employee_id), data)
 
 @hr_router.get("/payslips/download/{file_key}")
 async def download_payslip(req: Request, file_key: str, payload: Dict=Depends(employee_role_required)):
@@ -1350,7 +1392,7 @@ async def predict_attrition(req: Request, employee_data: Dict = Body(...), paylo
     if not wfm_service: raise HTTPException(status_code=503, detail="WFM Service unavailable.")
     
     if not employee_data:
-        return {'risk_score': 0.10, 'risk_level': 'LOW', 'recommendation': 'No immediate risk detected.'}
+        raise HTTPException(status_code=400, detail="Provide an employee_id (or a feature set) to score.")
 
     return await wfm_service.predict_attrition_risk(employee_data)
 
@@ -1727,6 +1769,23 @@ async def _workforce_analytics(req: Request, department: Optional[str] = None) -
         raise HTTPException(status_code=503, detail="WFM Service unavailable.")
     projection = await wfm.get_current_projections(department=department)
     cs = projection.get("current_state", {})
+    headcount = int(cs.get("total_employees", 0) or 0)
+
+    # An empty selection is "no data", not a perfectly healthy workforce. This
+    # previously computed (1 - 0) and reported 100% retention, 0 risk.
+    if headcount == 0:
+        return {
+            "key_metric": "No data",
+            "retention": "No data",
+            "attrition_risk": "No data",
+            "attrition_band": None,
+            "average_performance": "No data",
+            "ml_score": "No data",
+            "headcount": 0,
+            "scope": projection.get("scope", "All departments"),
+            "has_data": False,
+        }
+
     risk = float(cs.get("overall_risk_score", 0.0) or 0.0)
     perf = float(cs.get("average_performance_score", 0.0) or 0.0)
     composite = ((1 - risk) * 0.5 + (perf / 5.0) * 0.5) * 100
@@ -1739,8 +1798,9 @@ async def _workforce_analytics(req: Request, department: Optional[str] = None) -
         "attrition_band": band,
         "average_performance": f"{round(perf, 2)}/5",
         "ml_score": f"{round((perf / 5.0) * 100, 1)}%",
-        "headcount": int(cs.get("total_employees", 0)),
+        "headcount": headcount,
         "scope": projection.get("scope", "All departments"),
+        "has_data": True,
     }
 
 @analytics_router.get("/departments")
@@ -1756,7 +1816,9 @@ async def get_advanced_analytics(req: Request, metric_type: Optional[str] = Quer
     """Real composite workforce-health analytics, scopeable by department."""
     dept = None if department in (None, "", "All", "All departments") else department
     a = await _workforce_analytics(req, department=dept)
-    return {"metric": "Composite Workforce Health", "value": a["key_metric"], "trend": "up", **a}
+    # No hardcoded "up": report the direction the risk band actually implies.
+    trend = "down" if a.get("attrition_band") == "High" else "steady" if a.get("attrition_band") == "Medium" else "up"
+    return {"metric": "Composite Workforce Health", "value": a["key_metric"], "trend": trend, **a}
 
 @analytics_router.get("/charts")
 async def get_analytics_charts(req: Request, payload: Dict=Depends(manager_role_required)):

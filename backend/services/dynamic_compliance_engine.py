@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 REGULATORY_FEED_URL = settings.REGULATORY_FEED_URL if hasattr(settings, 'REGULATORY_FEED_URL') else "http://mock-regulatory-service:8080/feed"
 REQUEST_TIMEOUT_SECONDS = settings.EXTERNAL_API_TIMEOUT_SECONDS if hasattr(settings, 'EXTERNAL_API_TIMEOUT_SECONDS') else 30.0
 DEFAULT_GLOBAL_SCORE = settings.DEFAULT_GLOBAL_SCORE if hasattr(settings, 'DEFAULT_GLOBAL_SCORE') else 88
-MOCK_BASE_ALERTS = settings.MOCK_BASE_ALERTS if hasattr(settings, 'MOCK_BASE_ALERTS') else 15
+# No synthetic baseline: the alert total is what is actually pending.
 
 class RegulatoryDomain(str, Enum):
     LABOR_LAW = "labor_law"
@@ -196,7 +196,7 @@ class DynamicComplianceEngine:
                 severity_counts[impact_value] = severity_counts.get(impact_value, 0) + 1
                 monitored_jurisdictions.add(c.jurisdiction)
                 
-        total_alerts = MOCK_BASE_ALERTS + pending_count
+        total_alerts = pending_count
         
         return {
             "global_score": DEFAULT_GLOBAL_SCORE,

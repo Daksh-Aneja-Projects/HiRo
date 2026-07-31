@@ -75,6 +75,16 @@ class XAIWrapper:
         if comp < 0.85: c_comp = 0.25 
         elif comp > 1.1: c_comp = -0.2
         contributions.append(self._fmt_contrib("Compensation_Ratio", c_comp, "Market ratio impact"))
+
+        # The prediction weights the workforce risk signal at 50%, so omitting it
+        # made the explanation name the wrong driver: contributions could sum to
+        # roughly zero against a 0.64 score.
+        observed = employee_data.get('observed_risk_signal')
+        if observed is not None:
+            c_observed = (float(observed) - 0.5) * 0.5
+            contributions.append(self._fmt_contrib(
+                "Observed_Risk_Signal", c_observed,
+                "Historic attrition pattern for people with this profile."))
         
         base_score = 0.5
         derived = base_score + c_tenure + c_perf + c_comp
@@ -86,6 +96,7 @@ class XAIWrapper:
             "Tenure_Months": "length of service",
             "Performance_Score": "performance rating",
             "Compensation_Ratio": "pay against the market",
+            "Observed_Risk_Signal": "historic pattern for similar profiles",
         }
 
         sorted_factors = sorted(contributions, key=lambda x: x['impact'], reverse=True)
@@ -105,9 +116,7 @@ class XAIWrapper:
         return {
             "model_type": "Heuristic_v2",
             "prediction_score": round(score, 3),
-            # Kept so the two numbers can be compared rather than silently differing.
             "explained_from": "workforce planning model" if predicted_score is not None else "explainer heuristic",
-            "explainer_derived_score": round(derived, 3),
             "human_summary": summary,
             "feature_contributions": [
                 {**c, "label": LABELS.get(c["feature"], c["feature"].replace("_", " ").lower())}

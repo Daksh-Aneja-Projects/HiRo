@@ -405,11 +405,19 @@ class HRModulesService:
             raise HTTPException(status_code=404, detail="Document not found.")
         return {"status": "DELETED", "document_id": document_id}
 
-    async def get_expenses(self, employee_id: Optional[str] = None, status: Optional[str] = None, limit: int = 100) -> list:
-        """Expense claims. Scoped to one employee, or across everyone for approvers."""
+    async def get_expenses(self, employee_id: Optional[str] = None, status: Optional[str] = None,
+                           limit: int = 100, team_of: Optional[str] = None) -> list:
+        """Expense claims.
+
+        `employee_id` scopes to one person; `team_of` scopes to a manager's own
+        direct reports. Without the latter, every manager could see and approve
+        the whole organisation's claims.
+        """
         q: Dict[str, Any] = {}
         if employee_id:
             q["employee_uuid"] = employee_id
+        elif team_of:
+            q["employee_uuid"] = {"$in": await self._direct_report_ids(team_of)}
         if status:
             q["status"] = status.upper()
         lim = max(1, min(int(limit or 100), 500))
@@ -432,10 +440,29 @@ class HRModulesService:
             raise HTTPException(status_code=404, detail="Expense claim not found.")
         return {"status": status, "expense_id": expense_id}
 
-    async def get_timesheets_for_approval(self, status: str = "SUBMITTED", limit: int = 100) -> list:
-        """Timesheets awaiting a manager decision (the approvals queue was leave-only)."""
+    async def _direct_report_ids(self, manager_uuid: str) -> list:
+        """The employee ids reporting to this manager."""
+        try:
+            rows = await pg_client.fetch(
+                "SELECT employee_uuid FROM employee_pii WHERE manager_id = $1", manager_uuid
+            )
+        except Exception as e:
+            logger.warning(f"direct-report lookup failed for {manager_uuid}: {e}")
+            return []
+        return [r["employee_uuid"] for r in rows]
+
+    async def get_timesheets_for_approval(self, status: str = "SUBMITTED", limit: int = 100,
+                                          team_of: Optional[str] = None) -> list:
+        """Timesheets awaiting a decision, scoped to a manager's direct reports.
+
+        Without `team_of` this listed every submitted timesheet in the company to
+        any manager, who could then approve it.
+        """
         lim = max(1, min(int(limit or 100), 500))
-        cursor = self.timesheets.find({"status": status.upper()}, {"_id": 0}).sort("submitted_at", -1).limit(lim)
+        query: Dict[str, Any] = {"status": status.upper()}
+        if team_of:
+            query["user_id"] = {"$in": await self._direct_report_ids(team_of)}
+        cursor = self.timesheets.find(query, {"_id": 0}).sort("submitted_at", -1).limit(lim)
         rows = await cursor.to_list(length=lim)
         return [
             {

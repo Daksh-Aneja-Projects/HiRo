@@ -270,6 +270,43 @@ def wf_analytics_filter_works():
     assert scoped["scope"] == departments[0]
 
 
+def wf_simulation_noop_is_zero():
+    """A simulation with no adjustments must report no change.
+
+    Regression guard: the engine used to blend an ORG-LEVEL score into the
+    employee's, so changing nothing reported a 24-point risk drop for people
+    above the org mean and a rise for those below it.
+    """
+    mgr = login("manager")
+    for emp in ("EMP-005", "EMP-006"):
+        res = call("POST", "/simulation/run", mgr,
+                   {"employee_id": emp, "synthetic_adjustments": {}, "simulation_type": "what_if"})
+        m = res["metrics"]
+        assert m["risk_score_delta"] == 0, f"{emp}: no-op reported {m['risk_score_delta']}"
+        assert m["attrition_probability_change"] == 0, f"{emp}: attrition moved on a no-op"
+
+    # A real lever must move risk, cost and productivity together.
+    res = call("POST", "/simulation/run", mgr,
+               {"employee_id": "EMP-005", "synthetic_adjustments": {"salary_increase_pct": 20},
+                "simulation_type": "what_if"})
+    m = res["metrics"]
+    assert m["risk_score_delta"] < 0, "a pay rise should reduce risk"
+    assert m["risk_score_delta"] == m["attrition_probability_change"], "one quantity, two numbers"
+    assert m["cost_implication"] > 0, "a 20% pay rise cannot cost nothing"
+
+
+def wf_manager_scope():
+    """A line manager sees their own reports and nobody else's."""
+    mgr = login("manager")            # EMP-004; reports are EMP-005 and EMP-006
+    for path in ("/hr/performance/{}", "/hr/profile/{}", "/hr/career/path/{}"):
+        call("GET", path.format("EMP-005"), mgr)                  # own report: allowed
+        call("GET", path.format("EMP-001"), mgr, expect=403)      # not a report: denied
+    # HR administers everyone and must keep full access.
+    hrbp = login("hrbp")
+    call("GET", "/hr/profile/EMP-001", hrbp)
+    call("GET", "/hr/performance/EMP-001", hrbp)
+
+
 def wf_consent_is_recorded():
     """A privacy control must not report success while storing the opposite."""
     emp = login("employee")
@@ -301,6 +338,8 @@ def main():
     check("attrition scoring and simulation are real", wf_simulation_is_real)
     check("prediction and explanation agree", wf_models_agree)
     check("analytics department filter really filters", wf_analytics_filter_works)
+    check("a no-op simulation reports no change", wf_simulation_noop_is_zero)
+    check("managers are scoped to their own reports", wf_manager_scope)
     check("consent is recorded as chosen", wf_consent_is_recorded)
 
     print()

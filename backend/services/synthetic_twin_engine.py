@@ -64,22 +64,21 @@ class SyntheticTwinEngine:
                 "attrition_probability": synthetic_state["attrition_probability"] * 0.95,
             }
 
-        # Blend the agent's view with the lever-adjusted state rather than
-        # replacing it. Overwriting discarded the scenario entirely, so every set
-        # of levers produced an identical result no matter how aggressive it was.
-        lever_risk = float(synthetic_state.get("current_risk_score", 0.5) or 0.5)
-        agent_risk = simulation_result.get("risk_score")
-        if isinstance(agent_risk, (int, float)):
-            synthetic_state["current_risk_score"] = round(0.6 * lever_risk + 0.4 * float(agent_risk), 4)
-        else:
-            synthetic_state["current_risk_score"] = round(lever_risk, 4)
-
-        lever_attrition = float(synthetic_state.get("attrition_probability", lever_risk) or lever_risk)
-        agent_attrition = simulation_result.get("attrition_probability")
-        if isinstance(agent_attrition, (int, float)):
-            synthetic_state["attrition_probability"] = round(0.6 * lever_attrition + 0.4 * float(agent_attrition), 4)
-        else:
-            synthetic_state["attrition_probability"] = round(lever_attrition, 4)
+        # The scenario risk is the employee's own baseline with the levers applied.
+        #
+        # We deliberately do NOT blend in the agent's score: DigitalTwinAgent
+        # returns an ORG-LEVEL state, so blending dragged every employee toward
+        # the organisational mean. That made a simulation with NO adjustments
+        # report a large risk change (down for people above the mean, up for
+        # people below it), which is the worst possible failure for a control a
+        # manager might act on. A no-op must read as no change.
+        lever_risk = round(float(synthetic_state.get("current_risk_score", 0.5) or 0.5), 4)
+        synthetic_state["current_risk_score"] = lever_risk
+        # One quantity, one number: attrition probability tracked risk separately
+        # and could report "no change" beside a 24-point risk move.
+        synthetic_state["attrition_probability"] = lever_risk
+        # Kept for context, clearly labelled as the org-wide comparison.
+        synthetic_state["organisation_baseline_risk"] = simulation_result.get("risk_score")
 
         impact_analysis = await self._analyze_impact(base_state, synthetic_state, simulation_result)
 
@@ -137,11 +136,26 @@ class SyntheticTwinEngine:
         risk = float(row["dtla_risk_score"]) if row.get("dtla_risk_score") is not None else 0.5
         rating = float(row["avg_rating"]) if row.get("avg_rating") is not None else None
 
+        # Real salary via the PII vault, so a pay lever can report an actual cost
+        # instead of always reporting zero.
+        compensation = 0.0
+        try:
+            from services.pii_vault import PIIVault
+            comp_rows = await PIIVault.get_instance().execute_pii_query(
+                "SELECT base_salary_encrypted FROM employee_pii WHERE employee_uuid = $1",
+                "employee_pii", "SyntheticTwinEngine", None, employee_id,
+            )
+            if comp_rows:
+                compensation = float(comp_rows[0].get("base_salary") or 0.0)
+        except Exception as e:
+            logger.warning(f"twin salary lookup failed for {employee_id}: {e}")
+
         state.update({
             "current_risk_score": round(risk, 3),
             "attrition_probability": round(risk, 3),
             # Performance rating (0-5) mapped onto a 0-1 productivity index.
             "productivity_score": round(rating / 5.0, 3) if rating is not None else 0.6,
+            "compensation": compensation,
             "tenure_months": int(row["tenure_months"]) if row.get("tenure_months") is not None else 0,
             # Engagement is inferred from rating and risk; both are real signals.
             "engagement_score": round(max(0.0, min(1.0, (rating / 5.0 if rating else 0.5) * (1 - risk) + 0.2)), 3),
@@ -176,6 +190,7 @@ class SyntheticTwinEngine:
         """
         risk = float(state.get("current_risk_score", 0.5) or 0.5)
         engagement = float(state.get("engagement_score", 0.5) or 0.5)
+        engagement_before = engagement
         applied: Dict[str, Any] = {}
 
         for key, value in adjustments.items():
@@ -198,6 +213,20 @@ class SyntheticTwinEngine:
         state["current_risk_score"] = round(max(0.0, min(1.0, risk)), 3)
         state["attrition_probability"] = state["current_risk_score"]
         state["engagement_score"] = round(max(0.0, min(1.0, engagement)), 3)
+
+        # Productivity and cost were structurally dead: no lever wrote them, so a
+        # 20% pay rise reported zero cost and zero productivity effect.
+        base_productivity = float(state.get("productivity_score") or 0.0)
+        # Engagement gains carry into productivity at a damped rate.
+        engagement_gain = state["engagement_score"] - float(engagement_before)
+        state["productivity_score"] = round(max(0.0, min(1.0, base_productivity + engagement_gain * 0.5)), 3)
+
+        base_salary = float(state.get("compensation") or 0.0)
+        pay_rise_pct = float(applied.get("salary_increase_pct", 0) or 0)
+        promotion_pct = 8.0 * float(applied.get("promotion", 0) or 0)  # a promotion carries a band uplift
+        extra_cash = float(applied.get("compensation", 0) or 0)
+        state["compensation"] = round(base_salary * (1 + (pay_rise_pct + promotion_pct) / 100.0) + extra_cash, 2)
+
         state["levers_applied"] = applied
         return state
 
