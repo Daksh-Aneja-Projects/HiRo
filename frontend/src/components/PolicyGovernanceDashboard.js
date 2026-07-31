@@ -27,7 +27,10 @@ const PolicyGovernanceDashboard = memo(() => {
     const denials = Number(data?.denials) || 0;
     const approved = Math.max(0, total - denials);
     const denialRate = total ? (denials / total) * 100 : 0;
-    const violations = Number(data?.high_severity_violations) || 0;
+    const violations = Number(data?.denials_24h ?? data?.high_severity_violations) || 0;
+    // Approved policy versions that are not the one being enforced.
+    const notLive = Array.isArray(data?.policies_approved_but_not_live)
+        ? data.policies_approved_but_not_live : [];
     const upToDate = data?.latest_version_applied === true;
 
     const decisionSplit = useMemo(() => (total > 0
@@ -62,15 +65,22 @@ const PolicyGovernanceDashboard = memo(() => {
                 <DataCard title="Decisions that followed policy" value={total ? (100 - denialRate).toFixed(1) : '0.0'} unit="%"
                           color={tokens.color?.success} icon={<Shield size={22} />}
                           subtitle={total ? `${approved.toLocaleString()} of ${total.toLocaleString()} decisions` : 'No decisions recorded yet'} />
-                <DataCard title="Open high severity breaches" value={violations} unit={violations === 1 ? 'case' : 'cases'}
+                {/* The decision log carries no severity and no open/closed state,
+                    so this used to claim two things the data does not hold. */}
+                <DataCard title="Blocked in the last day" value={violations} unit={violations === 1 ? 'request' : 'requests'}
                           color={violations > 0 ? tokens.color?.danger : tokens.color?.success} icon={<AlertTriangle size={22} />}
-                          subtitle={violations > 0 ? 'Needs an HRBP review' : 'Nothing outstanding'} />
-                <DataCard title="Next scheduled audit" value={data?.days_to_next_audit ?? 0} unit="days away"
-                          color={tokens.color?.['accent-secondary']} icon={<Clock size={22} />} />
+                          subtitle={violations > 0 ? 'Refused by a policy rule' : 'Nothing was blocked'} />
+                {/* Replaces a "next audit in N days" countdown computed from how
+                    long ago the last decision landed. There is no audit schedule. */}
+                <DataCard title="Approved but not live" value={notLive.length}
+                          unit={notLive.length === 1 ? 'policy' : 'policies'}
+                          color={notLive.length > 0 ? tokens.color?.warning : tokens.color?.success}
+                          icon={<Clock size={22} />}
+                          subtitle={data?.latest_version_note || 'Checking the policy store'} />
                 <DataCard title="Regulatory feeds" value={feedText(data?.regulatory_feed_status)}
                           color={String(data?.regulatory_feed_status).toUpperCase() === 'ONLINE' ? tokens.color?.success : tokens.color?.warning}
                           icon={<Radio size={22} />}
-                          subtitle={upToDate ? 'Live policy set is the newest one' : 'A newer policy version has not been applied'} />
+                          subtitle={data?.regulatory_feed_note || 'No external feed is attached'} />
             </div>
 
             <div style={styles.lower}>
@@ -91,12 +101,13 @@ const PolicyGovernanceDashboard = memo(() => {
                             It let {approved.toLocaleString()} through and blocked {denials.toLocaleString()},
                             a denial rate of {denialRate.toFixed(1)} percent.
                             {' '}{violations > 0
-                                ? `${violations} of those breaches are rated high severity and are still open.`
-                                : 'No high severity breach is currently open.'}
-                            {' '}{upToDate
-                                ? 'The version being enforced is the newest approved one.'
-                                : 'A newer approved version exists but is not the one being enforced, so activate it before the next audit.'}
-                            {' '}The next audit is {data?.days_to_next_audit ?? 0} days away.
+                                ? `${violations} of those were blocked in the last day.`
+                                : 'Nothing has been blocked in the last day.'}
+                            {' '}{data?.latest_version_applied === null
+                                ? 'Whether every approved policy is live could not be checked.'
+                                : upToDate
+                                    ? 'Every approved policy is the version being enforced.'
+                                    : `${notLive.length} approved ${notLive.length === 1 ? 'policy is' : 'policies are'} not live yet: ${notLive.map((p) => p.policy_id).join(', ')}.`}
                         </p>
                     )}
                 </div>

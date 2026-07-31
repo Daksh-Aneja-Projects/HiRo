@@ -41,7 +41,7 @@ export const Dashboard = memo(() => {
   const [charts, setCharts] = useState({ headcount_by_department: [], attrition_by_department: [] });
   const [trend, setTrend] = useState([]);
   const [orch, setOrch] = useState(null);
-  const [live, setLive] = useState({ cpu_load: 0, memory_load: 0, agent_activity: 0 });
+  const [live, setLive] = useState({ cpu_load: 0, memory_load: 0, machine_load: 0 });
   const [accessError, setAccessError] = useState(false);
   const pollRef = useRef(null);
 
@@ -113,7 +113,7 @@ export const Dashboard = memo(() => {
             <div style={s.meters}>
               <LiveMeter pct={num(live.cpu_load)} label="CPU load" color={tokens.color?.['accent-primary']} />
               <LiveMeter pct={num(live.memory_load)} label="Memory" color={tokens.color?.['accent-2']} />
-              <LiveMeter pct={num(live.agent_activity) * 100} label="Agent activity" color={tokens.color?.success} />
+              <LiveMeter pct={num(live.memory_load)} label="Memory in use" color={tokens.color?.success} />
             </div>
             <div style={s.spark}>
               <span style={{ fontSize: 11.5, color: 'var(--text-tertiary)' }}><Cpu size={13} /> live load</span>

@@ -352,9 +352,12 @@ const IngestionModule = memo(() => {
                             Last ingested: <strong style={{ color: tokens.color?.['text-100'] }}>{jobs[0].filename}</strong>
                             {' '}on {new Date(jobs[0].uploaded_at).toLocaleString()}
                         </p>
+                        {/* This read "0 files pending" as if it were live queue
+                            depth. Upload is synchronous, so nothing ever queues
+                            and the number could not be anything but zero. */}
                         <p style={{ color: tokens.color?.success, margin: '0 0 12px' }}>
-                            {jobsData.pending || 0} file{(jobsData.pending || 0) === 1 ? '' : 's'} pending
-                            {' '}, {jobsData.total || jobs.length} ingested in total.
+                            {(jobsData.total || jobs.length).toLocaleString()} file
+                            {(jobsData.total || jobs.length) === 1 ? '' : 's'} stored so far.
                         </p>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                             {jobs.slice(0, 6).map((j) => (

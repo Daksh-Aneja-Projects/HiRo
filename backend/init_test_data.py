@@ -350,16 +350,30 @@ async def seed_governance_and_audit():
         ("AI-Assisted Performance Reviews", "APPROVED", 8200.0, 1200.0, 77),
         ("Four-Day Work-Week Pilot", "EXPIRED", 2100.0, 4400.0, 55),
     ]
+    # Voters are real employees. They used to be generated ids counting up from
+    # V0000 on every proposal, so the dashboard reported 78 distinct "people" on
+    # a platform with five accounts, and the same placeholder appeared as a
+    # voter on proposals it had nothing to do with.
+    voter_pool = [r["employee_uuid"] for r in await pg_client.fetch(
+        "SELECT employee_uuid FROM public.employee_pii ORDER BY employee_uuid LIMIT 500")]
+
     prop_rows = []
     for i, (title, status, vfor, vagainst, n_voters) in enumerate(proposals):
         pid = f"PROP_SEED{i:03d}"
         deadline = (now + timedelta(hours=48 if status == "VOTING" else -24)).isoformat()
+        # A different slice per proposal, so distinct voters across proposals is
+        # a real count rather than the size of the largest single list.
+        if voter_pool:
+            start = (i * 37) % max(1, len(voter_pool))
+            voters = [voter_pool[(start + j) % len(voter_pool)] for j in range(min(n_voters, len(voter_pool)))]
+        else:
+            voters = []
         data = {
             "proposal_id": pid, "proposer": "HRBP_LEAD",
             "rule_content": {"title": title},
             "status": status, "votes_for": vfor, "votes_against": vagainst,
             "total_votes": vfor + vagainst,
-            "voters": [f"V{j:04d}" for j in range(n_voters)],
+            "voters": voters,
             "deadline": deadline, "executed": status == "APPROVED",
         }
         prop_rows.append((pid, status, _json.dumps(data)))

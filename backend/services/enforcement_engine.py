@@ -91,7 +91,33 @@ async def log_policy_decision_async(audit_data: Dict[str, Any]):
         logger.error(f"Failed to log policy decision to Postgres: {e}")
 
 
-async def get_compliance_overview() -> Dict[str, Any]:
+async def _approved_but_not_live(policy_versioning=None):
+    """Approved policy versions that are not the live one for their policy.
+
+    Returns (list, whether the check could run). An empty list with the check
+    unavailable is not the same as nothing being out of date, so the caller can
+    say which it is instead of showing a reassuring tick either way.
+    """
+    if policy_versioning is None:
+        return [], False
+    try:
+        stale = []
+        for policy_id in {v.policy_id for v in policy_versioning.versions.values()}:
+            active = policy_versioning.get_active_version(policy_id)
+            approved = [v for v in policy_versioning.versions.values()
+                        if v.policy_id == policy_id
+                        and str(getattr(v.status, "value", v.status)).upper() == "APPROVED"]
+            for version in approved:
+                if not active or active.version_id != version.version_id:
+                    stale.append({"policy_id": policy_id, "version_id": version.version_id,
+                                  "version_number": getattr(version, "version_number", None)})
+        return stale, True
+    except Exception as e:
+        logger.warning(f"could not check whether approved policies are live: {e}")
+        return [], False
+
+
+async def get_compliance_overview(policy_versioning=None) -> Dict[str, Any]:
     """Real compliance aggregates from the policy_audit_log table.
 
     Backs /compliance/dashboard: overall compliance score (allow-rate), high-severity
@@ -116,15 +142,20 @@ async def get_compliance_overview() -> Dict[str, Any]:
     score = round(1.0 - (denials / total), 4) if total else 1.0
 
     last = row.get("last_decision_at")
-    # ponytail: fixed 30-day audit cadence heuristic; wire to a real audit schedule when one exists
-    if last is not None:
-        days_since = (datetime.now(timezone.utc) - last).days
-        days_to_next_audit = max(0, 30 - days_since)
-    else:
-        days_to_next_audit = 30
+
+    # Whether every approved policy is actually the one being enforced. This
+    # used to be `total > 0`, which is "has any decision ever been recorded",
+    # presented to an HRBP as confirmation that the live policy set is the
+    # newest one. It could not detect an unapplied newer version, which is the
+    # one thing the card exists to tell them.
+    approved_not_live, live_check_available = await _approved_but_not_live(policy_versioning)
 
     return {
         "score": score,
+        # DENY decisions in the last day. There is no severity column on the
+        # decision log and no open/closed state, so calling these "open high
+        # severity breaches" claimed two things the data does not hold.
+        "denials_24h": int(row.get("high_severity_violations") or 0),
         "high_severity_violations": int(row.get("high_severity_violations") or 0),
         # This read "ONLINE" whenever any internal policy decision had been made
         # in the last day, which has nothing to do with a regulatory feed. There
@@ -134,8 +165,14 @@ async def get_compliance_overview() -> Dict[str, Any]:
         "regulatory_feed_note": ("No external regulatory feed is attached. "
                                  "Jurisdictions can be subscribed, and updates apply "
                                  "once a feed is connected."),
-        "latest_version_applied": total > 0,
-        "days_to_next_audit": days_to_next_audit,
+        "latest_version_applied": (not approved_not_live) if live_check_available else None,
+        "policies_approved_but_not_live": approved_not_live,
+        "latest_version_note": (
+            "Every approved policy is the one being enforced." if live_check_available and not approved_not_live
+            else f"{len(approved_not_live)} approved {'policy is' if len(approved_not_live) == 1 else 'policies are'} "
+                 f"not the live version yet." if live_check_available
+            else "The policy store could not be read, so this could not be checked."),
+        "last_decision_at": last.isoformat() if last is not None else None,
         "total_decisions": total,
         "denials": denials,
     }

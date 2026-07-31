@@ -102,8 +102,11 @@ const LiveTelemetryFeed = memo(() => {
                     ...prev,
                     cpu_load: Number(d.cpu_load) || 0,
                     memory_load: Number(d.memory_load) || 0,
-                    // agent_activity is a 0..1 index; surface it as events/sec-equivalent load.
-                    events_per_second: Math.round((Number(d.agent_activity) || 0) * 100),
+                    // This derived an "events per second" figure from a metric
+                    // that was really processor and memory averaged together.
+                    // The REST reading carries no event rate, so the value from
+                    // the live stream is kept rather than invented from load.
+                    events_per_second: prev.events_per_second,
                     // Left as-is: node count only arrives over the message bus.
                     active_nodes: prev.active_nodes,
                 }));

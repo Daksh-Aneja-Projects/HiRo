@@ -10,6 +10,7 @@ import asyncio
 from services import notification_service
 import json
 import hashlib
+import uuid
 from datetime import datetime, timezone, timedelta
 import random
 import psutil
@@ -511,10 +512,40 @@ async def get_system_health(req: Request, payload: Dict=Depends(hrit_admin_role_
     except Exception:
         checks["ai_primary"] = "DOWN"
 
-    # Only the datastores and the model are required for the platform to function.
-    critical = ("postgres", "mongodb", "ai_primary")
-    status = "HEALTHY" if all(checks.get(c) == "UP" for c in critical) else "DEGRADED"
-    return {"status": status, "checks": checks, "timestamp": datetime.now(timezone.utc).isoformat()}
+    # A green tick beside a row reading "message bus: down" is worse than no
+    # tick at all. Anything that is down is reflected in the headline, with the
+    # difference between "nothing works" and "something is missing" kept.
+    essential = ("postgres", "mongodb", "ai_primary")
+    down = [name for name, state in checks.items() if state == "DOWN"]
+    essential_down = [name for name in essential if checks.get(name) == "DOWN"]
+
+    READABLE = {
+        "postgres": "the employee database",
+        "mongodb": "the document store",
+        "redis": "the cache",
+        "nats": "the agent message bus",
+        "ai_primary": "the language model",
+    }
+    if essential_down:
+        status = "DOWN"
+        summary = ("HiRo cannot run right now: "
+                   + ", ".join(READABLE.get(n, n) for n in essential_down) + " is unavailable.")
+    elif down:
+        status = "DEGRADED"
+        summary = ("HiRo is running, but "
+                   + ", ".join(READABLE.get(n, n) for n in down)
+                   + (" is" if len(down) == 1 else " are") + " unavailable.")
+    else:
+        status = "HEALTHY"
+        summary = "Everything HiRo depends on is responding."
+
+    return {
+        "status": status,
+        "summary": summary,
+        "checks": checks,
+        "degraded": down,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
 
 @admin_router.post("/agent/create")
 async def create_agent(req: Request, data: AgentCreationRequest, payload: Dict=Depends(hrit_admin_role_required)):
@@ -2091,18 +2122,32 @@ async def upload_ingestion_file(req: Request, file: UploadFile = File(...), payl
     if not mongo_client:
         raise HTTPException(status_code=503, detail="Ingestion store unavailable.")
     contents = await file.read()
+    digest = hashlib.sha256(contents).hexdigest()
     doc = {
-        "job_id": f"ING-{hashlib.sha256(contents).hexdigest()[:10].upper()}",
+        # The id used to be derived from the content, so uploading the same file
+        # twice produced two rows sharing one id. The history list keys its rows
+        # on it, and React collapsed them into one.
+        "job_id": f"ING-{uuid.uuid4().hex[:10].upper()}",
         "filename": file.filename,
         "content_type": file.content_type,
         "size_bytes": len(contents),
-        "content_sha256": hashlib.sha256(contents).hexdigest(),
+        "content_sha256": digest,
         "status": "INGESTED",
         "uploaded_by": payload.get("sub"),
         "uploaded_at": datetime.now(timezone.utc).isoformat(),
     }
+    # Say plainly when this file has been through before rather than silently
+    # recording it a second time.
+    previous = await mongo_client[settings.MONGO_DB_NAME]["ingestion_jobs"].count_documents(
+        {"content_sha256": digest})
     await mongo_client[settings.MONGO_DB_NAME]["ingestion_jobs"].insert_one(dict(doc))
-    return {"status": "Ingested", **doc}
+    return {
+        "status": "Ingested",
+        **doc,
+        "message": (f"{file.filename} was stored." if not previous else
+                    f"{file.filename} was stored. The same file has been uploaded "
+                    f"{previous} time{'s' if previous != 1 else ''} before."),
+    }
 
 @ingestion_router.get("/jobs")
 async def list_ingestion_jobs(req: Request, limit: int = Query(20), payload: Dict=Depends(policy_admin_role_required)):
@@ -2113,8 +2158,17 @@ async def list_ingestion_jobs(req: Request, limit: int = Query(20), payload: Dic
     lim = max(1, min(int(limit or 20), 200))
     col = mongo_client[settings.MONGO_DB_NAME]["ingestion_jobs"]
     jobs = await col.find({}, {"_id": 0}).sort("uploaded_at", -1).limit(lim).to_list(length=lim)
-    pending = await col.count_documents({"status": {"$ne": "INGESTED"}})
-    return {"jobs": jobs, "pending": pending, "total": await col.count_documents({})}
+    # Every job is written with status INGESTED and nothing ever changes it, so
+    # this count is structurally always zero. The panel presented it as live
+    # queue depth, which implied a queue that does not exist: upload is
+    # synchronous and there is nothing waiting behind it.
+    total = await col.count_documents({})
+    return {
+        "jobs": jobs,
+        "pending": 0,
+        "total": total,
+        "note": "Files are stored as they arrive, so nothing queues behind them.",
+    }
 
 # ======================================
 # 15. ANALYTICS ROUTER (Fixed/Complete)
@@ -2251,7 +2305,9 @@ async def get_compliance_dashboard_data(req: Request, payload: Dict = Depends(po
     """Real compliance aggregates from the policy_audit_log table.
     HRBP owns policy/compliance, so policy_admin (hrbp + hrit_admin) can view."""
     from services.enforcement_engine import get_compliance_overview
-    return await get_compliance_overview()
+    # Pass the policy store so "the live policy set is the newest one" can
+    # actually be checked rather than inferred from whether any decision exists.
+    return await get_compliance_overview(getattr(req.app.state, "policy_versioning_service", None))
 
 @compliance_router.post("/monitor_feeds")
 async def monitor_regulatory_feeds(req: Request, jurisdictions: List[str] = Body(..., embed=True), payload: Dict = Depends(policy_admin_role_required)):
@@ -2735,12 +2791,15 @@ async def get_remediation_history(req: Request, audit_id: str, payload: Dict = D
 async def get_live_metrics(req: Request, payload: Dict = Depends(manager_role_required)):
     cpu = psutil.cpu_percent()
     mem = psutil.virtual_memory().percent
-    # Derive a real 0..1 activity index from actual load rather than a constant.
-    activity = round(min(1.0, (cpu + mem) / 200.0), 3)
+    # This was served as `agent_activity` and charted as "Agent workload, live -
+    # how busy the agent layer is". It is the average of processor and memory
+    # load, so it read about 50 with the agent layer completely idle and, with
+    # memory sitting at 70 percent, could never fall below about 35 whatever the
+    # agents were doing. Real per-agent counts are at /telemetry/agents/activity.
     return {
         "cpu_load": cpu,
         "memory_load": mem,
-        "agent_activity": activity,
+        "machine_load": round((cpu + mem) / 2.0, 1),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 

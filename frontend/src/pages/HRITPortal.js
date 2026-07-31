@@ -265,7 +265,11 @@ GovernanceModule.displayName = 'GovernanceModule';
 /* ------------------------------------------------------------------ */
 const HealthModule = memo(() => {
     const cpuSeries = useMetricSeries('cpu_load', { intervalMs: 3000 });
-    const activitySeries = useMetricSeries('agent_activity', { intervalMs: 3000, scale: 100 });
+    // This charted `agent_activity`, which was the average of processor and
+    // memory load served under an agent-sounding name. It read about 50 with the
+    // agent layer idle. Memory is a real reading; what the agents are actually
+    // doing is on the panel below it.
+    const memorySeries = useMetricSeries('memory_load', { intervalMs: 3000 });
 
     return (
         <div style={ui.grid} className="portal-grid">
@@ -273,8 +277,8 @@ const HealthModule = memo(() => {
                 <SystemHealthPanel />
             </div>
             <div style={{ gridColumn: 'span 7' }}>
-                <DataCard title="Agent workload, live" isChart minHeight="240px">
-                    <AreaChartWidget data={activitySeries} minHeight="190px" color={tokens.color?.success} label="How busy the agent layer is, sampled every three seconds" />
+                <DataCard title="Memory in use, live" isChart minHeight="240px">
+                    <AreaChartWidget data={memorySeries} minHeight="190px" color={tokens.color?.success} label="Host memory, sampled every three seconds" />
                 </DataCard>
             </div>
             <div style={{ gridColumn: 'span 12' }}>
@@ -282,7 +286,7 @@ const HealthModule = memo(() => {
                     <AreaChartWidget data={cpuSeries} minHeight="170px" color={tokens.color?.['accent-primary']} label="Host processor load, sampled every three seconds" />
                 </DataCard>
             </div>
-            <div style={{ gridColumn: 'span 12' }}>
+                        <div style={{ gridColumn: 'span 12' }}>
                 <LiveTelemetryFeed />
             </div>
         </div>

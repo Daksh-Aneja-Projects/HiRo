@@ -371,7 +371,9 @@ const DangerModule = memo(() => {
     const [confirmText, setConfirmText] = useState('');
     const [purging, setPurging] = useState(false);
 
-    const kernelSeries = useMetricSeries('agent_activity', { intervalMs: 3000, scale: 100 });
+    // `agent_activity` was the average of processor and memory load under an
+    // agent-sounding name, so this read about 50 with nothing running.
+    const kernelSeries = useMetricSeries('machine_load', { intervalMs: 3000 });
 
     const send = useCallback(async (text) => {
         if (!text.trim() || runningCommand) return;
