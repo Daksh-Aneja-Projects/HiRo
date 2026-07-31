@@ -5,7 +5,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { theme as tokens } from '../theme';
 import { TrendingUp, BarChart3, ScatterChart, Zap, Loader2, Filter, Cpu, AlertTriangle, Scale, Send, Clock } from 'lucide-react';
 // FIX: Using absolute path aliases
-import { aggregateMetrics, getAdvancedAnalytics, getAnalyticsCharts } from '../config/api';
+import { aggregateMetrics, getAdvancedAnalytics, getAnalyticsCharts, getAnalyticsDepartments } from '../config/api';
 import { useToast } from '../hooks/use-toast';
 import DataCard from '../components/DataCard';
 import BarChartWidget from '../components/charts/BarChartWidget';
@@ -135,19 +135,29 @@ const AnalyticsDashboard = memo(() => {
     const { toast } = useToast();
     const [data, setData] = useState({ key_metric: 'N/A', retention: 'N/A' });
     const [charts, setCharts] = useState({ headcount_by_department: [], attrition_by_department: [], perf_vs_tenure: [] });
-    const [filters, setFilters] = useState({ department: 'All', time: 'Q4' });
+    const [filters, setFilters] = useState({ department: 'All' });
+    const [departments, setDepartments] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
 
     // CRITICAL FIX: Styles are derived once based on tokens
     const styles = useMemo(() => getStyles(tokens), []);
 
+    // The real department list backing the filter.
+    useEffect(() => {
+        let alive = true;
+        getAnalyticsDepartments()
+            .then((r) => { if (alive) setDepartments(r.data?.departments || []); })
+            .catch(() => { /* the filter simply stays at "All departments" */ });
+        return () => { alive = false; };
+    }, []);
+
     const fetchData = useCallback(async () => {
         setIsLoading(true);
         try {
-            const response = await aggregateMetrics({ filters });
+            const response = await aggregateMetrics({ filters, department: filters.department });
             setData(response.data || { key_metric: 'N/A', retention: 'N/A', attrition_risk: 'N/A', ml_score: 'N/A' });
         } catch (error) {
-            toast({ title: "API Error", description: "Failed to load advanced metrics.", variant: 'destructive' });
+            toast({ title: 'Could not load analytics', description: error.response?.data?.detail || error.message, variant: 'destructive' });
             setData({ key_metric: 'N/A', retention: 'N/A', attrition_risk: 'N/A', ml_score: 'N/A' });
         } finally {
             setIsLoading(false);
@@ -173,44 +183,33 @@ const AnalyticsDashboard = memo(() => {
     }, []);
 
     const mockStats = useMemo(() => [
-        { id: 1, title: 'Key Metric Score', value: data.key_metric, unit: 'Composite', icon: Zap, color: tokens.color?.['success'], span: 3 },
-        { id: 2, title: 'Retention Rate', value: data.retention, unit: 'Yearly', icon: TrendingUp, color: tokens.color?.['warning'], span: 3 },
-        { id: 3, title: 'Attrition Risk Index', value: data.attrition_risk, unit: 'Low', icon: AlertTriangle, color: `rgb(${tokens.color?.['accent-2-rgb'] || '0,200,255'})`, span: 3 },
-        { id: 4, title: 'ML Model Performance F1 Score', value: data.ml_score, unit: 'F1 Score', icon:
-        Cpu, color: tokens.color?.['text-100'], span: 3 },
+        { id: 1, title: 'Composite workforce health', value: data.key_metric, unit: 'overall', icon: Zap, color: tokens.color?.['success'], span: 3 },
+        { id: 2, title: 'Projected retention', value: data.retention, unit: 'of the workforce', icon: TrendingUp, color: tokens.color?.['warning'], span: 3 },
+        // The band comes from the backend; it used to be the constant "Low"
+        // regardless of how high the risk actually was.
+        { id: 3, title: 'Attrition risk', value: data.attrition_risk, unit: data.attrition_band || '', icon: AlertTriangle, color: `rgb(${tokens.color?.['accent-2-rgb'] || '0,200,255'})`, span: 3 },
+        // This is the average performance rating, not any model's F1 score.
+        { id: 4, title: 'Average performance rating', value: data.average_performance || data.ml_score, unit: 'across reviews', icon: Cpu, color: tokens.color?.['text-100'], span: 3 },
     ], [data]);
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: tokens.spacing?.lg }}>
             <div style={{...styles.filterGroup, borderBottom: tokens.ui?.border?.inner || tokens.color?.['border-600'], paddingBottom: tokens.spacing?.sm}}>
                 <Filter size={16} style={{ color: tokens.color?.['muted-500'], marginTop: '10px' }} />
-                <select 
-                    name="department" 
-                    // FIX: Use the new styles.select for the dark UI look
-                    style={{...styles.select, width: '200px'}} 
-                    value={filters.department} 
-                    onChange={handleFilterChange} 
-                    disabled={isLoading} 
-                    aria-label="Department Filter"
+                {/* Real departments from the workforce, not a hardcoded list that
+                    never matched the data. */}
+                <select
+                    name="department"
+                    style={{...styles.select, width: '220px'}}
+                    value={filters.department}
+                    onChange={handleFilterChange}
+                    disabled={isLoading}
+                    aria-label="Filter by department"
                 >
-                    <option value="All" style={{ background: tokens.color?.['panel-700'], color: tokens.color?.['text-100'] }}>All Departments</option>
-                    <option value="Tech" style={{ background: tokens.color?.['panel-700'], color: tokens.color?.['text-100'] }}>Technology</option>
-                    <option value="HR" style={{ background: tokens.color?.['panel-700'], color: tokens.color?.['text-100'] }}>Human Resources</option>
-                    <option value="Finance" style={{ background: tokens.color?.['panel-700'], color: tokens.color?.['text-100'] }}>Finance</option>
-                </select>
-                <select 
-                    name="time" 
-                    // FIX: Use the new styles.select for the dark UI look
-                    style={{...styles.select, width: '150px'}} 
-                    value={filters.time} 
-                    onChange={handleFilterChange} 
-                    disabled={isLoading} 
-                    aria-label="Time Period Filter"
-                >
-                    {/* OPTION FIX: While the <select> style usually handles options, forcing option styles ensures maximum compatibility */}
-                    <option value="Q4" style={{ background: tokens.color?.['panel-700'], color: tokens.color?.['text-100'] }}>Q4 2025</option>
-                    <option value="Q3" style={{ background: tokens.color?.['panel-700'], color: tokens.color?.['text-100'] }}>Q3 2025</option>
-                    <option value="FY" style={{ background: tokens.color?.['panel-700'], color: tokens.color?.['text-100'] }}>Full Year 2025</option>
+                    <option value="All" style={{ background: tokens.color?.['panel-700'], color: tokens.color?.['text-100'] }}>All departments</option>
+                    {departments.map((d) => (
+                        <option key={d} value={d} style={{ background: tokens.color?.['panel-700'], color: tokens.color?.['text-100'] }}>{d}</option>
+                    ))}
                 </select>
                 <button
                     onClick={fetchData}

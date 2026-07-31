@@ -1699,28 +1699,43 @@ async def list_ingestion_jobs(req: Request, limit: int = Query(20), payload: Dic
 # ======================================
 # 15. ANALYTICS ROUTER (Fixed/Complete)
 # ======================================
-async def _workforce_analytics(req: Request) -> Dict[str, Any]:
+async def _workforce_analytics(req: Request, department: Optional[str] = None) -> Dict[str, Any]:
     """Derives real HR analytics from the live workforce projection (headcount,
-    workforce-wide attrition risk, and average performance)."""
+    attrition risk, and average performance), optionally scoped to a department."""
     wfm = getattr(req.app.state, "wfm_service", None)
     if not wfm:
         raise HTTPException(status_code=503, detail="WFM Service unavailable.")
-    cs = (await wfm.get_current_projections()).get("current_state", {})
+    projection = await wfm.get_current_projections(department=department)
+    cs = projection.get("current_state", {})
     risk = float(cs.get("overall_risk_score", 0.0) or 0.0)
     perf = float(cs.get("average_performance_score", 0.0) or 0.0)
     composite = ((1 - risk) * 0.5 + (perf / 5.0) * 0.5) * 100
+    # Risk band in words, so the UI does not have to hardcode one.
+    band = "High" if risk >= 0.66 else "Medium" if risk >= 0.33 else "Low"
     return {
         "key_metric": f"{round(composite, 1)}%",
         "retention": f"{round((1 - risk) * 100, 1)}%",
         "attrition_risk": f"{round(risk * 10, 1)}/10",
+        "attrition_band": band,
+        "average_performance": f"{round(perf, 2)}/5",
         "ml_score": f"{round((perf / 5.0) * 100, 1)}%",
         "headcount": int(cs.get("total_employees", 0)),
+        "scope": projection.get("scope", "All departments"),
     }
 
+@analytics_router.get("/departments")
+async def list_analytics_departments(req: Request, payload: Dict=Depends(manager_role_required)):
+    """The real departments available as an analytics filter."""
+    wfm = getattr(req.app.state, "wfm_service", None)
+    if not wfm:
+        raise HTTPException(status_code=503, detail="WFM Service unavailable.")
+    return {"departments": await wfm.list_departments()}
+
 @analytics_router.get("/metrics")
-async def get_advanced_analytics(req: Request, metric_type: Optional[str] = Query(None), time_window: Optional[str] = Query(None), payload: Dict=Depends(manager_role_required)):
-    """Real composite workforce-health analytics."""
-    a = await _workforce_analytics(req)
+async def get_advanced_analytics(req: Request, metric_type: Optional[str] = Query(None), time_window: Optional[str] = Query(None), department: Optional[str] = Query(None), payload: Dict=Depends(manager_role_required)):
+    """Real composite workforce-health analytics, scopeable by department."""
+    dept = None if department in (None, "", "All", "All departments") else department
+    a = await _workforce_analytics(req, department=dept)
     return {"metric": "Composite Workforce Health", "value": a["key_metric"], "trend": "up", **a}
 
 @analytics_router.get("/charts")
@@ -1734,15 +1749,25 @@ async def get_analytics_charts(req: Request, payload: Dict=Depends(manager_role_
 
 @analytics_router.post("/metrics/aggregate")
 async def aggregate_metrics(req: Request, payload_data: Dict, payload: Dict=Depends(manager_role_required)):
-    """Real aggregated metrics for the analytics dashboard."""
+    """Real aggregated metrics for the analytics dashboard.
+
+    Honours a department filter, so the dashboard's controls actually change the
+    numbers rather than being decorative.
+    """
     metric_type = payload_data.get('metric_type', 'default')
+    filters = payload_data.get('filters') or {}
+    department = filters.get('department') or payload_data.get('department')
+    if department in ("All", "All departments", ""):
+        department = None
+
     if metric_type == 'financial_impact':
         # ponytail: headcount-scaled estimate; base salaries are encrypted at rest,
         # so no cleartext payroll aggregate exists without bulk decryption.
-        a = await _workforce_analytics(req)
+        a = await _workforce_analytics(req, department=department)
         return {"metric_type": metric_type, "value": round(a["headcount"] * 8500.0, 2),
-                "note": "estimate (encrypted comp not aggregated)"}
-    return await _workforce_analytics(req)
+                "scope": a["scope"],
+                "note": "Estimate based on headcount; compensation is encrypted at rest and is not aggregated."}
+    return await _workforce_analytics(req, department=department)
 
 
 # ======================================

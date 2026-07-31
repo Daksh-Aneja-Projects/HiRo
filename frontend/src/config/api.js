@@ -477,6 +477,7 @@ export const securityScanBpcl = (code) => api.post('/dev/policy/scan', { code })
 /* -------------------------------------------------------------------------- */
 export const getAdvancedAnalytics = (params = {}) => api.get('/advanced-analytics/metrics', { params });
 export const getAnalyticsCharts = () => api.get('/advanced-analytics/charts');
+export const getAnalyticsDepartments = () => api.get('/advanced-analytics/departments');
 export const uploadIngestionFile = (file) => { 
      const fd = new FormData(); 
      fd.append('file', file); 

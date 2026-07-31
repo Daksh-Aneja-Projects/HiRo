@@ -2,7 +2,7 @@
 """Workforce Planning Service: AI-Driven Attrition and Scenario Modeling."""
 import asyncio
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 from services.event_publisher_service import EventPublisherService
 from services.postgres_client import pg_client
@@ -18,12 +18,30 @@ class WorkforcePlanningService:
         self.publisher = publisher
         logger.info("WorkforcePlanningService Initialized")
 
-    async def get_current_projections(self) -> Dict[str, Any]:
+    async def list_departments(self) -> List[str]:
+        """The departments that actually exist, for filter controls."""
+        try:
+            rows = await pg_client.fetch(
+                "SELECT DISTINCT department FROM public.employee_pii "
+                "WHERE department IS NOT NULL AND department <> '' ORDER BY department"
+            )
+        except Exception as e:
+            logger.warning(f"department list query failed: {e}")
+            return []
+        return [r["department"] for r in rows]
+
+    async def get_current_projections(self, department: Optional[str] = None) -> Dict[str, Any]:
         """Real workforce state aggregated from the employee UDM (Postgres).
+
+        Optionally scoped to one department, so an analytics filter actually
+        changes the numbers instead of being decorative.
 
         Feeds the digital-twin risk simulation, which reads current_state
         (notably overall_risk_score + average_performance_score) as its base.
         """
+        dept_filter = "WHERE department = $1" if department else ""
+        args = [department] if department else []
+
         row = await pg_client.fetchrow(
             f"""
             SELECT
@@ -32,11 +50,23 @@ class WorkforcePlanningService:
               ROUND(AVG(tenure_months))                             AS average_tenure_months,
               ROUND(AVG(dtla_risk_score)::numeric, 3)               AS overall_risk_score
             FROM public.employee_pii
-            """
+            {dept_filter}
+            """,
+            *args,
         ) or {}
-        perf = await pg_client.fetchrow(
-            "SELECT ROUND(AVG(overall_rating)::numeric, 2) AS avg_perf FROM public.performance_reviews"
-        ) or {}
+
+        if department:
+            perf = await pg_client.fetchrow(
+                """SELECT ROUND(AVG(r.overall_rating)::numeric, 2) AS avg_perf
+                     FROM public.performance_reviews r
+                     JOIN public.employee_pii e ON e.employee_uuid = r.employee_uuid
+                    WHERE e.department = $1""",
+                department,
+            ) or {}
+        else:
+            perf = await pg_client.fetchrow(
+                "SELECT ROUND(AVG(overall_rating)::numeric, 2) AS avg_perf FROM public.performance_reviews"
+            ) or {}
 
         total = int(row.get('total_employees') or 0)
 
@@ -50,6 +80,8 @@ class WorkforcePlanningService:
                 "overall_risk_score": float(row.get('overall_risk_score') or 0.0),
             },
             "skill_gaps": await self._derive_skill_gaps(total),
+            # Echo the scope so the caller can show what the numbers cover.
+            "scope": department or "All departments",
         }
 
     async def get_analytics_charts(self, scatter_limit: int = 200) -> Dict[str, Any]:
