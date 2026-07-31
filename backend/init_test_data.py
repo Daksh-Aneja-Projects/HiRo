@@ -36,9 +36,18 @@ from motor.motor_asyncio import AsyncIOMotorClient
 # --- CONFIGURATION CONSTANTS (Same as before) ---
 BULK_EMPLOYEE_COUNT = 20000 
 BATCH_SIZE = 5000 
-DEPARTMENTS = ["Engineering", "Sales", "HR", "Finance", "Marketing", "R&D", "Operations", "Legal"]
+# Departments, the ladders that staff them and the shape of each one all live in
+# services/. A fresh seed builds a coherent workforce from those, rather than
+# drawing department, job title, tenure, rating and risk as five independent
+# random values, which is what left Engineering staffed with HR Analysts, every
+# department averaging the same tenure, and an attrition column that was pure
+# noise driving every chart in the product.
+from services.career_ladders import LADDERS as _LADDERS
+from scripts.workforce_shape import DEPARTMENT_SHAPE, profile_for, risk_for
+
+DEPARTMENTS = list(DEPARTMENT_SHAPE)
 JURISDICTIONS = ["US-CA", "US-NY", "UK-LON", "IN-BLR", "JP-TOK", "AU-SYD"]
-JOB_TITLES = ["Senior Engineer", "Sales Rep", "HR Analyst", "Financial Controller", "Product Manager", "Staff Engineer", "VP", "Director"]
+JOB_TITLES = sorted({t for titles in _LADDERS.values() for t in titles})
 
 # --- PII Data Structure Definition (DDL) ---
 EMPLOYEE_PII_DDL = """
@@ -214,16 +223,24 @@ async def generate_large_dataset_and_seed_pii(pqc_wrapper: PQCEncryptionWrapper,
         
         dept = random.choice(DEPARTMENTS)
         jurisdiction = random.choice(JURISDICTIONS)
-        role = random.choice(['employee', 'employee', 'employee', 'manager'])
-        
+
+        # Title, tenure and rating come from the department's own shape, so a
+        # person's record hangs together: an Engineering hire is an engineer,
+        # and seniority and length of service move with each other.
+        job_title, tenure_months, review_rating = profile_for(employee_uuid, dept)
+        role = 'manager' if job_title in _LADDERS[dept][-3:] else 'employee'
+
         base_salary = round(random.uniform(50000, 200000), 2)
         bonus_target = round(random.uniform(0.00, 0.30), 2)
-        
-        hire_date_obj = datetime.now() - timedelta(days=random.randint(30, 1800))
+
+        hire_date_obj = datetime.now() - timedelta(days=int(tenure_months * 30.44))
         hire_date_str = hire_date_obj.strftime('%Y-%m-%d')
-        tenure_months = calculate_tenure(hire_date_str)
-        
-        dtla_risk_score = round(random.uniform(0.10, 0.99), 2)
+
+        # Attrition risk is derived from that record, not drawn at random. A
+        # uniform draw averages to 0.545 whatever the sample, so every
+        # department converged on the same number by construction and the
+        # attrition chart could not respond to anything.
+        dtla_risk_score = risk_for(tenure_months, review_rating)
         manager_uuid = random.choice(manager_uuids)
 
         all_employees.append({
@@ -240,8 +257,8 @@ async def generate_large_dataset_and_seed_pii(pqc_wrapper: PQCEncryptionWrapper,
             "dept": dept,
             "jurisdiction": jurisdiction,
             "leave": round(random.uniform(0, 200), 2),
-            "review": round(random.uniform(2.5, 5.0), 1),
-            "title": random.choice(JOB_TITLES),
+            "review": review_rating,
+            "title": job_title,
             "risk": dtla_risk_score,
             "tenure": tenure_months 
         })
