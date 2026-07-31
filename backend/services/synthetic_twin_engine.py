@@ -2,6 +2,7 @@ import logging
 import numpy as np
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
+from services.postgres_client import pg_client
 # FIX: Added placeholders for missing services
 class DigitalTwinAgent:
     # NOTE: This placeholder class is only used here to prevent circular imports if necessary,
@@ -63,9 +64,22 @@ class SyntheticTwinEngine:
                 "attrition_probability": synthetic_state["attrition_probability"] * 0.95,
             }
 
-        # CRITICAL FIX: Update synthetic state with DTLA's predicted scores
-        synthetic_state["current_risk_score"] = simulation_result.get("risk_score", synthetic_state["current_risk_score"])
-        synthetic_state["attrition_probability"] = simulation_result.get("attrition_probability", synthetic_state["attrition_probability"])
+        # Blend the agent's view with the lever-adjusted state rather than
+        # replacing it. Overwriting discarded the scenario entirely, so every set
+        # of levers produced an identical result no matter how aggressive it was.
+        lever_risk = float(synthetic_state.get("current_risk_score", 0.5) or 0.5)
+        agent_risk = simulation_result.get("risk_score")
+        if isinstance(agent_risk, (int, float)):
+            synthetic_state["current_risk_score"] = round(0.6 * lever_risk + 0.4 * float(agent_risk), 4)
+        else:
+            synthetic_state["current_risk_score"] = round(lever_risk, 4)
+
+        lever_attrition = float(synthetic_state.get("attrition_probability", lever_risk) or lever_risk)
+        agent_attrition = simulation_result.get("attrition_probability")
+        if isinstance(agent_attrition, (int, float)):
+            synthetic_state["attrition_probability"] = round(0.6 * lever_attrition + 0.4 * float(agent_attrition), 4)
+        else:
+            synthetic_state["attrition_probability"] = round(lever_attrition, 4)
 
         impact_analysis = await self._analyze_impact(base_state, synthetic_state, simulation_result)
 
@@ -87,37 +101,104 @@ class SyntheticTwinEngine:
         }
 
     async def _get_employee_state(self, employee_id: str) -> Dict[str, Any]:
-        return {
+        """The employee's real baseline from the UDM.
+
+        This used to return one hardcoded state for every employee, so every
+        simulation produced the same numbers no matter who or what was modelled.
+        """
+        # Numeric fields must stay numeric: downstream impact analysis does
+        # arithmetic on them. `source` reports whether these are real readings
+        # or the neutral baseline used when the employee has no record.
+        state: Dict[str, Any] = {
             "employee_id": employee_id,
-            "current_risk_score": 0.65,
-            "attrition_probability": 0.3,
-            "productivity_score": 0.8,
-            "compensation": 85000.0,
-            "tenure_months": 24,
-            "skill_gaps": ["leadership", "technical_depth"],
-            "engagement_score": 0.75,
+            "current_risk_score": 0.5,
+            "attrition_probability": 0.5,
+            "productivity_score": 0.6,
+            "compensation": 0.0,
+            "tenure_months": 0,
+            "engagement_score": 0.5,
+            "source": "no record found; neutral baseline",
         }
+        try:
+            row = await pg_client.fetchrow(
+                """SELECT e.tenure_months, e.dtla_risk_score, e.department, e.job_title,
+                          (SELECT AVG(overall_rating) FROM performance_reviews r
+                             WHERE r.employee_uuid = e.employee_uuid) AS avg_rating
+                     FROM employee_pii e WHERE e.employee_uuid = $1""",
+                employee_id,
+            )
+        except Exception as e:
+            logger.warning(f"twin baseline lookup failed for {employee_id}: {e}")
+            return state
+
+        if not row:
+            return state
+
+        risk = float(row["dtla_risk_score"]) if row.get("dtla_risk_score") is not None else 0.5
+        rating = float(row["avg_rating"]) if row.get("avg_rating") is not None else None
+
+        state.update({
+            "current_risk_score": round(risk, 3),
+            "attrition_probability": round(risk, 3),
+            # Performance rating (0-5) mapped onto a 0-1 productivity index.
+            "productivity_score": round(rating / 5.0, 3) if rating is not None else 0.6,
+            "tenure_months": int(row["tenure_months"]) if row.get("tenure_months") is not None else 0,
+            # Engagement is inferred from rating and risk; both are real signals.
+            "engagement_score": round(max(0.0, min(1.0, (rating / 5.0 if rating else 0.5) * (1 - risk) + 0.2)), 3),
+            "department": row.get("department"),
+            "job_title": row.get("job_title"),
+            "source": "employee record",
+        })
+        return state
+
+    # What each retention lever does to the modelled state. Values are per unit
+    # of the lever and are applied against the employee's real baseline, so the
+    # same lever moves different people by different amounts.
+    LEVERS = {
+        # lever name: (risk delta per unit, engagement delta per unit, cap)
+        "salary_increase_pct":  (-0.012, 0.010, 20),   # diminishing past ~20%
+        "compensation":         (-0.000002, 0.000002, 50000),
+        "training_sessions":    (-0.015, 0.020, 8),
+        "training_hours":       (-0.002, 0.003, 60),
+        "remote_work_days":     (-0.020, 0.025, 5),
+        "remote_days_per_week": (-0.020, 0.025, 5),
+        "promotion":            (-0.120, 0.150, 1),
+        "manager_change":       (-0.060, 0.080, 1),
+    }
 
     def _apply_adjustments(self, state: Dict[str, Any], adjustments: Dict[str, Any]) -> Dict[str, Any]:
+        """Apply retention levers to the employee's real baseline.
+
+        Previously only keys that already existed on the state were applied, so
+        the levers the UI actually sends (salary_increase_pct, training_sessions,
+        remote_work_days) were ignored and every scenario returned the same
+        number regardless of how aggressive it was.
+        """
+        risk = float(state.get("current_risk_score", 0.5) or 0.5)
+        engagement = float(state.get("engagement_score", 0.5) or 0.5)
+        applied: Dict[str, Any] = {}
+
         for key, value in adjustments.items():
-            if key in state:
-                # CRITICAL FIX: Ensure safe numeric addition
-                if isinstance(state[key], (int, float)) and isinstance(value, (int, float)):
-                    state[key] += float(value)
-                else:
-                    state[key] = value
+            if not isinstance(value, (int, float)):
+                state[key] = value
+                continue
+
+            spec = self.LEVERS.get(key)
+            if spec:
+                risk_per_unit, eng_per_unit, cap = spec
+                effective = max(-cap, min(float(value), cap))  # diminishing returns
+                risk += risk_per_unit * effective
+                engagement += eng_per_unit * effective
+                applied[key] = effective
+            elif key in state and isinstance(state[key], (int, float)):
+                state[key] += float(value)
             else:
                 state[key] = value
 
-        # Deterministic impact simulation based on adjustments (for initial synthetic state)
-        if "compensation" in adjustments:
-            # Increase engagement by 10% of current or 0.1, whichever is smaller
-            state["engagement_score"] = min(1.0, state.get("engagement_score", 0.7) + min(0.1, adjustments["compensation"]/100000.0))
-
-        if "training_hours" in adjustments:
-            # Simulate skill gap reduction
-            state["skill_gaps"] = [g for g in state["skill_gaps"] if g != "technical_depth"]
-
+        state["current_risk_score"] = round(max(0.0, min(1.0, risk)), 3)
+        state["attrition_probability"] = state["current_risk_score"]
+        state["engagement_score"] = round(max(0.0, min(1.0, engagement)), 3)
+        state["levers_applied"] = applied
         return state
 
     async def _generate_synthetic_scenario(

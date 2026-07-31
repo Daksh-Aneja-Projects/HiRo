@@ -218,6 +218,31 @@ def wf_no_fabricated_data():
     assert benefits["health_plan"] is None, "benefits invented a health plan"
 
 
+def wf_simulation_is_real():
+    """Attrition scoring and simulation must reflect the actual employee and the
+    actual levers, not return one constant for everybody.
+    """
+    mgr = login("manager")
+
+    # Different employees must score differently, from their own record.
+    scores = {}
+    for emp in ("EMP-001", "EMP-005"):
+        r = call("POST", "/wfp/predict_attrition", mgr, {"employee_id": emp})
+        assert r.get("source") == "employee record", f"{emp} was not scored from its record: {r.get('source')}"
+        scores[emp] = r["risk_score"]
+    assert scores["EMP-001"] != scores["EMP-005"], f"every employee scored the same: {scores}"
+
+    # A bigger intervention must move risk further than a token one.
+    def delta(adjustments):
+        res = call("POST", "/simulation/run", mgr, {
+            "employee_id": "EMP-005", "synthetic_adjustments": adjustments, "simulation_type": "what_if",
+        })
+        return res["metrics"]["risk_score_delta"]
+
+    small, large = delta({"salary_increase_pct": 2}), delta({"salary_increase_pct": 25, "training_sessions": 10})
+    assert large < small, f"levers had no effect: small={small} large={large}"
+
+
 def wf_consent_is_recorded():
     """A privacy control must not report success while storing the opposite."""
     emp = login("employee")
@@ -246,6 +271,7 @@ def main():
     check("RBAC denies cross-role access", wf_rbac)
     check("employees cannot reach a colleague's PII", wf_pii_scoping)
     check("no endpoint fabricates content", wf_no_fabricated_data)
+    check("attrition scoring and simulation are real", wf_simulation_is_real)
     check("consent is recorded as chosen", wf_consent_is_recorded)
 
     print()

@@ -124,7 +124,52 @@ class WorkforcePlanningService:
             )
         return gaps
 
+    async def _load_employee_features(self, employee_uuid: str) -> Dict[str, Any]:
+        """Read this employee's real features from the UDM.
+
+        Without this the model scored whatever the caller passed, so every
+        employee came back with an identical risk. Explicit values supplied by a
+        what-if simulation still win; anything absent is read from the record.
+        """
+        features: Dict[str, Any] = {}
+        try:
+            row = await pg_client.fetchrow(
+                """SELECT e.tenure_months, e.dtla_risk_score, e.department, e.job_title,
+                          (SELECT AVG(overall_rating) FROM performance_reviews r
+                             WHERE r.employee_uuid = e.employee_uuid) AS avg_rating,
+                          (SELECT MAX(effective_date) FROM comp_history c
+                             WHERE c.employee_uuid = e.employee_uuid) AS last_raise
+                     FROM employee_pii e WHERE e.employee_uuid = $1""",
+                employee_uuid,
+            )
+        except Exception as e:
+            logger.warning(f"attrition features lookup failed for {employee_uuid}: {e}")
+            return features
+
+        if not row:
+            return features
+
+        if row.get("tenure_months") is not None:
+            features["tenure_months"] = int(row["tenure_months"])
+        if row.get("avg_rating") is not None:
+            features["satisfaction_score"] = float(row["avg_rating"])
+        if row.get("dtla_risk_score") is not None:
+            features["dtla_risk_score"] = float(row["dtla_risk_score"])
+        if row.get("last_raise"):
+            months = (datetime.now(timezone.utc).date() - row["last_raise"]).days / 30.44
+            features["last_raise_months"] = max(0, int(months))
+        features["department"] = row.get("department")
+        features["job_title"] = row.get("job_title")
+        return features
+
     async def predict_attrition_risk(self, employee_data: Dict[str, Any]) -> Dict[str, Any]:
+        # Ground the prediction in the employee's real record; caller-supplied
+        # values (a what-if scenario) override what is on file.
+        employee_uuid = employee_data.get('employee_uuid') or employee_data.get('employee_id')
+        if employee_uuid:
+            on_file = await self._load_employee_features(employee_uuid)
+            employee_data = {**on_file, **{k: v for k, v in employee_data.items() if v is not None}}
+
         tenure = employee_data.get('tenure_months', 12)
         perf_score = employee_data.get('satisfaction_score', 3.0)
         comp_percentile = employee_data.get('compensation_percentile', 50)
@@ -150,6 +195,13 @@ class WorkforcePlanningService:
         if last_raise_months > 24:
             risk += 0.10 * (last_raise_months - 24) / 12
         
+        # The seeded workforce carries a per-employee risk signal from the source
+        # dataset. Blend it with the feature model so two employees with similar
+        # tenure and rating do not collapse to the same number.
+        observed = employee_data.get('dtla_risk_score')
+        if observed is not None:
+            risk = 0.5 * risk + 0.5 * float(observed)
+
         final_risk = min(1.0, max(0.0, risk))
         
         if final_risk > 0.85:
@@ -167,11 +219,16 @@ class WorkforcePlanningService:
             "risk_level": level,
             "feature_vector_used": {
                 "tenure_months": tenure,
-                "performance_score": perf_score,
+                "performance_score": round(float(perf_score), 2),
                 "compa_ratio": round(compa_ratio, 3),
                 "last_raise_months": last_raise_months,
-                "remote_days_per_week": remote_days
+                "remote_days_per_week": remote_days,
+                "observed_risk_signal": observed,
             },
+            # Says plainly whether this was scored against the real record.
+            "source": "employee record" if employee_data.get("job_title") else "supplied values only",
+            "department": employee_data.get("department"),
+            "job_title": employee_data.get("job_title"),
             "recommendation": self._get_recommendation(level, compa_ratio, perf_score, last_raise_months)
         }
 
