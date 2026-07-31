@@ -31,18 +31,33 @@ class XAIWrapper:
         else:
             logger.info("✓ XAI Wrapper Initialized (Heuristic Explainer, no predictor context).")
             
-    def _calculate_feature_contributions(self, employee_data: Dict[str, Any]) -> Dict[str, Any]:
+    def _calculate_feature_contributions(self, employee_data: Dict[str, Any],
+                                         predicted_score: Optional[float] = None) -> Dict[str, Any]:
+        """Explain a workforce-planning prediction.
+
+        `predicted_score`, when supplied, is the authoritative risk from the
+        prediction model; the contributions below explain how it was reached.
+        Without it this class computed its own competing number, so the same
+        employee could be shown two different risks on one screen.
         """
-        Calculates deterministic feature contributions based on WFP heuristic logic.
-        """
-        # CRITICAL FIX: Safely retrieve and cast inputs
-        tenure = float(employee_data.get('tenure_months', 0))
-        ai_features = employee_data.get('UDM', {}).get('AI_Features', {})
-        comp_percentile = float(ai_features.get('compensation_percentile', 50.0))
-        perf_score = float(ai_features.get('satisfaction_score', 3.0))
-        
-        # Comma ratio calculation is simplified here for mock consistency
-        compa_ratio = 0.8 + (comp_percentile / 100.0) * 0.4 
+        # Features arrive flat from the prediction's feature_vector_used; older
+        # callers nested them under UDM.AI_Features. Accept both, otherwise every
+        # explanation silently ran on defaults.
+        ai_features = (employee_data.get('UDM', {}) or {}).get('AI_Features', {}) or {}
+
+        def feat(name, default):
+            for source in (employee_data, ai_features):
+                if source.get(name) is not None:
+                    return float(source[name])
+            return float(default)
+
+        tenure = feat('tenure_months', 0)
+        perf_score = feat('performance_score', feat('satisfaction_score', 3.0))
+        comp_percentile = feat('compensation_percentile', 50.0)
+
+        # Prefer the compa ratio the prediction already computed.
+        compa_ratio = employee_data.get('compa_ratio')
+        compa_ratio = float(compa_ratio) if compa_ratio is not None else 0.8 + (comp_percentile / 100.0) * 0.4
         
         contributions: List[Dict[str, Any]] = []
 
@@ -61,28 +76,43 @@ class XAIWrapper:
         elif comp > 1.1: c_comp = -0.2
         contributions.append(self._fmt_contrib("Compensation_Ratio", c_comp, "Market ratio impact"))
         
-        # CRITICAL FIX: Base score is 0.5 (WFP logic) plus contributions
         base_score = 0.5
-        total_impact = base_score + c_tenure + c_perf + c_comp
-        
-        # Generate Narrative
+        derived = base_score + c_tenure + c_perf + c_comp
+        # The prediction model is the source of truth when it gave us a score.
+        score = float(predicted_score) if predicted_score is not None else derived
+
+        # Plain-English factor names; raw identifiers should never reach a reader.
+        LABELS = {
+            "Tenure_Months": "length of service",
+            "Performance_Score": "performance rating",
+            "Compensation_Ratio": "pay against the market",
+        }
+
         sorted_factors = sorted(contributions, key=lambda x: x['impact'], reverse=True)
-        primary = sorted_factors[0]
-        
-        summary = f"Risk Score {total_impact:.3f}. " 
-        
-        if primary['impact'] > 0.01: # Check for meaningful positive impact
-            summary += f"Primary driver is {primary['feature']} (Contributing {primary['impact']:.3f})."
-        elif sorted_factors[-1]['impact'] < -0.01: # Check for meaningful negative impact (mitigation)
-             summary += f"Risk is mitigated primarily by {sorted_factors[-1]['feature']}."
+        primary, weakest = sorted_factors[0], sorted_factors[-1]
+        pct = round(score * 100)
+
+        if primary['impact'] > 0.01:
+            summary = (f"This person has an estimated {pct}% chance of leaving. "
+                       f"The biggest factor pushing that up is their {LABELS.get(primary['feature'], primary['feature'].lower())}.")
+        elif weakest['impact'] < -0.01:
+            summary = (f"This person has an estimated {pct}% chance of leaving, "
+                       f"held down mainly by their {LABELS.get(weakest['feature'], weakest['feature'].lower())}.")
         else:
-             summary += "Risk is neutral; no single dominant driver detected."
-            
+            summary = (f"This person has an estimated {pct}% chance of leaving, "
+                       "with no single factor standing out.")
+
         return {
             "model_type": "Heuristic_v2",
-            "prediction_score": round(total_impact, 3),
+            "prediction_score": round(score, 3),
+            # Kept so the two numbers can be compared rather than silently differing.
+            "explained_from": "workforce planning model" if predicted_score is not None else "explainer heuristic",
+            "explainer_derived_score": round(derived, 3),
             "human_summary": summary,
-            "feature_contributions": contributions,
+            "feature_contributions": [
+                {**c, "label": LABELS.get(c["feature"], c["feature"].replace("_", " ").lower())}
+                for c in contributions
+            ],
             "generated_at": datetime.now(timezone.utc).isoformat()
         }
 
@@ -95,11 +125,13 @@ class XAIWrapper:
             "reason": reason
         }
     
-    async def get_feature_contributions(self, employee_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def get_feature_contributions(self, employee_data: Dict[str, Any],
+                                        predicted_score: Optional[float] = None) -> Dict[str, Any]:
         """Async wrapper for feature calculation."""
-        return self._calculate_feature_contributions(employee_data)
+        return self._calculate_feature_contributions(employee_data, predicted_score)
         
     # CRITICAL FIX: Adding synchronous method placeholder as required by Orchestrator
-    def explain_prediction(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Synchronous method for the orchestration map, avoiding unsafe asyncio.run."""
-        return self._calculate_feature_contributions(data)
+    def explain_prediction(self, data: Dict[str, Any], predicted_score: Optional[float] = None) -> Dict[str, Any]:
+        """Explain a prediction. Pass the model's score so the explanation and the
+        prediction always agree."""
+        return self._calculate_feature_contributions(data, predicted_score)

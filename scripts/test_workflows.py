@@ -243,6 +243,33 @@ def wf_simulation_is_real():
     assert large < small, f"levers had no effect: small={small} large={large}"
 
 
+def wf_models_agree():
+    """The explainer must explain the prediction, not compute a rival number."""
+    mgr = login("manager")
+    for emp in ("EMP-001", "EMP-005"):
+        predicted = call("POST", "/wfp/predict_attrition", mgr, {"employee_id": emp})["risk_score"]
+        explained = call("POST", "/data/xai/explain", mgr,
+                         {"model_name": "attrition", "prediction_input": {"employee_id": emp}})
+        assert explained["prediction_score"] == predicted, (
+            f"{emp}: prediction {predicted} but explanation {explained['prediction_score']}")
+        assert explained["explained_from"] == "workforce planning model"
+        # The narrative must read as a sentence, not a raw feature identifier.
+        assert "_" not in explained["human_summary"], explained["human_summary"]
+
+
+def wf_analytics_filter_works():
+    """The department filter must change the numbers, not just the label."""
+    mgr = login("manager")
+    departments = call("GET", "/advanced-analytics/departments", mgr)["departments"]
+    assert len(departments) > 3, f"department list looks wrong: {departments}"
+
+    overall = call("GET", "/advanced-analytics/metrics", mgr)
+    scoped = call("GET", f"/advanced-analytics/metrics?department={departments[0]}", mgr)
+    assert scoped["headcount"] < overall["headcount"], (
+        f"filter did not scope the data: {scoped['headcount']} vs {overall['headcount']}")
+    assert scoped["scope"] == departments[0]
+
+
 def wf_consent_is_recorded():
     """A privacy control must not report success while storing the opposite."""
     emp = login("employee")
@@ -272,6 +299,8 @@ def main():
     check("employees cannot reach a colleague's PII", wf_pii_scoping)
     check("no endpoint fabricates content", wf_no_fabricated_data)
     check("attrition scoring and simulation are real", wf_simulation_is_real)
+    check("prediction and explanation agree", wf_models_agree)
+    check("analytics department filter really filters", wf_analytics_filter_works)
     check("consent is recorded as chosen", wf_consent_is_recorded)
 
     print()

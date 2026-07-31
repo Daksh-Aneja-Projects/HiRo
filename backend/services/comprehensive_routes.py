@@ -640,7 +640,15 @@ async def explain_prediction(req: Request, model_name: str = Body(...), predicti
     
     prediction = await wfm_service.predict_attrition_risk(prediction_input)
     feature_vector = prediction.get('feature_vector_used', prediction_input)
-    return xai.explain_prediction(feature_vector)
+    # Explain the prediction rather than computing a second, competing score:
+    # the same employee used to show two different risk numbers on one screen.
+    explanation = xai.explain_prediction(feature_vector, prediction.get('risk_score'))
+    return {
+        **explanation,
+        "risk_level": prediction.get("risk_level"),
+        "recommendation": prediction.get("recommendation"),
+        "employee_uuid": prediction.get("employee_uuid"),
+    }
 
 @data_router.get("/xai/audit/{model_name}")
 async def get_model_audit_log(req: Request, model_name: str, limit: int = Query(10), payload: Dict=Depends(hrit_admin_role_required)):
@@ -1405,15 +1413,27 @@ async def generate_jd_draft(req: Request, data: Dict, payload: Dict = Depends(ma
 # ======================================
 @talent_exp_router.get("/digital-twin/xai")
 async def get_digital_twin_xai(req: Request, payload: Dict = Depends(employee_role_required)):
-    """Real XAI-style explanation derived from the employee's attrition feature vector."""
+    """Explain THIS employee's own retention outlook.
+
+    Previously this explained workforce-wide averages, so every employee saw the
+    same explanation about the whole organisation rather than about themselves.
+    """
     wfm_service: WFMService = getattr(req.app.state, "wfm_service", None)
     xai: XAIWrapper = getattr(req.app.state, "xai_wrapper", None)
     employee_uuid = payload.get("employee_uuid")
     if not (wfm_service and xai and employee_uuid):
         raise HTTPException(status_code=503, detail="Digital twin explainability unavailable.")
-    projections = await wfm_service.get_current_projections()
-    feature_vector = {"employee_uuid": employee_uuid, **(projections.get("current_state") or {})}
-    return xai.explain_prediction(feature_vector)
+
+    prediction = await wfm_service.predict_attrition_risk({"employee_id": employee_uuid})
+    explanation = xai.explain_prediction(
+        prediction.get("feature_vector_used", {}), prediction.get("risk_score")
+    )
+    return {
+        **explanation,
+        "employee_uuid": employee_uuid,
+        "risk_level": prediction.get("risk_level"),
+        "recommendation": prediction.get("recommendation"),
+    }
 
 @talent_exp_router.post("/learning/synthesize/{employee_id}")
 async def synthesize_learning_curriculum(req: Request, employee_id: str, target_role: Optional[str] = Body(None, embed=True), payload: Dict = Depends(employee_role_required)):
