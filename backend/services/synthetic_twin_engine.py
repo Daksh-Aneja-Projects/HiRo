@@ -17,6 +17,18 @@ class AdvancedAIServices:
 
 logger = logging.getLogger(__name__)
 
+def _num(value, default: float) -> float:
+    """A number, treating a real zero as a real zero.
+
+    `float(x or default)` reads 0.0 as missing, because zero is falsy. That
+    turned a scenario strong enough to drive risk down to zero into one that
+    reported risk *rising* to the 0.5 default: the strongest retention package
+    the product could model came back recommending caution.
+    """
+    return float(default if value is None else value)
+
+
+
 class SyntheticTwinEngine:
     def __init__(self, dt_agent: DigitalTwinAgent, ai_service: AdvancedAIServices):
         self.dt_agent = dt_agent
@@ -72,7 +84,7 @@ class SyntheticTwinEngine:
         # report a large risk change (down for people above the mean, up for
         # people below it), which is the worst possible failure for a control a
         # manager might act on. A no-op must read as no change.
-        lever_risk = round(float(synthetic_state.get("current_risk_score", 0.5) or 0.5), 4)
+        lever_risk = round(_num(synthetic_state.get("current_risk_score"), 0.5), 4)
         synthetic_state["current_risk_score"] = lever_risk
         # One quantity, one number: attrition probability tracked risk separately
         # and could report "no change" beside a 24-point risk move.
@@ -188,8 +200,8 @@ class SyntheticTwinEngine:
         remote_work_days) were ignored and every scenario returned the same
         number regardless of how aggressive it was.
         """
-        risk = float(state.get("current_risk_score", 0.5) or 0.5)
-        engagement = float(state.get("engagement_score", 0.5) or 0.5)
+        risk = _num(state.get("current_risk_score"), 0.5)
+        engagement = _num(state.get("engagement_score"), 0.5)
         engagement_before = engagement
         applied: Dict[str, Any] = {}
 
@@ -216,12 +228,12 @@ class SyntheticTwinEngine:
 
         # Productivity and cost were structurally dead: no lever wrote them, so a
         # 20% pay rise reported zero cost and zero productivity effect.
-        base_productivity = float(state.get("productivity_score") or 0.0)
+        base_productivity = _num(state.get("productivity_score"), 0.0)
         # Engagement gains carry into productivity at a damped rate.
         engagement_gain = state["engagement_score"] - float(engagement_before)
         state["productivity_score"] = round(max(0.0, min(1.0, base_productivity + engagement_gain * 0.5)), 3)
 
-        base_salary = float(state.get("compensation") or 0.0)
+        base_salary = _num(state.get("compensation"), 0.0)
         pay_rise_pct = float(applied.get("salary_increase_pct", 0) or 0)
         promotion_pct = 8.0 * float(applied.get("promotion", 0) or 0)  # a promotion carries a band uplift
         extra_cash = float(applied.get("compensation", 0) or 0)

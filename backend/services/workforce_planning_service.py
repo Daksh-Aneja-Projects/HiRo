@@ -209,30 +209,57 @@ class WorkforcePlanningService:
         last_raise_months = employee_data.get('last_raise_months', 18)
         
         compa_ratio = 0.8 + (comp_percentile / 100.0) * 0.4
-        
-        risk = 0.4 
-        
+
+        # Each adjustment is recorded as it is applied, so the explanation can
+        # report exactly what this model did instead of recomputing it with
+        # weights of its own. The two used to disagree by up to ten points, and
+        # the panel still told the reader the factors added up to the score.
+        BASELINE = 0.4
+        risk = BASELINE
+        drivers = []
+
+        def apply(feature, delta, reason):
+            nonlocal risk
+            risk += delta
+            if abs(delta) >= 0.001:
+                drivers.append({"feature": feature, "impact": round(delta, 3), "reason": reason})
+
         if 12 < tenure <= 36:
-            risk += 0.15 * (1 - (tenure - 12) / 24)
+            apply("Tenure_Months", 0.15 * (1 - (tenure - 12) / 24),
+                  f"At {tenure:g} months they are still in the stretch where people most often move on.")
         elif tenure < 12:
-            risk += 0.05
-        
-        risk -= 0.10 * (perf_score - 3.0) / 2.0
-        
-        if compa_ratio < 0.9:
-            risk += 0.20
-        elif compa_ratio > 1.1:
-            risk -= 0.05
-            
+            apply("Tenure_Months", 0.05,
+                  f"{tenure:g} months in, they are new enough that leaving is still easy.")
+        else:
+            apply("Tenure_Months", 0.0,
+                  f"{tenure:g} months of service puts them past the point where most people leave.")
+
+        rating_delta = -0.10 * (perf_score - 3.0) / 2.0
+        apply("Performance_Score", rating_delta,
+              (f"A rating of {perf_score:.1f} is below the level where people usually stay engaged."
+               if rating_delta > 0 else
+               f"A rating of {perf_score:.1f} is above average, which tends to go with staying."))
+
+        if employee_data.get('compensation_percentile') is not None:
+            if compa_ratio < 0.9:
+                apply("Compensation_Ratio", 0.20,
+                      f"They are paid below the market rate for this role ({compa_ratio:.2f} of it).")
+            elif compa_ratio > 1.1:
+                apply("Compensation_Ratio", -0.05,
+                      f"They are paid above the market rate for this role ({compa_ratio:.2f} of it).")
+
         if last_raise_months > 24:
-            risk += 0.10 * (last_raise_months - 24) / 12
+            apply("Last_Raise_Months", 0.10 * (last_raise_months - 24) / 12,
+                  f"It has been {last_raise_months:g} months since their pay last changed.")
         
-        # The seeded workforce carries a per-employee risk signal from the source
-        # dataset. Blend it with the feature model so two employees with similar
-        # tenure and rating do not collapse to the same number.
-        observed = employee_data.get('dtla_risk_score')
-        if observed is not None:
-            risk = 0.5 * risk + 0.5 * float(observed)
+        # dtla_risk_score is the same model, computed in bulk over the whole
+        # workforce (see scripts/recompute_attrition_risk.py). Blending it in
+        # here would count the same signals twice and halve the effect of any
+        # what-if adjustment the caller made, which is what made simulations
+        # look weaker than they were. It is only a fallback now, for an employee
+        # whose features could not be read.
+        if not employee_data.get('tenure_months') and employee_data.get('dtla_risk_score') is not None:
+            risk = float(employee_data['dtla_risk_score'])
 
         final_risk = min(1.0, max(0.0, risk))
         
@@ -249,13 +276,19 @@ class WorkforcePlanningService:
             "employee_uuid": employee_data.get('employee_uuid', employee_data.get('employee_id', 'unknown')),
             "risk_score": round(final_risk, 3),
             "risk_level": level,
+            "baseline_risk": BASELINE,
+            "drivers": drivers,
             "feature_vector_used": {
                 "tenure_months": tenure,
                 "performance_score": round(float(perf_score), 2),
-                "compa_ratio": round(compa_ratio, 3),
+                # compa_ratio is only meaningful when a pay percentile was
+                # actually supplied; otherwise it is the default and the
+                # explanation must not show it as a per-person factor.
+                "compa_ratio": (round(compa_ratio, 3)
+                                if employee_data.get('compensation_percentile') is not None else None),
                 "last_raise_months": last_raise_months,
                 "remote_days_per_week": remote_days,
-                "observed_risk_signal": observed,
+                "observed_risk_signal": employee_data.get('dtla_risk_score'),
             },
             # Says plainly whether this was scored against the real record.
             "source": "employee record" if employee_data.get("job_title") else "supplied values only",

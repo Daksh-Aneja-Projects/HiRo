@@ -743,9 +743,11 @@ async def explain_prediction(req: Request, model_name: str = Body(...), predicti
     
     prediction = await wfm_service.predict_attrition_risk(prediction_input)
     feature_vector = prediction.get('feature_vector_used', prediction_input)
-    # Explain the prediction rather than computing a second, competing score:
-    # the same employee used to show two different risk numbers on one screen.
-    explanation = xai.explain_prediction(feature_vector, prediction.get('risk_score'))
+    # Report the adjustments the model actually made. Recomputing them with the
+    # explainer's own weights produced a breakdown that disagreed with the score
+    # it was explaining. Older predictions without a driver list fall back.
+    explanation = (xai.explain_drivers(prediction) if prediction.get("drivers")
+                   else xai.explain_prediction(feature_vector, prediction.get('risk_score')))
     return {
         **explanation,
         "risk_level": prediction.get("risk_level"),
