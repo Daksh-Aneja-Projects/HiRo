@@ -51,10 +51,26 @@ async def leaderboard(db, limit: int = LEADERBOARD_LIMIT):
 
 
 async def give_star(db, *, from_user, to_user, reason):
-    if not to_user or to_user == from_user:
+    """Award a recognition star.
+
+    `to_user` may be a sign-in name or a Postgres employee id: the manager's
+    roster keys people by employee id, so requiring a username forced the UI to
+    make an extra lookup call per star.
+    """
+    if not to_user:
+        raise ValueError("Choose someone to recognise.")
+
+    target = await db.users.find_one({"username": to_user}) \
+        or await db.users.find_one({"employee_uuid": to_user})
+    if not target:
+        raise ValueError(f"No account matches '{to_user}'.")
+
+    # Normalise to the sign-in name so the leaderboard groups correctly however
+    # the caller identified the person.
+    to_user = target.get("username") or to_user
+    if to_user == from_user:
         raise ValueError("You cannot give recognition to yourself.")
-    target = await db.users.find_one({"username": to_user})
-    to_user_name = (target or {}).get("full_name") or to_user
+    to_user_name = target.get("full_name") or to_user
     await db.recognition_stars.insert_one({
         "from_user": from_user,
         "to_user": to_user,

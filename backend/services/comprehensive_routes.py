@@ -1359,13 +1359,13 @@ async def predict_attrition(req: Request, employee_data: Dict = Body(...), paylo
 # ======================================
 @ta_router.get("/snapshot")
 async def get_talent_pool_snapshot(req: Request, payload: Dict = Depends(manager_role_required)):
-    """FIX: Added missing endpoint for Talent Pool Snapshot."""
+    """Talent pools derived from the real workforce and open requisitions."""
     ta_service: TalentAcquisitionService = getattr(req.app.state, "ta_service", None)
     if not ta_service: raise HTTPException(status_code=503, detail="Talent Acquisition Service unavailable.")
-    if hasattr(ta_service, 'get_talent_pool_snapshot'):
-        return await ta_service.get_talent_pool_snapshot()
-    else:
-        return {"pools": {"Engineering": {"size": 420}, "HR": {"size": 85}}}
+    return await ta_service.get_talent_pool_snapshot(
+        mongo_client=getattr(req.app.state, "mongo_client", None),
+        db_name=settings.MONGO_DB_NAME,
+    )
         
 @ta_router.post("/predict_risk")
 async def predict_ta_pipeline_risk(req: Request, scenario_data: Dict = Body(..., embed=True), payload: Dict = Depends(manager_role_required)):
@@ -1976,8 +1976,13 @@ async def vote_innovation_idea(req: Request, payload_data: Dict, payload: Dict =
 # 17. RECOGNITION ROUTES (Dedicated router - Fixes 404)
 # ======================================
 @recognition_router.post("/star/{user_id}")
-async def give_recognition_star(req: Request, user_id: str, reason: str = Body(..., embed=True), payload: Dict = Depends(manager_role_required)):
-    """Persist a recognition star; recipient display name resolved from the users store."""
+async def give_recognition_star(req: Request, user_id: str, reason: str = Body(..., embed=True), payload: Dict = Depends(employee_role_required)):
+    """Persist a recognition star; recipient display name resolved from the users store.
+
+    Peer recognition is open to everyone: the Collaboration Hub is in the
+    employee sidebar and shows a "Give star" control, which used to 403 for the
+    very people it was aimed at. Self-recognition is still rejected.
+    """
     try:
         return await social_recognition.give_star(
             social_recognition.get_db(req),

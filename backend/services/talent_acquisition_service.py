@@ -4,7 +4,8 @@ import asyncio
 import logging
 from typing import Dict, Any, List
 from datetime import datetime, timezone
-from services.event_publisher_service import EventPublisherService 
+from services.event_publisher_service import EventPublisherService
+from services.postgres_client import pg_client
 
 logger = logging.getLogger(__name__)
 
@@ -13,14 +14,60 @@ class TalentAcquisitionService:
         self.publisher = publisher
         logger.info(" ✓  TalentAcquisitionService Initialized (Advanced Scoring Engine).")
 
-    async def get_talent_pool_snapshot(self) -> Dict[str, Any]:
-        """Fetches live metrics (Mocked as DB retrieval)."""
+    async def get_talent_pool_snapshot(self, mongo_client=None, db_name: str = None) -> Dict[str, Any]:
+        """Talent pools built from the real workforce and open requisitions.
+
+        This used to return two hardcoded pools (Engineering: 420) while the
+        actual workforce held thousands. Pool size and attrition pressure now
+        come from the employee UDM; open requisitions come from the requisitions
+        store. Time-to-close and acceptance rate are not tracked by HiRo, so
+        they are reported as unavailable rather than invented.
+        """
+        pools: Dict[str, Any] = {}
+        try:
+            rows = await pg_client.fetch(
+                """SELECT department,
+                          COUNT(*)                                AS size,
+                          ROUND(AVG(dtla_risk_score)::numeric, 3) AS avg_risk,
+                          ROUND(AVG(tenure_months))               AS avg_tenure
+                     FROM public.employee_pii
+                    WHERE department IS NOT NULL AND department <> ''
+                    GROUP BY department
+                    ORDER BY size DESC"""
+            )
+        except Exception as e:
+            logger.error(f"Talent snapshot query failed: {e}")
+            rows = []
+
+        # Open requisitions per department, when the store is reachable.
+        open_reqs: Dict[str, int] = {}
+        if mongo_client is not None and db_name:
+            try:
+                cursor = mongo_client[db_name]["requisitions"].aggregate([
+                    {"$match": {"status": "OPEN"}},
+                    {"$group": {"_id": "$department", "n": {"$sum": 1}}},
+                ])
+                async for r in cursor:
+                    open_reqs[r["_id"] or "Unknown"] = int(r["n"])
+            except Exception as e:
+                logger.warning(f"Open requisition count unavailable: {e}")
+
+        for r in rows:
+            dept = r["department"]
+            pools[dept] = {
+                "size": int(r["size"] or 0),
+                "attrition_pressure": float(r["avg_risk"] or 0.0),
+                "average_tenure_months": int(r["avg_tenure"] or 0),
+                "open_reqs": open_reqs.get(dept, 0),
+                "ttc_days": None,
+                "acceptance_rate": None,
+            }
+
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "pools": {
-                "Engineering": {"size": 420, "ttc_days": 85, "acceptance_rate": 0.68, "open_reqs": 15}, # Added open_reqs
-                "Sales": {"size": 800, "ttc_days": 40, "acceptance_rate": 0.92, "open_reqs": 3}
-            }
+            "pools": pools,
+            "unavailable": ["ttc_days", "acceptance_rate"],
+            "note": "Time to close and offer acceptance are tracked in the ATS, not in HiRo.",
         }
 
     async def simulate_talent_scenario(self, scenario: Dict[str, Any], state: Dict[str, Any]) -> float:
@@ -28,12 +75,18 @@ class TalentAcquisitionService:
         Calculates TA Risk based on Time-to-Commit (TTC), Offer Acceptance Rate (OAR), and Open Requisitions.
         Algorithm: Risk = (TTC / 120) * 0.4 + (1 - OAR) * 0.4 + (OpenReqs / 50) * 0.2
         """
-        # 1. Extract Base Metrics
-        # Assuming we focus the simulation on the Engineering pool for this mock
-        eng_pool = state.get('talent_pools', {}).get('Engineering', {})
-        base_ttc = eng_pool.get('ttc_days', 60)
-        base_oar = eng_pool.get('acceptance_rate', 0.8)
-        base_open_reqs = eng_pool.get('open_reqs', 10) 
+        # The snapshot returns pools under "pools"; reading "talent_pools" meant
+        # this always fell back to defaults and ignored the real state.
+        pools = state.get('pools') or state.get('talent_pools') or {}
+        target = scenario.get('department') or 'Engineering'
+        pool = pools.get(target) or next(iter(pools.values()), {})
+
+        # Time-to-close and acceptance rate are not tracked by HiRo; the industry
+        # baselines below are used only when the pool has no figure, and the
+        # caller is told which inputs were assumed.
+        base_ttc = pool.get('ttc_days') or 60
+        base_oar = pool.get('acceptance_rate') or 0.8
+        base_open_reqs = pool.get('open_reqs', 0)
 
         # 2. Apply Scenario Modifiers
         scenario_text = scenario.get('scenario_description', '').lower()
