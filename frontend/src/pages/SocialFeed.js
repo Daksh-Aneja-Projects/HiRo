@@ -110,6 +110,14 @@ const FeedList = memo(({ posts, isLoading, error }) => {
                     <div style={styles.header}>
                         <span style={{ fontWeight: 'bold', color: tokens.color?.['accent-primary'] }}>{post.user_name || 'Anonymous'}</span>
                         <span style={styles.meta}>{new Date(post.timestamp).toLocaleString()}</span>
+                        {/* Seeded content is labelled so nobody mistakes it for real activity. */}
+                        {post.is_sample && (
+                            <span style={{
+                                fontSize: 10.5, letterSpacing: '0.04em', textTransform: 'uppercase',
+                                padding: '2px 7px', borderRadius: 999, marginLeft: 8,
+                                background: 'rgba(255,255,255,0.06)', color: 'var(--text-tertiary)',
+                            }}>Sample</span>
+                        )}
                     </div>
                     <p style={styles.content}>{post.content}</p>
                     <div style={{ display: 'flex', gap: tokens.spacing?.md, fontSize: tokens.typography?.small?.fontSize, color: tokens.color?.['muted-500'] }}>

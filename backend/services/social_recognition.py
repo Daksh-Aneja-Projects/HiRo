@@ -108,6 +108,9 @@ async def seed(db, employees):
             "timestamp": (now - timedelta(hours=i * 5 + 1)).isoformat(),
             "upvotes": (i * 3) % 7,
             "downvotes": i % 2,
+            # Flagged so the UI can label it. Without this, seeded content is
+            # indistinguishable from real activity to anyone reading the feed.
+            "is_sample": True,
         })
     await db.social_posts.insert_many(posts)
 
