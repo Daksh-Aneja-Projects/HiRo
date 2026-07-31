@@ -154,21 +154,41 @@ class AHCMGovernanceChaincode:
             })
         return out
 
-    async def get_governance_stats(self) -> Dict[str, Any]:
-        """Real DAO aggregates backing /dao/dashboard and the governance cards."""
+    async def get_governance_stats(self, mongo_client=None) -> Dict[str, Any]:
+        """DAO aggregates backing /dao/dashboard and the governance cards.
+
+        Two of these figures did not measure what their labels said. members_voting
+        summed the voter list of every proposal, so one person who voted on four
+        proposals counted as four people, and the card read "256 people" on a
+        platform with five accounts. ledger_commits_24h counted proposals touched
+        in the last day and never went near the hash-chained ledger at all.
+        """
         row = await pg_client.fetchrow(
             """
             SELECT
-              COUNT(*) FILTER (WHERE status = 'VOTING')                        AS active_proposals,
-              COALESCE(SUM((data->>'total_votes')::float), 0)                  AS total_voting_power,
-              COALESCE(SUM(jsonb_array_length(data->'voters')), 0)             AS members_voting,
-              COUNT(*) FILTER (WHERE updated_at > NOW() - INTERVAL '24 hours') AS ledger_commits_24h
+              COUNT(*) FILTER (WHERE status = 'VOTING')       AS active_proposals,
+              COALESCE(SUM((data->>'total_votes')::float), 0) AS total_voting_power,
+              COALESCE((SELECT COUNT(DISTINCT voter)
+                        FROM dao_proposals p,
+                             LATERAL jsonb_array_elements_text(
+                                 COALESCE(p.data->'voters', '[]'::jsonb)) AS voter), 0)
+                                                             AS members_voting
             FROM dao_proposals
             """
         ) or {}
+
+        # The ledger is the Mongo policy_ledger collection, so count it there.
+        ledger_blocks_24h = 0
+        if mongo_client is not None:
+            try:
+                cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+                ledger_blocks_24h = await mongo_client[settings.MONGO_DB_NAME]["policy_ledger"]                     .count_documents({"timestamp": {"$gte": cutoff}})
+            except Exception as e:
+                logger.warning(f"Could not count ledger blocks: {e}")
+
         return {
             'active_proposals': int(row.get('active_proposals') or 0),
             'total_voting_power': float(row.get('total_voting_power') or 0.0),
             'members_voting': int(row.get('members_voting') or 0),
-            'ledger_commits_24h': int(row.get('ledger_commits_24h') or 0),
+            'ledger_commits_24h': int(ledger_blocks_24h),
         }

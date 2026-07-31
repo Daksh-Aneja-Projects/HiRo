@@ -77,8 +77,44 @@ class ESSService:
             "status": "SUCCESS",
             "employee_id": employee_id,
             "data": aggregated_data,
-            "dashboard_message": "Welcome back! Your compliance score is high."
+            "dashboard_message": await self._dashboard_message(employee_id, aggregated_data),
         }
+
+    async def _dashboard_message(self, employee_id: str, data: Dict[str, Any]) -> str:
+        """A line about this person's actual position.
+
+        This was the fixed string "Welcome back! Your compliance score is high.",
+        shown to everyone regardless of anything, and referring to a score that
+        was never looked up.
+        """
+        try:
+            row = await pg_client.fetchrow(
+                """SELECT
+                     (SELECT COUNT(*) FROM leave_requests
+                      WHERE employee_uuid = $1 AND status = 'PENDING') AS pending_leave,
+                     (SELECT COUNT(*) FROM notifications
+                      WHERE employee_uuid = $1 AND read_at IS NULL)    AS unread""",
+                employee_id)
+        except Exception:
+            row = None
+
+        pending = int((row or {}).get("pending_leave") or 0)
+        unread = int((row or {}).get("unread") or 0)
+        remaining = float(data.get("balance_hours") or 0)
+
+        parts = []
+        if unread:
+            parts.append(f"{unread} unread update{'s' if unread != 1 else ''}")
+        if pending:
+            parts.append(f"{pending} request{'s' if pending != 1 else ''} waiting on a decision")
+        if remaining > 0:
+            parts.append(f"{remaining:g} hours of leave still available")
+
+        if not parts:
+            return "Welcome back. Nothing needs your attention right now."
+        if len(parts) == 1:
+            return f"Welcome back. You have {parts[0]}."
+        return f"Welcome back. You have {', '.join(parts[:-1])}, and {parts[-1]}."
 
     async def submit_leave_request(self, employee_id: str, request_data: Dict[str, Any]) -> Dict[str, Any]:
         """

@@ -228,33 +228,58 @@ class CognitiveRemediationAgent:
 
     async def _generate_implementation_steps(self, best_fix: Dict[str, Any],
                                              original_transaction: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Generate step-by-step implementation guide"""
-        
-        steps = [
-            {
-                "step": 1,
-                "action": "Review proposed changes",
-                "details": "Compare original vs fixed transaction",
-                "estimated_time": "1 minute"
-            },
-            {
-                "step": 2,
-                "action": "Update transaction data",
-                "details": f"Modify {len(best_fix.get('changes_made', []))} field(s)",
-                "estimated_time": "2 minutes"
-            },
-            {
-                "step": 3,
-                "action": "Verify compliance",
-                "details": "Re-run policy validation",
-                "estimated_time": "1 minute"
-            },
-            {
-                "step": 4,
-                "action": "Submit corrected transaction",
-                "details": "Use the 'Submit with Fix' button",
-                "estimated_time": "1 minute"
-            }
+        """Spell out the changes this fix actually makes, one step per change.
+
+        This was a fixed four-step checklist that came out byte-identical for an
+        expense violation and a right-to-work violation. It sat inside a response
+        whose analysis and proposed fix are genuinely reasoned, which made the
+        canned part harder to notice, not easier.
+
+        The steps below are derived from the fix that was chosen: each change it
+        proposes becomes its own step naming the field, what it holds now and
+        what it would become.
+        """
+        fixed = best_fix.get("fixed_transaction") or best_fix.get("corrected_transaction") or {}
+        changes = best_fix.get("changes_made") or []
+
+        steps: List[Dict[str, Any]] = []
+
+        # Prefer the concrete before/after over the model's prose description.
+        changed_fields = [
+            (field, original_transaction.get(field), value)
+            for field, value in (fixed.items() if isinstance(fixed, dict) else [])
+            if original_transaction.get(field) != value
         ]
-        
+
+        for field, was, becomes in changed_fields:
+            steps.append({
+                "step": len(steps) + 1,
+                "action": f"Change {str(field).replace('_', ' ')}",
+                "details": (f"It is currently {was if was not in (None, '') else 'not set'}; "
+                            f"this fix would make it {becomes}."),
+            })
+
+        # If nothing concrete could be compared, fall back to what the fix said
+        # it would do rather than to a generic checklist.
+        if not steps:
+            for change in changes:
+                steps.append({
+                    "step": len(steps) + 1,
+                    "action": "Apply the correction",
+                    "details": str(change),
+                })
+
+        if not steps:
+            return [{
+                "step": 1,
+                "action": "A person needs to look at this",
+                "details": ("No specific correction could be worked out for this failure, "
+                            "so it cannot be fixed automatically."),
+            }]
+
+        steps.append({
+            "step": len(steps) + 1,
+            "action": "Check it against policy again",
+            "details": "The corrected version is re-checked before it is accepted.",
+        })
         return steps

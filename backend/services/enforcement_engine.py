@@ -126,7 +126,14 @@ async def get_compliance_overview() -> Dict[str, Any]:
     return {
         "score": score,
         "high_severity_violations": int(row.get("high_severity_violations") or 0),
-        "regulatory_feed_status": "ONLINE" if decisions_24h > 0 else "DEGRADED",
+        # This read "ONLINE" whenever any internal policy decision had been made
+        # in the last day, which has nothing to do with a regulatory feed. There
+        # is no live feed attached, and /compliance/monitor_feeds says so; the
+        # two endpoints used to contradict each other.
+        "regulatory_feed_status": "NOT_CONNECTED",
+        "regulatory_feed_note": ("No external regulatory feed is attached. "
+                                 "Jurisdictions can be subscribed, and updates apply "
+                                 "once a feed is connected."),
         "latest_version_applied": total > 0,
         "days_to_next_audit": days_to_next_audit,
         "total_decisions": total,

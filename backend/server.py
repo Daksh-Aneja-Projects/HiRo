@@ -154,9 +154,13 @@ async def generate_telemetry_background(publisher: EventPublisherService):
         try:
             await asyncio.sleep(settings.TELEMETRY_UPDATE_INTERVAL_SECONDS)         
                         
-            if not publisher or not getattr(getattr(publisher, "nc", None), "is_connected", False):
-                continue
-                        
+            # The WebSocket push below needs no message bus. This used to skip
+            # the whole loop body when NATS was down, so the live telemetry panel
+            # subscribed successfully and then received nothing at all, with no
+            # sign anywhere that it had been switched off.
+            bus_up = bool(publisher and getattr(getattr(publisher, "nc", None), "is_connected", False))
+
+            
             # Measure real system metrics (and the time it takes to collect them).
             loop = asyncio.get_event_loop()
             _t0 = loop.time()
@@ -181,8 +185,10 @@ async def generate_telemetry_background(publisher: EventPublisherService):
                 "timestamp": datetime.now(timezone.utc).isoformat()
             }
                         
-            # Publish to NATS and Broadcast to WebSockets
-            await publisher.publish_telemetry_metrics(telemetry_data)
+            # Always push to the connected browsers; publish to the bus only if
+            # there is one.
+            if bus_up:
+                await publisher.publish_telemetry_metrics(telemetry_data)
             await websocket_manager.broadcast_telemetry(telemetry_data)
                 
         except Exception as e: 

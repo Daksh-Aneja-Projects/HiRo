@@ -283,30 +283,83 @@ async def scan_policy_for_deployment(req: Request, data: PolicyScanRequest, payl
 
 @policy_router.post("/deploy-bpcl-from-prompt/{policy_id}")
 async def deploy_bpcl_from_prompt(req: Request, policy_id: str, nl_prompt: str = Body(..., embed=True), payload: Dict=Depends(policy_admin_role_required)):
-    """Generate BPCL from the NL prompt via the local LLM, persist the deployment
-    request to Mongo, and return a real tracking id."""
-    ai_service: AIService = getattr(req.app.state, "ai_service", None)
-    generated = None
-    if ai_service:
-        try:
-            generated = await ai_service.generate_text(
-                f"Convert this HR policy instruction into a compact BPCL rule as strict JSON "
-                f"(keys: rule_name, condition, action). Instruction: {nl_prompt}",
-                "You are a BPCL policy compiler. Output only JSON.",
-            )
-        except Exception as e:
-            logger.warning(f"deploy_bpcl_from_prompt LLM generation failed: {e}")
+    """Turn a written instruction into a draft policy rule, and show it back.
 
-    task_id = f"DEPLOY-{random.getrandbits(48):012x}"
+    This used to spend seven seconds of real inference, write the result into a
+    Mongo collection nothing ever reads, discard it from the response, and tell
+    the operator "Deployment Initiated". Nothing was deployed and the generated
+    rule was never seen by anyone. If the model failed it said the same thing.
+
+    A written instruction becomes a draft that a person reads and approves; it
+    does not become live policy on its own. The response now says which of those
+    happened, and carries the draft.
+    """
+    ai_service: AIService = getattr(req.app.state, "ai_service", None)
+    if not ai_service:
+        raise HTTPException(status_code=503, detail="AI Service unavailable.")
+
+    schema = {
+        "type": "object",
+        "properties": {
+            "rule_name": {"type": "string"},
+            "condition": {"type": "string"},
+            "action": {"type": "string"},
+            "plain_english": {"type": "string"},
+        },
+        "required": ["rule_name", "condition", "action", "plain_english"],
+    }
+    try:
+        draft = await ai_service.generate_json_response(
+            f"Turn this HR policy instruction into one rule.\n\nInstruction: {nl_prompt}\n\n"
+            "condition: when the rule applies. action: what happens then, one of BLOCK, FLAG or LOG. "
+            "plain_english: one sentence an employee would understand.",
+            schema, task_type="policy_drafting")
+    except Exception as e:
+        logger.warning(f"policy drafting failed for {policy_id}: {e}")
+        raise HTTPException(
+            status_code=502,
+            detail="The model could not turn that instruction into a rule. Try rewording it.")
+
+    if not draft or not draft.get("condition"):
+        raise HTTPException(
+            status_code=502,
+            detail="The model did not produce a usable rule from that instruction.")
+
+    task_id = f"DRAFT-{random.getrandbits(48):012x}"
     mongo_client = getattr(req.app.state, "mongo_client", None)
     if mongo_client:
         await mongo_client[settings.MONGO_DB_NAME]["policy_deployments"].insert_one({
             "task_id": task_id, "policy_id": policy_id, "prompt": nl_prompt,
-            "generated_bpcl": generated, "status": "QUEUED",
+            "draft": draft, "status": "AWAITING_REVIEW",
             "requested_by": payload.get("sub"),
             "created_at": datetime.now(timezone.utc).isoformat(),
         })
-    return {"status": "Deployment Initiated", "policy_id": policy_id, "task_id": task_id}
+
+    return {
+        "status": "AWAITING_REVIEW",
+        "policy_id": policy_id,
+        "task_id": task_id,
+        "draft": draft,
+        "message": ("This is a draft, not live policy. Review it and submit it through "
+                    "the policy approval process to put it into effect."),
+    }
+
+
+@policy_router.get("/drafts/{policy_id}")
+async def list_policy_drafts(req: Request, policy_id: str, limit: int = Query(20),
+                             payload: Dict = Depends(policy_admin_role_required)):
+    """Drafts written from an instruction and still waiting for review.
+
+    Drafts were written to a collection that nothing read, so once the response
+    was discarded there was no way to find them again.
+    """
+    mongo_client = getattr(req.app.state, "mongo_client", None)
+    if not mongo_client:
+        return {"policy_id": policy_id, "drafts": []}
+    cursor = mongo_client[settings.MONGO_DB_NAME]["policy_deployments"].find(
+        {"policy_id": policy_id}, {"_id": 0}
+    ).sort("created_at", -1).limit(max(1, min(int(limit or 20), 100)))
+    return {"policy_id": policy_id, "drafts": await cursor.to_list(length=100)}
 
 
 # ======================================
@@ -697,23 +750,74 @@ async def explain_prediction(req: Request, model_name: str = Body(...), predicti
 
 @data_router.get("/xai/audit/{model_name}")
 async def get_model_audit_log(req: Request, model_name: str, limit: int = Query(10), payload: Dict=Depends(hrit_admin_role_required)):
-    """Real model/policy decision audit trail from the Postgres policy_audit_log."""
+    """Decisions the policy engine made, optionally narrowed to one trigger.
+
+    This used to select every row in policy_audit_log unfiltered and stamp the
+    name from the URL onto each one, so /xai/audit/anything_at_all returned the
+    same rows labelled with whatever was asked for. They are policy decisions,
+    not model inferences, and they are now labelled as such.
+    """
     lim = max(1, min(int(limit or 10), 500))
+    # The path segment names a decision trigger (for example time_clock_in).
+    # "all" or an unknown name returns everything rather than pretending to filter.
+    trigger = None if model_name.lower() in ("all", "any", "*") else model_name.lower()
     try:
-        rows = await pg_client.fetch(
-            """SELECT audit_id, decision_timestamp, policy_version, trigger_type, decision, reason
-               FROM policy_audit_log ORDER BY decision_timestamp DESC LIMIT $1""",
-            lim,
-        )
+        if trigger:
+            rows = await pg_client.fetch(
+                """SELECT audit_id, decision_timestamp, policy_version, trigger_type, decision, reason
+                   FROM policy_audit_log WHERE lower(trigger_type) = $1
+                   ORDER BY decision_timestamp DESC LIMIT $2""",
+                trigger, lim,
+            )
+            if not rows:
+                # Nothing matched, so this was not a trigger name. Say so rather
+                # than returning unrelated rows under that heading.
+                known = await pg_client.fetch(
+                    "SELECT DISTINCT trigger_type FROM policy_audit_log ORDER BY trigger_type")
+                return {
+                    "decisions": [],
+                    "decision_type": model_name,
+                    "message": (f"No decisions have been recorded for '{model_name}'. "
+                                f"Recorded decision types: "
+                                f"{', '.join(humanise(r['trigger_type']) for r in known) or 'none yet'}."),
+                }
+        else:
+            rows = await pg_client.fetch(
+                """SELECT audit_id, decision_timestamp, policy_version, trigger_type, decision, reason
+                   FROM policy_audit_log ORDER BY decision_timestamp DESC LIMIT $1""",
+                lim,
+            )
     except Exception as e:
-        logger.warning(f"xai audit query failed: {e}")
-        return []
-    return [
-        {"audit_id": r["audit_id"], "timestamp": str(r["decision_timestamp"]),
-         "policy_version": r["policy_version"], "action": r["trigger_type"],
-         "decision": r["decision"], "reason": r.get("reason"), "model": model_name}
-        for r in rows
-    ]
+        logger.warning(f"policy decision audit query failed: {e}")
+        return {"decisions": [], "decision_type": model_name, "message": "The decision log could not be read."}
+
+    return {
+        "decisions": [
+            {"audit_id": r["audit_id"], "timestamp": str(r["decision_timestamp"]),
+             "policy_version": r["policy_version"], "action": r["trigger_type"],
+             "action_label": humanise(r["trigger_type"]),
+             "decision": r["decision"], "reason": r.get("reason"),
+             "decided_by": "policy engine"}
+            for r in rows
+        ],
+        "decision_type": model_name,
+    }
+
+
+def _audit_detail(value) -> str:
+    """The readable line out of an audit_trail JSON value."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except (ValueError, TypeError):
+            return value
+    return (value or {}).get("detail", "") if isinstance(value, dict) else str(value or "")
+
+
+def humanise(value: Optional[str]) -> str:
+    """time_clock_in -> Time clock in. Raw identifiers should not reach a reader."""
+    text = str(value or "").replace("_", " ").strip()
+    return text[:1].upper() + text[1:] if text else "Unknown"
 
 @data_router.post("/correction/{data_id}")
 async def submit_data_correction(req: Request, data_id: str, corrections: Dict[str, Any] = Body(..., embed=True), payload: Dict=Depends(hrit_admin_role_required)):
@@ -1706,7 +1810,29 @@ async def generate_bpmn(req: Request, description: str = Body(...), domain: str 
         "at least two tasks, and an endEvent."
     )
     xml = await ai_service.generate_text(prompt, "You are a BPMN modeling expert. Output only BPMN 2.0 XML.")
-    return {"description": description, "domain": domain, "bpmn_xml": xml.strip()}
+    xml = _strip_code_fence(xml)
+    if not xml.lstrip().startswith("<"):
+        raise HTTPException(
+            status_code=502,
+            detail="The model did not return XML for that description. Try describing the steps more plainly.")
+    return {"description": description, "domain": domain, "bpmn_xml": xml}
+
+
+def _strip_code_fence(text: str) -> str:
+    """Remove a surrounding markdown code fence.
+
+    The model wraps XML in ```xml ... ```, and this was returned verbatim as
+    bpmn_xml and saved to the workflow store, so anything that actually parses
+    BPMN would reject it.
+    """
+    body = (text or "").strip()
+    if not body.startswith("```"):
+        return body
+    lines = body.splitlines()
+    lines = lines[1:]                      # drop the opening ```xml
+    if lines and lines[-1].strip().startswith("```"):
+        lines = lines[:-1]
+    return "\n".join(lines).strip()
 
 @ai_router.post("/workflow/save")
 async def save_generated_workflow(req: Request, workflow_data: Dict, payload: Dict=Depends(hrit_admin_role_required)):
@@ -2098,7 +2224,7 @@ async def get_governance_dashboard_data(req: Request, payload: Dict = Depends(em
     chaincode = getattr(req.app.state, "governance_chaincode", None)
     if not chaincode:
         raise HTTPException(status_code=503, detail="Governance service unavailable.")
-    return await chaincode.get_governance_stats()
+    return await chaincode.get_governance_stats(getattr(req.app.state, "mongo_client", None))
 
 @compliance_router.get("/dashboard")
 async def get_compliance_dashboard_data(req: Request, payload: Dict = Depends(policy_admin_role_required)):
@@ -2279,9 +2405,13 @@ async def get_recognition_leaderboard(req: Request, payload: Dict = Depends(empl
 async def get_orchestrator_dashboard(req: Request, payload: Dict = Depends(manager_role_required)):
     """Live orchestrator health from real app.state agents + psutil."""
     state = req.app.state
-    # Starlette stores dynamically-set attrs in state._state, not dir(state).
-    state_keys = list(getattr(state, "_state", {}).keys())
-    agents = len([a for a in state_keys if a.endswith("_agent") or a.endswith("_service")])
+    # Count the agents the orchestrator can actually dispatch to, not app.state
+    # attribute names. The old count matched anything ending _agent or _service,
+    # so it included plain CRUD services that dispatch nothing, and counted
+    # ta_service and talent_acquisition_service twice because they are the same
+    # object under two names.
+    dispatchable = sorted(ROUTABLE_AGENTS)
+    agents = len(dispatchable)
     try:
         cpu = round(psutil.cpu_percent(interval=0.1), 1)
         mem = round(psutil.virtual_memory().percent, 1)
@@ -2289,11 +2419,25 @@ async def get_orchestrator_dashboard(req: Request, payload: Dict = Depends(manag
         cpu, mem = 0.0, 0.0
     publisher = getattr(state, "event_publisher", None)
     nats_up = bool(getattr(getattr(publisher, "nc", None), "is_connected", False)) if publisher else False
-    health = "GREEN" if (cpu < 85 and mem < 90) else "AMBER" if (cpu < 95 and mem < 97) else "RED"
+    # Health was computed from CPU and memory alone, so it reported GREEN in the
+    # same response that said the message bus was down.
+    if cpu >= 95 or mem >= 97:
+        health, health_reason = "RED", "This machine is out of processor or memory headroom."
+    elif cpu >= 85 or mem >= 90:
+        health, health_reason = "AMBER", "This machine is running hot."
+    elif not nats_up:
+        health, health_reason = "AMBER", "The message bus is down, so background agent work is not running."
+    elif not agents:
+        health, health_reason = "AMBER", "No agents are registered, so nothing can be dispatched."
+    else:
+        health, health_reason = "GREEN", "Everything is running normally."
+
     return {
         "agents": agents,
+        "agent_names": dispatchable,
         "active_tasks": len(getattr(getattr(state, "digital_twin_agent", None), "active_twins", {}) or {}),
         "system_health": health,
+        "health_reason": health_reason,
         "message_bus_connected": nats_up,
         "metrics": {"cpu": cpu, "memory": mem},
         "last_update": datetime.now(timezone.utc).isoformat(),
@@ -2304,30 +2448,59 @@ async def trigger_policy_implementation(req: Request, version_id: str = Body(...
     """Trigger real policy-workflow deployment via the BPEL agent."""
     bpel_agent: BPELAgent = getattr(req.app.state, "bpel_agent", None)
     if not bpel_agent: raise HTTPException(status_code=503, detail="BPEL Agent unavailable.")
-    result = await bpel_agent.deploy_policy_workflow(version_id)
-    return {
-        "status": result.get("status", "BPEL_EXECUTION_STARTED"),
-        "process_id": result.get("process_id"),
-        "policy_id": policy_id,
-        "message": result.get("message"),
-    }
+    try:
+        result = await bpel_agent.deploy_policy_workflow(version_id, performed_by=payload["sub"])
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    if result.get("status") == "FAILED":
+        # A deployment that stopped is not a deployment that started.
+        raise HTTPException(status_code=409, detail=result.get("message"))
+    return result
 
 @orchestrator_router.get("/history/{process_id}")
 async def get_process_execution_history(req: Request, process_id: str, payload: Dict=Depends(hrit_admin_role_required)):
-    """Real implementation-status history from Postgres (empty if none yet)."""
+    """Every step a deployment actually took, in order.
+
+    This query was correct but had no writer: nothing ever populated process_id
+    or step_name, so it returned [] for every id that was ever asked for. The
+    BPEL agent records each step as it performs it now.
+    """
     try:
         rows = await pg_client.fetch(
-            "SELECT step_name, status, updated_at FROM implementation_status WHERE process_id = $1 ORDER BY updated_at ASC",
+            """SELECT step_name, status, audit_trail, updated_at FROM implementation_status
+               WHERE process_id = $1 ORDER BY updated_at ASC""",
             process_id,
         )
-    except Exception:
+    except Exception as e:
+        logger.warning(f"deployment history query failed: {e}")
         rows = []
-    return [{"step": r["step_name"], "status": r["status"], "updated_at": str(r["updated_at"])} for r in rows]
+    if not rows:
+        return {"process_id": process_id, "steps": [],
+                "message": "Nothing has been recorded against this deployment."}
+    return {
+        "process_id": process_id,
+        "steps": [{"step": r["step_name"], "status": r["status"],
+                   "detail": _audit_detail(r.get("audit_trail")),
+                   "updated_at": str(r["updated_at"])}
+                  for r in rows],
+    }
 
 
 # ======================================
 # 19. COMMAND EXECUTION (SI CORE) (Fixed/Complete)
 # ======================================
+# The agents the command bar can route work to. One list, so the count shown on
+# the orchestrator dashboard and the choices offered to the router cannot drift
+# apart. The dashboard used to count app.state attribute names ending in _agent
+# or _service instead, which included plain CRUD services that dispatch nothing
+# and counted the same object twice under two names.
+ROUTABLE_AGENTS = {
+    "SyntheticTwinEngine": "models a change to one person before you commit to it",
+    "ConfigurationAgent": "builds and configures new agents",
+    "WorkforcePlanningService": "works out attrition risk, headcount and workforce projections",
+    "AIService": "answers directly using the local model",
+}
+
 @command_router.post("/execute")
 async def execute_orchestrator_command(req: Request, prompt: str = Body(..., embed=True), user_id: str = Body(..., embed=True), payload: Dict = Depends(hrit_admin_role_required)):
     """
@@ -2340,7 +2513,7 @@ async def execute_orchestrator_command(req: Request, prompt: str = Body(..., emb
     # Real intent routing: ask the LLM to pick the responsible agent, then produce a plan.
     routing_prompt = (
         f"Classify this HR operations command and choose exactly one agent from "
-        f"[SyntheticTwinEngine, ConfigurationAgent, WorkforcePlanningService, AIService]. "
+        f"[{', '.join(ROUTABLE_AGENTS)}]. "
         f"Command: '{prompt}'. Return strict JSON: {{\"agent\": <name>, \"summary\": <one sentence plan>}}."
     )
     raw = await ai_service.generate_text(routing_prompt, "You are an orchestration planner. Output only JSON.")
@@ -2358,7 +2531,18 @@ async def execute_orchestrator_command(req: Request, prompt: str = Body(..., emb
             "result_id": result_id, "prompt": prompt, "agent": agent, "summary": summary,
             "user_id": user_id, "status": "COMPLETED", "created_at": datetime.now(timezone.utc).isoformat(),
         })
-    return {"status": "COMPLETED", "agent": agent, "summary": summary, "result_id": result_id}
+    # This reported "COMPLETED" while only classifying the command: no agent was
+    # ever invoked, so an operator was told their instruction had been carried out
+    # when nothing had run.
+    return {
+        "status": "PLANNED",
+        "agent": agent,
+        "agent_role": ROUTABLE_AGENTS.get(agent, "handled directly"),
+        "summary": summary,
+        "result_id": result_id,
+        "message": (f"This would be handled by the part of HiRo that {ROUTABLE_AGENTS.get(agent, 'answers directly')}. "
+                    "Nothing has been carried out yet: open that area to act on it."),
+    }
 
 # /history MUST be declared before /status/{result_id}, or the path-param route
 # captures "history" as a result_id and this 404s.
