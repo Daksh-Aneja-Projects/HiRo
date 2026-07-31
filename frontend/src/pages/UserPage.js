@@ -95,7 +95,7 @@ const UserPage = memo(() => {
                 <p style={styles.subtitle}>Your record as HiRo holds it. Changes are reviewed by HR before they take effect.</p>
             </div>
 
-            <div style={ui.grid}>
+            <div style={ui.grid} className="portal-grid">
                 <div style={{ gridColumn: 'span 4' }}>
                     <DataCard title="Role on record" value={readableRole(profile?.role || userRole)} unit=""
                         icon={<ShieldCheck size={15} />} color={tokens.color?.warning} />

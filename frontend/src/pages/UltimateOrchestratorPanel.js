@@ -95,7 +95,7 @@ const CommandModule = memo(() => {
     }, [prompt, running, user, toast]);
 
     return (
-        <div style={ui.grid}>
+        <div style={ui.grid} className="portal-grid">
             <div style={{ ...ui.panel, gridColumn: 'span 5' }}>
                 <h3 style={ui.h3}>Ask the orchestrator</h3>
                 <p style={ui.hint}>
@@ -243,7 +243,7 @@ const HistoryModule = memo(() => {
 
     if (selected) {
         return (
-            <div style={ui.grid}>
+            <div style={ui.grid} className="portal-grid">
                 <div style={{ gridColumn: 'span 12' }}>
                     <Btn tone="ghost" icon={ArrowLeft} onClick={() => setSelected(null)}>Back to all commands</Btn>
                 </div>
@@ -293,7 +293,7 @@ const HistoryModule = memo(() => {
     }
 
     return (
-        <div style={ui.grid}>
+        <div style={ui.grid} className="portal-grid">
             <div style={{ gridColumn: 'span 4' }}>
                 <DataCard title="Commands on record" value={<CountUp value={rows.length} />} icon={<History size={16} />} subtitle="Most recent first" />
             </div>
@@ -405,7 +405,7 @@ const DangerModule = memo(() => {
     }, [confirmText, toast]);
 
     return (
-        <div style={ui.grid}>
+        <div style={ui.grid} className="portal-grid">
             <div style={{ ...ui.panel, gridColumn: 'span 7' }}>
                 <h3 style={ui.h3}>Instruct the agent kernel</h3>
                 <p style={ui.hint}>

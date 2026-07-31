@@ -52,7 +52,7 @@ const AgentModule = memo(() => {
     const healthy = String(orch?.system_health || '').toUpperCase() === 'GREEN';
 
     return (
-        <div style={ui.grid}>
+        <div style={ui.grid} className="portal-grid">
             <div style={{ gridColumn: 'span 3' }}>
                 <DataCard title="Agents registered" value={<CountUp value={orch?.agents ?? 0} />} icon={<Boxes size={16} />} subtitle="Available to take work" />
             </div>
@@ -151,7 +151,7 @@ const GovernanceModule = memo(() => {
     const agentOnline = String(hrsd?.agent_status || '').toLowerCase() === 'online';
 
     return (
-        <div style={ui.grid}>
+        <div style={ui.grid} className="portal-grid">
             <div style={{ gridColumn: 'span 3' }}>
                 <DataCard
                     title="Resolution agent"
@@ -261,7 +261,7 @@ const HealthModule = memo(() => {
     const activitySeries = useMetricSeries('agent_activity', { intervalMs: 3000, scale: 100 });
 
     return (
-        <div style={ui.grid}>
+        <div style={ui.grid} className="portal-grid">
             <div style={{ gridColumn: 'span 5' }}>
                 <SystemHealthPanel />
             </div>
@@ -293,7 +293,7 @@ const ModelsModule = memo(() => {
     const active = String(provider?.status || '').toLowerCase() === 'active';
 
     return (
-        <div style={ui.grid}>
+        <div style={ui.grid} className="portal-grid">
             <div style={{ gridColumn: 'span 4' }}>
                 <DataCard
                     title="Model answering right now"

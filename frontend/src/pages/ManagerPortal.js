@@ -85,7 +85,7 @@ const TeamModule = memo(() => {
     }), []);
 
     return (
-        <div style={ui.grid}>
+        <div style={ui.grid} className="portal-grid">
             <div style={styles.stat}>
                 <DataCard
                     title="People reporting to you"
@@ -294,7 +294,7 @@ const ApprovalsModule = memo(() => {
     }), []);
 
     return (
-        <div style={ui.grid}>
+        <div style={ui.grid} className="portal-grid">
             <div style={styles.stat}>
                 <DataCard
                     title="Waiting on you"
@@ -463,7 +463,7 @@ const PerformanceModule = memo(() => {
     }), []);
 
     return (
-        <div style={ui.grid}>
+        <div style={ui.grid} className="portal-grid">
             <div style={styles.chart}>
                 <DataCard
                     title="Team performance over time"
@@ -668,7 +668,7 @@ const SimulationModule = memo(() => {
     }), []);
 
     return (
-        <div style={ui.grid}>
+        <div style={ui.grid} className="portal-grid">
             <div style={styles.left}>
                 <div>
                     <h3 style={ui.h3}>Test a change before you make it</h3>

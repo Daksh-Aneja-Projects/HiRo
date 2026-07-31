@@ -124,7 +124,7 @@ const TalentExperienceHub = memo(() => {
     const riskPct = (Number(xai?.prediction_score) || 0) * 100;
 
     return (
-        <div style={ui.grid}>
+        <div style={ui.grid} className="portal-grid">
             <EmployeeStyles />
 
             {/* Skills profile */}

@@ -48,7 +48,7 @@ const PayModule = memo(() => {
     }, [toast]);
 
     return (
-        <div style={ui.grid}>
+        <div style={ui.grid} className="portal-grid">
             <EmployeeStyles />
 
             <div style={{ gridColumn: 'span 4' }}>

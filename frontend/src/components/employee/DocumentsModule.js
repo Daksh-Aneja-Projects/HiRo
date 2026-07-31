@@ -90,7 +90,7 @@ const DocumentsModule = memo(() => {
 
     if (!canUseLibrary) {
         return (
-            <div style={ui.grid}>
+            <div style={ui.grid} className="portal-grid">
                 <EmployeeStyles />
                 <div style={{ ...ui.panel, gridColumn: 'span 12' }}>
                     <h3 style={ui.h3}>My documents</h3>
@@ -102,7 +102,7 @@ const DocumentsModule = memo(() => {
     }
 
     return (
-        <div style={ui.grid}>
+        <div style={ui.grid} className="portal-grid">
             <EmployeeStyles />
 
             <div style={{ gridColumn: 'span 4' }}>

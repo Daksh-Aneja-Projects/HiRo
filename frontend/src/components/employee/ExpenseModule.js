@@ -90,7 +90,7 @@ const ExpenseModule = memo(() => {
     }, [valid, amountNum, form, receipt, toast]);
 
     return (
-        <div style={ui.grid}>
+        <div style={ui.grid} className="portal-grid">
             <EmployeeStyles />
 
             <div style={{ ...ui.panel, gridColumn: 'span 5' }}>

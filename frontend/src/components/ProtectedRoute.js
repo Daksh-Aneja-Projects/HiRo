@@ -1,49 +1,59 @@
-// /frontend/src/components/ProtectedRoute.js - FINAL PRODUCTION-READY REPLACEMENT (CRITICAL SECURITY)
-import React, { useMemo, memo } from 'react';
+// ProtectedRoute - decides whether this person may open this screen.
+import React, { memo, useEffect, useRef } from 'react';
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { hasAccess } from '../config/portalAccess'; // CRITICAL FIX: Import access control utility
+import { hasAccess } from '../config/portalAccess';
 import { useToast } from '../hooks/use-toast';
-import LoadingScreen from './LoadingScreen'; // Assuming this component exists
+import LoadingScreen from './LoadingScreen';
 
-/**
- * Ensures the user is authenticated and authorized to access the current route.
- */
+const ROLE_NAMES = {
+    hrit_admin: 'HRIT administrator',
+    hritmanager: 'HRIT administrator',
+    hrbp: 'HR business partner',
+    manager: 'manager',
+    employee: 'employee',
+};
+
+const readableRole = (role) => ROLE_NAMES[String(role || '').toLowerCase()]
+    || String(role || 'signed-in user').replace(/_/g, ' ');
+
+const PORTAL_NAMES = {
+    '/hr-portal': 'HR Operations',
+    '/hrit-portal': 'the HRIT console',
+    '/manager-portal': 'the manager portal',
+    '/employee-portal': 'the employee portal',
+    '/admin-portal': 'the admin console',
+    '/advanced-analytics': 'advanced analytics',
+    '/ultimate-orchestrator': 'orchestrator control',
+};
+
 const ProtectedRoute = memo(() => {
     const { isAuthenticated, userRole, isLoading } = useAuth();
     const location = useLocation();
     const { toast } = useToast();
-    
-    // 1. Wait for Auth Context to finish loading (essential for correct role assignment)
-    if (isLoading) {
-        return <LoadingScreen />;
-    }
 
-    // 2. Authentication Check (401)
-    if (!isAuthenticated) {
-        // Redirect unauthenticated users to login, storing the attempted path
-        return <Navigate to="/login" state={{ from: location }} replace />;
-    }
+    const allowed = !isLoading && isAuthenticated && hasAccess(userRole, location.pathname);
+    const denied = !isLoading && isAuthenticated && !allowed;
 
-    // 3. Authorization Check (403)
-    const currentPath = location.pathname;
-    
-    // CRITICAL FIX: Check if the user's role has access to the current path
-    if (!hasAccess(userRole, currentPath)) {
-        console.warn(`Access Denied: User role ${userRole} attempted to access ${currentPath}.`);
-        
-        // Notify the user of the access failure
+    // Telling the user has to happen after the render, not during it. Calling
+    // toast() in the render body updated ToastProvider while this component was
+    // still rendering, which React warns about and which can drop or duplicate
+    // the message depending on when the redirect lands.
+    const announced = useRef(null);
+    useEffect(() => {
+        if (!denied || announced.current === location.pathname) return;
+        announced.current = location.pathname;
+        const where = PORTAL_NAMES[location.pathname] || 'that screen';
         toast({
-            title: 'Access Denied (403)',
-            description: `Your role (${userRole}) is not authorized for this portal or feature.`,
+            title: 'You do not have access to that',
+            description: `Your account is set up as ${readableRole(userRole)}, which cannot open ${where}. You have been brought back to your dashboard.`,
             variant: 'destructive',
         });
+    }, [denied, location.pathname, userRole, toast]);
 
-        // Redirect unauthorized users to a safe default location (Dashboard)
-        return <Navigate to="/dashboard" replace />;
-    }
-
-    // 4. Access Granted
+    if (isLoading) return <LoadingScreen />;
+    if (!isAuthenticated) return <Navigate to="/login" state={{ from: location }} replace />;
+    if (denied) return <Navigate to="/dashboard" replace />;
     return <Outlet />;
 });
 

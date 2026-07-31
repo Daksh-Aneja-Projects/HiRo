@@ -115,7 +115,7 @@ const UsersModule = memo(() => {
     }, [refetch, toast]);
 
     return (
-        <div style={ui.grid}>
+        <div style={ui.grid} className="portal-grid">
             <div style={{ gridColumn: 'span 3' }}>
                 <DataCard title="Accounts on the platform" value={<CountUp value={users.length} />} icon={<Users size={16} />} subtitle="Every person who can sign in" />
             </div>
@@ -237,7 +237,7 @@ const AnnouncementsModule = memo(() => {
     }, [form, refetch, toast]);
 
     return (
-        <div style={ui.grid}>
+        <div style={ui.grid} className="portal-grid">
             <div style={{ ...ui.panel, gridColumn: 'span 5' }}>
                 <h3 style={ui.h3}>Publish an announcement</h3>
                 <p style={ui.hint}>Announcements are visible to every signed-in person straight away. There is no draft state, so publish only what is ready.</p>
@@ -355,7 +355,7 @@ const SystemModule = memo(() => {
     const busConnected = String(bus?.status || '').toLowerCase() === 'connected';
 
     return (
-        <div style={ui.grid}>
+        <div style={ui.grid} className="portal-grid">
             <div style={{ gridColumn: 'span 3' }}>
                 <DataCard
                     title="Platform integrity"
@@ -530,7 +530,7 @@ const SecurityModule = memo(() => {
     const mono = { fontFamily: tokens.typography?.fontMono, fontSize: '11.5px', color: tokens.color?.['muted-500'], wordBreak: 'break-all', lineHeight: 1.6 };
 
     return (
-        <div style={ui.grid}>
+        <div style={ui.grid} className="portal-grid">
             <div style={{ gridColumn: 'span 4' }}>
                 <DataCard
                     title="Encryption keys in service"

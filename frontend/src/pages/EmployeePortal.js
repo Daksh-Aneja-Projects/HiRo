@@ -93,7 +93,7 @@ const EmployeeDashboardModule = memo(() => {
     );
 
     return (
-        <div style={ui.grid}>
+        <div style={ui.grid} className="portal-grid">
             <EmployeeStyles />
 
             {dashError && <div style={{ gridColumn: 'span 12' }}><ErrorNote error={dashError} context="your dashboard summary" /></div>}
@@ -278,7 +278,7 @@ const LeaveModule = memo(() => {
     }, [datesValid, valid, form, hoursValue, toast, refetchBalance, refetchHistory]);
 
     return (
-        <div style={ui.grid}>
+        <div style={ui.grid} className="portal-grid">
             <EmployeeStyles />
 
             <div style={{ gridColumn: 'span 4' }}>
@@ -474,7 +474,7 @@ const PIISecurityModule = memo(() => {
     }, [feedback, toast]);
 
     return (
-        <div style={ui.grid}>
+        <div style={ui.grid} className="portal-grid">
             <EmployeeStyles />
 
             <div style={{ ...ui.panel, gridColumn: 'span 6' }}>
