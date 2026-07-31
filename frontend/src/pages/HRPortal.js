@@ -16,7 +16,7 @@ import { useToast } from '../hooks/use-toast';
 // UI COMPONENTS (Assume these exist and are stable)
 import DataCard from '../components/DataCard';
 import BarChartWidget from '../components/charts/BarChartWidget';
-import { countBy, skillGapSeries, readinessSeries, toArray } from '../utils/chartData';
+import { countBy, toArray } from '../utils/chartData';
 import {
     DollarSign, Users, FileText, Briefcase,
     Search, Loader2, AlertTriangle, CheckCircle, CheckCircle2, Shield,
@@ -209,19 +209,42 @@ const TalentModule = memo(() => {
     const { data: wfp } = useApi(getWFPProjections, [], true);
     const { data: charts } = useApi(getAnalyticsCharts, [], true);
 
-    const readiness = useMemo(() => readinessSeries(wfp?.skill_gaps || {}), [wfp]);
-    const gaps = useMemo(() => skillGapSeries(wfp?.skill_gaps || {}), [wfp]);
+    // Real succession cover, as a percentage of senior roles with someone ready.
+    // This used to be the skills-gap vector subtracted from four, so the two
+    // charts on this screen were one number and its inverse, and neither had
+    // anything to do with succession.
+    const readiness = useMemo(() => Object.entries(wfp?.succession_readiness || {})
+        .map(([name, r]) => ({ name, value: Math.round((Number(r?.readiness) || 0) * 100) }))
+        .sort((a, b) => b.value - a.value), [wfp]);
+
+    // How many of the skills each department needs are actually held broadly
+    // enough. This used to be derived from headcount, with no skills involved.
+    const gaps = useMemo(() => (wfp?.skill_gap_detail || [])
+        .map((d) => ({ name: d.department, value: (d.skills_needed || 0) - (d.skills_covered || 0) }))
+        .sort((a, b) => b.value - a.value), [wfp]);
+
+    const gapDetail = useMemo(() => (wfp?.skill_gap_detail || [])
+        .filter((d) => (d.missing_skills || []).length)
+        .sort((a, b) => (b.missing_skills?.length || 0) - (a.missing_skills?.length || 0)), [wfp]);
 
     return (
         <div className="talent-module">
             <h2 style={{ color: tokens.color?.['accent-primary'], marginBottom: tokens.spacing?.lg }}>Talent Insights & Planning</h2>
-            <DataCard title="Succession Pipeline Readiness by Department" isChart minHeight="400px">
-                <BarChartWidget data={readiness} minHeight="340px" color={tokens.color?.success} label="Higher bar = readier bench (inverse of skill gap)" />
+            <DataCard
+                title="Succession cover by department"
+                subtitle="Share of senior roles with someone on the rung below ready to step up"
+                isChart minHeight="400px">
+                <BarChartWidget data={readiness} minHeight="340px" color={tokens.color?.success}
+                                label="Percent of senior roles covered" />
             </DataCard>
             <div style={{ display: 'flex', gap: tokens.spacing?.lg, marginTop: tokens.spacing?.lg }}>
                 <div style={{ flex: 1 }}>
-                    <DataCard title="Skills Gap Analysis by Department" isChart minHeight="300px">
-                        <BarChartWidget data={gaps} minHeight="240px" color={tokens.color?.warning} label="Higher bar = larger skill gap" />
+                    <DataCard
+                        title="Skills each department is short of"
+                        subtitle="Counted against what the work in that department needs"
+                        isChart minHeight="300px">
+                        <BarChartWidget data={gaps} minHeight="240px" color={tokens.color?.warning}
+                                        label="Number of skills not held broadly enough" />
                     </DataCard>
                 </div>
                 <div style={{ flex: 1 }}>
@@ -230,6 +253,23 @@ const TalentModule = memo(() => {
                     </DataCard>
                 </div>
             </div>
+
+            {gapDetail.length > 0 && (
+                <div style={{ ...ps.panel, marginTop: tokens.spacing?.lg }}>
+                    <h3 style={ps.sectionTitle}>What each department is short of</h3>
+                    <p style={ps.hint}>A bar height tells you where to look; this tells you what to do about it.</p>
+                    <div style={{ marginTop: 12, display: 'grid', gap: 10 }}>
+                        {gapDetail.map((d) => (
+                            <div key={d.department} style={{ fontSize: 13, lineHeight: 1.55, color: tokens.color?.['text-100'] }}>
+                                <strong>{d.department}</strong>
+                                <span style={{ color: tokens.color?.['muted-600'] }}>
+                                    {' '}covers {d.skills_covered} of {d.skills_needed}. Short of: {d.missing_skills.join(', ')}.
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
         </div>
     );
 });

@@ -1,0 +1,108 @@
+"""The order of seniority inside each department.
+
+Shared by the workforce coherence pass, which staffs departments from these,
+and by succession readiness, which needs to know what "the rung below" means.
+"""
+from typing import Dict, List
+
+LADDERS: Dict[str, List[str]] = {
+    "Engineering": [
+        "Graduate Engineer",
+        "Engineer",
+        "Senior Engineer",
+        "Staff Engineer",
+        "Principal Engineer",
+        "Engineering Manager",
+        "Director of Engineering",
+        "VP Engineering",
+    ],
+    "Research & Development": [
+        "Research Assistant",
+        "Research Scientist",
+        "Senior Research Scientist",
+        "Principal Scientist",
+        "Research Lead",
+        "Director of Research",
+    ],
+    "Sales": [
+        "Sales Development Rep",
+        "Sales Associate",
+        "Account Executive",
+        "Senior Account Executive",
+        "Sales Manager",
+        "Regional Sales Director",
+        "VP Sales",
+    ],
+    "Marketing": [
+        "Marketing Assistant",
+        "Marketing Specialist",
+        "Content Strategist",
+        "Brand Manager",
+        "Product Marketing Manager",
+        "Marketing Director",
+    ],
+    "Finance": [
+        "Finance Analyst",
+        "Senior Finance Analyst",
+        "Financial Controller",
+        "Finance Business Partner",
+        "Finance Manager",
+        "Head of Finance",
+        "CFO",
+    ],
+    "Legal": [
+        "Paralegal",
+        "Legal Counsel",
+        "Senior Legal Counsel",
+        "Compliance Officer",
+        "Head of Legal",
+        "General Counsel",
+    ],
+    "Operations": [
+        "Operations Assistant",
+        "Operations Analyst",
+        "Operations Specialist",
+        "Operations Manager",
+        "Head of Operations",
+        "COO",
+    ],
+    "Human Resources": [
+        "HR Assistant",
+        "HR Analyst",
+        "HR Business Partner",
+        "Talent Acquisition Partner",
+        "Compensation Analyst",
+        "HR Manager",
+        "Head of People",
+        "CHRO",
+    ],
+    "IT": [
+        "IT Support Analyst",
+        "Systems Administrator",
+        "Network Engineer",
+        "IT Security Analyst",
+        "IT Manager",
+        "Head of IT",
+    ],
+    "Support": [
+        "Support Agent",
+        "Senior Support Agent",
+        "Support Team Lead",
+        "Customer Success Manager",
+        "Head of Support",
+    ],
+    "HRIT": [
+        "HRIS Analyst",
+        "HRIS Specialist",
+        "HR Systems Engineer",
+        "HRIT Manager",
+        "Head of HR Technology",
+    ],
+    "Executive": [
+        "Chief of Staff",
+        "VP Strategy",
+        "Chief Operating Officer",
+        "Chief Financial Officer",
+        "Chief Executive Officer",
+    ],
+}

@@ -6,6 +6,9 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 from services.event_publisher_service import EventPublisherService
 from services.postgres_client import pg_client
+from services.skill_requirements import REQUIRED_SKILLS
+from services.career_ladders import LADDERS
+from config.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -14,8 +17,11 @@ CRITICAL_ROLES = ('manager', 'hrit_manager', 'hrit_admin', 'hrbp')
 
 
 class WorkforcePlanningService:
-    def __init__(self, publisher: EventPublisherService):
+    def __init__(self, publisher: EventPublisherService, mongo_client=None):
         self.publisher = publisher
+        # Skill profiles live in Mongo; without them the gap analysis has
+        # nothing to measure and says so rather than inventing a severity.
+        self.mongo_client = mongo_client
         logger.info("WorkforcePlanningService Initialized")
 
     async def list_departments(self) -> List[str]:
@@ -80,6 +86,10 @@ class WorkforcePlanningService:
                 "overall_risk_score": float(row.get('overall_risk_score') or 0.0),
             },
             "skill_gaps": await self._derive_skill_gaps(total),
+            # Named skills rather than a severity label, and real succession
+            # cover rather than the same vector inverted.
+            "skill_gap_detail": await self.skill_gap_detail(),
+            "succession_readiness": await self.succession_readiness(),
             # Echo the scope so the caller can show what the numbers cover.
             "scope": department or "All departments",
         }
@@ -136,25 +146,165 @@ class WorkforcePlanningService:
         }
 
     async def _derive_skill_gaps(self, total_employees: int) -> Dict[str, str]:
-        """Derives skill-gap severity from real department under-representation.
+        """How much of what a department needs to be able to do it can actually do.
 
-        Departments below their fair share of headcount are flagged as higher gap.
+        This used to read `SELECT department, COUNT(*)` and call a department
+        below its fair share of headcount a HIGH skills gap. No skills data was
+        consulted at all, so a department with one person in it was reported as
+        critically short of skills, and the succession chart beside it was the
+        same headcount vector subtracted from four.
+
+        A skill counts as covered when enough of the department holds it that
+        losing one person would not remove it.
         """
-        if not total_employees:
+        try:
+            profiles = await self._skill_profiles()
+        except Exception as e:
+            logger.warning(f"skill profiles unavailable: {e}")
             return {}
-        rows = await pg_client.fetch(
-            "SELECT department, COUNT(*) AS c FROM public.employee_pii GROUP BY department"
-        )
-        if not rows:
+        if not profiles:
             return {}
-        fair_share = total_employees / len(rows)
+
         gaps: Dict[str, str] = {}
-        for r in rows:
-            ratio = (r['c'] or 0) / fair_share
-            gaps[r['department'] or 'Unknown'] = (
-                "HIGH" if ratio < 0.75 else "MEDIUM" if ratio < 1.0 else "LOW"
-            )
+        for department, (headcount, held_counts) in profiles.items():
+            needed = REQUIRED_SKILLS.get(department)
+            if not needed:
+                continue
+            threshold = max(1, headcount * 0.25)
+            covered = sum(1 for skill in needed if held_counts.get(skill, 0) >= threshold)
+            share = covered / len(needed)
+            gaps[department] = "LOW" if share >= 0.7 else "MEDIUM" if share >= 0.45 else "HIGH"
         return gaps
+
+    async def skill_gap_detail(self) -> List[Dict[str, Any]]:
+        """Which skills each department is short of, by name.
+
+        A severity label on its own tells an HRBP nothing they can act on.
+        """
+        profiles = await self._skill_profiles()
+        detail: List[Dict[str, Any]] = []
+        for department, (headcount, held_counts) in sorted(profiles.items()):
+            needed = REQUIRED_SKILLS.get(department)
+            if not needed:
+                continue
+            threshold = max(1, headcount * 0.25)
+            missing = [s for s in needed if held_counts.get(s, 0) < threshold]
+            detail.append({
+                "department": department,
+                "headcount": headcount,
+                "skills_needed": len(needed),
+                "skills_covered": len(needed) - len(missing),
+                "missing_skills": missing,
+                "summary": (f"{department} covers {len(needed) - len(missing)} of the "
+                            f"{len(needed)} skills the work needs."
+                            + (f" Short of: {', '.join(missing)}." if missing else "")),
+            })
+        return detail
+
+    async def succession_readiness(self) -> Dict[str, Dict[str, Any]]:
+        """Whether each department has anyone ready to step into its senior roles.
+
+        The succession chart was the skills-gap vector subtracted from four, so
+        the two charts on that screen were one number and its inverse, and
+        neither had anything to do with succession.
+
+        Someone counts as ready when they sit on a rung just below a senior role,
+        have been here long enough to know the place, and are rated well enough
+        to be trusted with the step up.
+
+        Aggregated in the database rather than row by row: the first version
+        pulled all 21,470 employees with a correlated subquery each and made the
+        whole API time out.
+        """
+        cached = self._cached("succession")
+        if cached is not None:
+            return cached
+
+        senior, ready = {}, {}
+        for department, ladder in LADDERS.items():
+            senior_from = max(1, len(ladder) - 2)
+            senior[department] = ladder[senior_from:]
+            ready[department] = ladder[max(0, senior_from - 2):senior_from]
+
+        rows = await pg_client.fetch(
+            """SELECT e.department, e.job_title,
+                      COUNT(*) FILTER (WHERE e.tenure_months >= 24 AND r.rating >= 3.5) AS ready,
+                      COUNT(*) AS people
+               FROM employee_pii e
+               LEFT JOIN (SELECT employee_uuid, AVG(overall_rating) AS rating
+                          FROM performance_reviews GROUP BY employee_uuid) r
+                 ON r.employee_uuid = e.employee_uuid
+               WHERE e.department IS NOT NULL AND e.job_title IS NOT NULL
+               GROUP BY e.department, e.job_title""")
+
+        totals: Dict[str, Dict[str, int]] = {}
+        for row in rows:
+            department, title = row["department"], row["job_title"]
+            bucket = totals.setdefault(department, {"senior_roles": 0, "ready": 0})
+            if title in senior.get(department, []):
+                bucket["senior_roles"] += int(row["people"])
+            elif title in ready.get(department, []):
+                bucket["ready"] += int(row["ready"])
+
+        result: Dict[str, Dict[str, Any]] = {}
+        for department, b in totals.items():
+            if not b["senior_roles"]:
+                continue
+            result[department] = {
+                "senior_roles": b["senior_roles"],
+                "ready_successors": b["ready"],
+                "readiness": round(min(1.0, b["ready"] / b["senior_roles"]), 3),
+                "summary": (
+                    f"{department} has {b['ready']} people ready for its "
+                    f"{b['senior_roles']} senior {'role' if b['senior_roles'] == 1 else 'roles'}"
+                    + (", comfortable cover." if b["ready"] >= b["senior_roles"]
+                       else f", so {b['senior_roles'] - b['ready']} would have no obvious successor.")),
+            }
+        return self._cache("succession", result)
+
+    # Workforce-wide aggregates change slowly and are read on every dashboard
+    # load, so they are held briefly rather than recomputed per request.
+    _CACHE_TTL_SECONDS = 120
+
+    def _cached(self, key: str):
+        entry = getattr(self, "_agg_cache", {}).get(key)
+        if not entry:
+            return None
+        stamped, value = entry
+        if (datetime.now(timezone.utc) - stamped).total_seconds() > self._CACHE_TTL_SECONDS:
+            return None
+        return value
+
+    def _cache(self, key: str, value):
+        if not hasattr(self, "_agg_cache"):
+            self._agg_cache = {}
+        self._agg_cache[key] = (datetime.now(timezone.utc), value)
+        return value
+
+    async def _skill_profiles(self):
+        """Per department: headcount, and how many people hold each skill."""
+        if self.mongo_client is None:
+            return {}
+        cached = self._cached("skills")
+        if cached is not None:
+            return cached
+        counts = await pg_client.fetch(
+            "SELECT department, COUNT(*) AS c FROM public.employee_pii GROUP BY department")
+        headcounts = {r["department"]: int(r["c"] or 0) for r in counts if r["department"]}
+
+        db = self.mongo_client[settings.MONGO_DB_NAME]
+        cursor = db["employee_skills"].aggregate([
+            {"$unwind": "$skills"},
+            {"$group": {"_id": {"d": "$department", "s": "$skills"}, "n": {"$sum": 1}}},
+        ])
+        held: Dict[str, Dict[str, int]] = {}
+        async for row in cursor:
+            department = (row["_id"] or {}).get("d")
+            skill = (row["_id"] or {}).get("s")
+            if department and skill:
+                held.setdefault(department, {})[skill] = int(row["n"])
+
+        return self._cache("skills", {d: (headcounts.get(d, 0), held.get(d, {})) for d in headcounts})
 
     async def _load_employee_features(self, employee_uuid: str) -> Dict[str, Any]:
         """Read this employee's real features from the UDM.

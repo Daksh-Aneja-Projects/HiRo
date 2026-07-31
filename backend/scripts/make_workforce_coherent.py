@@ -31,6 +31,9 @@ import sys
 
 import asyncpg
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from services.career_ladders import LADDERS  # noqa: E402
+
 # Departments the duplicates fold into.
 MERGE = {
     "HR": "Human Resources",
@@ -44,74 +47,62 @@ MERGE = {
 # finance keep people longest, support sits in between on both.
 DEPARTMENTS = {
     "Engineering": {
-        "titles": ["Graduate Engineer", "Engineer", "Senior Engineer", "Staff Engineer",
-                   "Principal Engineer", "Engineering Manager", "Director of Engineering", "VP Engineering"],
+        "titles": LADDERS["Engineering"],
         "weights": [10, 26, 24, 14, 8, 12, 4, 2],
         "tenure_centre": 34, "tenure_spread": 22, "rating_centre": 3.85,
     },
     "Research & Development": {
-        "titles": ["Research Assistant", "Research Scientist", "Senior Research Scientist",
-                   "Principal Scientist", "Research Lead", "Director of Research"],
+        "titles": LADDERS["Research & Development"],
         "weights": [12, 30, 26, 14, 12, 6],
         "tenure_centre": 46, "tenure_spread": 26, "rating_centre": 3.95,
     },
     "Sales": {
-        "titles": ["Sales Development Rep", "Sales Associate", "Account Executive",
-                   "Senior Account Executive", "Sales Manager", "Regional Sales Director", "VP Sales"],
+        "titles": LADDERS["Sales"],
         "weights": [18, 22, 24, 14, 12, 7, 3],
         "tenure_centre": 19, "tenure_spread": 14, "rating_centre": 3.55,
     },
     "Marketing": {
-        "titles": ["Marketing Assistant", "Marketing Specialist", "Content Strategist",
-                   "Brand Manager", "Product Marketing Manager", "Marketing Director"],
+        "titles": LADDERS["Marketing"],
         "weights": [14, 28, 18, 18, 14, 8],
         "tenure_centre": 27, "tenure_spread": 18, "rating_centre": 3.70,
     },
     "Finance": {
-        "titles": ["Finance Analyst", "Senior Finance Analyst", "Financial Controller",
-                   "Finance Business Partner", "Finance Manager", "Head of Finance", "CFO"],
+        "titles": LADDERS["Finance"],
         "weights": [20, 24, 18, 16, 14, 6, 2],
         "tenure_centre": 52, "tenure_spread": 26, "rating_centre": 3.80,
     },
     "Legal": {
-        "titles": ["Paralegal", "Legal Counsel", "Senior Legal Counsel",
-                   "Compliance Officer", "Head of Legal", "General Counsel"],
+        "titles": LADDERS["Legal"],
         "weights": [18, 30, 22, 18, 8, 4],
         "tenure_centre": 58, "tenure_spread": 28, "rating_centre": 3.90,
     },
     "Operations": {
-        "titles": ["Operations Assistant", "Operations Analyst", "Operations Specialist",
-                   "Operations Manager", "Head of Operations", "COO"],
+        "titles": LADDERS["Operations"],
         "weights": [16, 26, 24, 22, 9, 3],
         "tenure_centre": 33, "tenure_spread": 20, "rating_centre": 3.65,
     },
     "Human Resources": {
-        "titles": ["HR Assistant", "HR Analyst", "HR Business Partner", "Talent Acquisition Partner",
-                   "Compensation Analyst", "HR Manager", "Head of People", "CHRO"],
+        "titles": LADDERS["Human Resources"],
         "weights": [14, 22, 20, 14, 12, 12, 4, 2],
         "tenure_centre": 40, "tenure_spread": 22, "rating_centre": 3.75,
     },
     "IT": {
-        "titles": ["IT Support Analyst", "Systems Administrator", "Network Engineer",
-                   "IT Security Analyst", "IT Manager", "Head of IT"],
+        "titles": LADDERS["IT"],
         "weights": [24, 22, 18, 16, 14, 6],
         "tenure_centre": 36, "tenure_spread": 20, "rating_centre": 3.60,
     },
     "Support": {
-        "titles": ["Support Agent", "Senior Support Agent", "Support Team Lead",
-                   "Customer Success Manager", "Head of Support"],
+        "titles": LADDERS["Support"],
         "weights": [34, 26, 18, 16, 6],
         "tenure_centre": 16, "tenure_spread": 12, "rating_centre": 3.50,
     },
     "HRIT": {
-        "titles": ["HRIS Analyst", "HRIS Specialist", "HR Systems Engineer",
-                   "HRIT Manager", "Head of HR Technology"],
+        "titles": LADDERS["HRIT"],
         "weights": [26, 24, 22, 20, 8],
         "tenure_centre": 41, "tenure_spread": 22, "rating_centre": 3.80,
     },
     "Executive": {
-        "titles": ["Chief of Staff", "VP Strategy", "Chief Operating Officer",
-                   "Chief Financial Officer", "Chief Executive Officer"],
+        "titles": LADDERS["Executive"],
         "weights": [34, 30, 18, 12, 6],
         "tenure_centre": 74, "tenure_spread": 30, "rating_centre": 4.10,
     },

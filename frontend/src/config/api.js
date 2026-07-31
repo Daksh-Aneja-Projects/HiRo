@@ -17,9 +17,15 @@ export const WS_URL = settings.WS_BASE_URL || (window.location.protocol.replace(
 // FIX: Corrected the streaming path to match the backend router prefix /api/streaming/agents/config/stream
 export const BPCL_STREAM_PATH = `${API_URL}/streaming/agents/config/stream`; 
 
-// EXPORTABLE TOAST FALLBACK: Reference used by interceptor
-let interceptorToastFallback = (title, description, variant) => {
-    console.warn(`[API INTERCEPTOR ERROR] ${title}: ${description} (Default/Dummy Toast)`);
+// How the interceptor tells the user something happened.
+//
+// This took three positional arguments while AuthContext registered the real
+// `toast`, which takes one object. Destructuring a string gave title,
+// description and variant all undefined, so an expired session painted a blank
+// outlined box with an icon and a close button and no words in it at all. The
+// signature is the object form everywhere now.
+let interceptorToastFallback = ({ title, description } = {}) => {
+    console.warn(`[API INTERCEPTOR] ${title}: ${description} (no toast provider attached yet)`);
 };
 
 // EXPORT: Setter function to link the real useToast hook later from AuthContext
@@ -77,7 +83,11 @@ api.interceptors.response.use(
                 console.warn("Unauthorized access - clearing session");
                 sessionStorage.removeItem('authToken');
                 sessionStorage.removeItem('userData');
-                interceptorToastFallback('Session Expired', 'Your session has timed out. Please log in again.', 'destructive');
+                interceptorToastFallback({
+                    title: 'You have been signed out',
+                    description: 'Your session timed out. Sign in again to carry on.',
+                    variant: 'destructive',
+                });
             }
             if (status >= 500) {
                 console.error("Server Error:", data);

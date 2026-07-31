@@ -289,7 +289,8 @@ async def lifespan(app: FastAPI):
         # 8. Agent Initialization (Full dependency wiring)
         
         # FIX START: Initialize the missing dependency services FIRST
-        app.state.wfm_service = WorkforcePlanningService(publisher=app.state.event_publisher)
+        app.state.wfm_service = WorkforcePlanningService(
+            publisher=app.state.event_publisher, mongo_client=app.state.mongo_client)
         app.state.ta_service = TalentAcquisitionService(publisher=app.state.event_publisher)
 
         # ESS/MSS services power the Employee and Manager self-service portals.

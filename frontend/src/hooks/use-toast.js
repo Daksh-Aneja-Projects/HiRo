@@ -1,5 +1,5 @@
 // /frontend/src/hooks/use-toast.js - FINAL PRODUCTION-READY REPLACEMENT
-import React, { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef } from 'react';
 
 const ToastContext = createContext(null);
 
@@ -26,18 +26,45 @@ export const ToastProvider = ({ children }) => {
     }, []);
 
     // CRITICAL FIX 3: Implement toast sender as useCallback
-    const toast = useCallback(({ title, description, variant = 'info', duration = DURATION }) => {
+    const timers = useRef([]);
+
+    const toast = useCallback((options) => {
+        const { title, description, variant = 'info', duration = DURATION } = options || {};
+
+        // A toast with nothing to say is a blank outlined box on screen, which
+        // tells the user only that something went wrong somewhere. Refuse it,
+        // and say in the console which call was at fault so it can be found.
+        if (!String(title || '').trim() && !String(description || '').trim()) {
+            console.error('A toast was raised with no title and no description; ignoring it.', options);
+            return;
+        }
+
+        // One screen makes several requests, so one expired session raised the
+        // same message once per request: four identical boxes stacked up saying
+        // the same thing. The same message is shown once and its life extended,
+        // rather than repeated.
         const id = generateId();
-        const newToast = { id, title, description, variant, duration };
+        let isDuplicate = false;
+        setToasts(prev => {
+            const existing = prev.find(t => t.title === title && t.description === description);
+            if (existing) {
+                isDuplicate = true;
+                return prev;
+            }
+            return [{ id, title, description, variant, duration }, ...prev];
+        });
+        if (isDuplicate) return;
 
-        setToasts(prev => [newToast, ...prev]);
-
-        // Auto-dismiss the toast after its duration
-        setTimeout(() => {
-            dismissToast(id);
-        }, duration);
-
+        const timer = setTimeout(() => dismissToast(id), duration);
+        timers.current.push(timer);
     }, [dismissToast]);
+
+    // Timers outlived the provider, so a dismiss could fire against an unmounted
+    // component after signing out.
+    useEffect(() => () => {
+        timers.current.forEach(clearTimeout);
+        timers.current = [];
+    }, []);
 
     // Cleanup Effect (Removes toasts that might have been missed by timeout)
     useEffect(() => {

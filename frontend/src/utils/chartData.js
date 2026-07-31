@@ -22,12 +22,8 @@ export const countBy = (arr, keyFn) => {
   return Object.entries(acc).map(([name, value]) => ({ name, value }));
 };
 
-const GAP_LEVEL = { HIGH: 3, MEDIUM: 2, LOW: 1 };
-
-// Skill-gap severity as a numeric bar (HIGH gap = 3, LOW gap = 1).
-export const skillGapSeries = (gaps = {}) =>
-  Object.entries(gaps || {}).map(([name, level]) => ({ name, value: GAP_LEVEL[String(level).toUpperCase()] ?? 0 }));
-
-// Succession readiness = inverse of the gap (LOW gap = high readiness).
-export const readinessSeries = (gaps = {}) =>
-  Object.entries(gaps || {}).map(([name, level]) => ({ name, value: 4 - (GAP_LEVEL[String(level).toUpperCase()] ?? 0) }));
+// skillGapSeries and readinessSeries used to live here. The first turned a
+// severity label into a bar, and the second was that same label subtracted from
+// four, so the two charts on the talent screen were one number and its inverse.
+// Both are now computed from real skill coverage and real succession cover in
+// the planning service.
