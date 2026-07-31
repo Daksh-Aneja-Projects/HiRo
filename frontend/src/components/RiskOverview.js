@@ -71,11 +71,11 @@ const RiskOverview = memo(() => {
             </div>
             <div style={styles.stat}>
                 <DataCard
-                    title="Roles marked critical"
+                    title="People in leadership roles"
                     value={<CountUp value={Number(state.critical_roles) || 0} />}
                     icon={<Star size={15} />}
                     color={tokens.color?.warning}
-                    subtitle="Positions the business cannot run without"
+                    subtitle="Managers and HR roles across the workforce"
                 />
             </div>
             <div style={styles.stat}>

@@ -10,6 +10,7 @@ import asyncio
 from services import notification_service
 import json
 import hashlib
+import re
 import uuid
 from datetime import datetime, timezone, timedelta
 import random
@@ -958,6 +959,50 @@ async def sandbox_deploy(req: Request, data: Dict, payload: Dict=Depends(hrit_ad
     return {"status": "Sandbox Deployment Initiated", **result}
 
 
+# BPCL_POLICY {
+#   NAME: "PTO_LIMIT"
+#   SCOPE: EMPLOYEE
+#   CONSTRAINT: IF (...) THEN DENY_TRANSACTION
+#   AUDIT_LEVEL: HIGH
+# }
+_BPCL_FIELD = re.compile(r'^\s*([A-Z_]+)\s*:\s*(.+?)\s*$', re.M)
+_BPCL_CONSTRAINT = re.compile(r'IF\s*\((?P<condition>.+?)\)\s*THEN\s+(?P<action>[A-Z_]+)', re.S)
+
+
+def _parse_bpcl(text: str) -> Dict[str, Any]:
+    """Read a BPCL document into the structured form the validator checks.
+
+    Anything it cannot recognise is left for the validator to report, so a
+    malformed document still fails, and fails for its real reason rather than
+    for the shape of the wrapper it arrived in.
+    """
+    fields = {k: v.strip().strip('"') for k, v in _BPCL_FIELD.findall(text or "")}
+    name = fields.get("NAME", "")
+
+    rules: List[Dict[str, Any]] = []
+    for index, match in enumerate(_BPCL_CONSTRAINT.finditer(text or ""), start=1):
+        rules.append({
+            # The validator requires id, condition and action on every rule.
+            "id": f"{name or 'rule'}_{index}",
+            "condition": " ".join(match.group("condition").split()),
+            "action": match.group("action"),
+            "audit_level": fields.get("AUDIT_LEVEL", "STANDARD"),
+            "scope": fields.get("SCOPE", "EMPLOYEE"),
+        })
+
+    content: Dict[str, Any] = {"rules": rules, "source": "bpcl", "raw": text}
+    # Omit the key entirely when there is no name, so the validator reports the
+    # missing field rather than accepting an empty one. A document with no
+    # CONSTRAINT line has nothing to enforce and must not pass as secure.
+    if name:
+        content["policy_name"] = name
+    if not rules:
+        content["rules"] = []
+        content["parse_error"] = ("No CONSTRAINT was found. A BPCL policy needs at least one "
+                                 "IF (...) THEN <ACTION> line to enforce anything.")
+    return content
+
+
 @dev_router.post("/policy/scan")
 async def security_scan_bpcl(req: Request, code: Dict[str, Any], payload: Dict=Depends(policy_admin_role_required)):
     """Validate BPCL through the real V&V compiler.
@@ -975,7 +1020,12 @@ async def security_scan_bpcl(req: Request, code: Dict[str, Any], payload: Dict=D
         try:
             content = json.loads(raw)
         except Exception:
-            content = {"bpcl_code": raw}
+            # BPCL text used to be wrapped as {"bpcl_code": raw} and handed
+            # straight to a validator that requires policy_name and rules[], so
+            # every BPCL document this module exists to lint came back
+            # VULNERABLE with "Missing required field: policy_name" - including
+            # the example the screen itself offers as a starting point.
+            content = _parse_bpcl(raw)
     else:
         content = raw or {}
 
@@ -988,6 +1038,14 @@ async def security_scan_bpcl(req: Request, code: Dict[str, Any], payload: Dict=D
         raise HTTPException(status_code=400, detail=f"Scan failed: {e}")
 
     is_valid = bool(result.get("is_valid"))
+    # A BPCL document that parsed to no rules is not a secure policy, it is an
+    # empty one. The validator only checks that `rules` is a list, so an empty
+    # list passed straight through as SECURE.
+    parse_error = content.get("parse_error") if isinstance(content, dict) else None
+    if parse_error:
+        is_valid = False
+        result = {**result, "errors": [*(result.get("errors") or []), parse_error],
+                  "type": result.get("type") or "SYNTAX"}
     return {
         "status": "SECURE" if is_valid else "VULNERABLE",
         "is_valid": is_valid,
@@ -2233,13 +2291,14 @@ async def get_advanced_analytics(req: Request, metric_type: Optional[str] = Quer
     return {"metric": "Composite Workforce Health", "value": a["key_metric"], "trend": trend, **a}
 
 @analytics_router.get("/charts")
-async def get_analytics_charts(req: Request, payload: Dict=Depends(manager_role_required)):
-    """Real chart series (headcount + attrition by department, perf-vs-tenure scatter)
-    aggregated from the employee UDM, for the Advanced Analytics dashboards."""
+async def get_analytics_charts(req: Request, department: Optional[str] = Query(None),
+                               payload: Dict=Depends(manager_role_required)):
+    """Chart series aggregated from the employee record, optionally for one
+    department, so the filter above the charts actually reaches them."""
     wfm = getattr(req.app.state, "wfm_service", None)
     if not wfm:
         raise HTTPException(status_code=503, detail="WFM Service unavailable.")
-    return await wfm.get_analytics_charts()
+    return await wfm.get_analytics_charts(department=department)
 
 @analytics_router.post("/metrics/aggregate")
 async def aggregate_metrics(req: Request, payload_data: Dict, payload: Dict=Depends(manager_role_required)):
@@ -2511,6 +2570,10 @@ async def get_orchestrator_dashboard(req: Request, payload: Dict = Depends(manag
     return {
         "agents": agents,
         "agent_names": dispatchable,
+        # This counts digital-twin objects the agent is holding in memory. It
+        # was surfaced as "Work in progress: tasks running right now", which it
+        # has never been a count of.
+        "active_twins": len(getattr(getattr(state, "digital_twin_agent", None), "active_twins", {}) or {}),
         "active_tasks": len(getattr(getattr(state, "digital_twin_agent", None), "active_twins", {}) or {}),
         "system_health": health,
         "health_reason": health_reason,

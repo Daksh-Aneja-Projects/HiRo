@@ -486,7 +486,8 @@ export const securityScanBpcl = (code) => api.post('/dev/policy/scan', { code })
 /* --- UTILITY & COLLABORATION (Live) --- */
 /* -------------------------------------------------------------------------- */
 export const getAdvancedAnalytics = (params = {}) => api.get('/advanced-analytics/metrics', { params });
-export const getAnalyticsCharts = () => api.get('/advanced-analytics/charts');
+export const getAnalyticsCharts = (department) =>
+    api.get('/advanced-analytics/charts', { params: department ? { department } : {} });
 export const getAnalyticsDepartments = () => api.get('/advanced-analytics/departments');
 export const uploadIngestionFile = (file) => { 
      const fd = new FormData(); 

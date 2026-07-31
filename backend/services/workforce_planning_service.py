@@ -94,22 +94,31 @@ class WorkforcePlanningService:
             "scope": department or "All departments",
         }
 
-    async def get_analytics_charts(self, scatter_limit: int = 200) -> Dict[str, Any]:
+    async def get_analytics_charts(self, scatter_limit: int = 200,
+                                   department: Optional[str] = None) -> Dict[str, Any]:
         """Real chart series aggregated from the employee UDM + performance reviews.
 
         Feeds the Advanced Analytics dashboards with live data instead of placeholders:
         headcount and average attrition-risk per department, plus a performance-vs-tenure
         scatter sampled across the workforce.
         """
+        # The department filter used to change the four stat cards and leave
+        # every chart below them company-wide, so filtering to a department of
+        # one still showed a fourteen-bar chart of the whole organisation
+        # presented as the filtered view.
+        where = "WHERE department = $1" if department else ""
+        args = [department] if department else []
         dept_rows = await pg_client.fetch(
-            """
+            f"""
             SELECT department,
                    COUNT(*)                                   AS headcount,
                    ROUND(AVG(dtla_risk_score)::numeric, 3)    AS avg_risk
             FROM public.employee_pii
+            {where}
             GROUP BY department
             ORDER BY headcount DESC
-            """
+            """,
+            *args,
         ) or []
         headcount_by_department = [
             {"name": r.get("department") or "Unknown", "value": int(r.get("headcount") or 0)}
@@ -127,10 +136,14 @@ class WorkforcePlanningService:
             FROM public.employee_pii e
             JOIN public.performance_reviews p ON p.employee_uuid = e.employee_uuid
             WHERE e.tenure_months IS NOT NULL AND p.overall_rating IS NOT NULL
-            ORDER BY random()
+              AND ($2::text IS NULL OR e.department = $2)
+            -- A stable sample. ORDER BY random() returned a different set of
+            -- points on every load, so the same chart never looked the same
+            -- twice and nothing on it could be pointed at.
+            ORDER BY md5(e.employee_uuid)
             LIMIT $1
             """,
-            scatter_limit,
+            scatter_limit, department,
         ) or []
         perf_vs_tenure = [
             {"tenure": int(r.get("tenure") or 0),

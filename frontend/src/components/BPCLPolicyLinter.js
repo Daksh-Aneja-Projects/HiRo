@@ -8,10 +8,13 @@ import { useToast } from '../hooks/use-toast';
 import { Shield, Loader2, AlertTriangle, CheckCircle2, Sparkles, Send } from 'lucide-react';
 import { s, dim, apiError } from './policy/ui';
 
+// The example the screen offers has to pass its own linter. This one referred
+// to a `transaction` table that does not exist in the data model, so the
+// starting point every user was handed came back VULNERABLE.
 const EXAMPLE = `BPCL_POLICY {
   NAME: "PTO_LIMIT_CONSECUTIVE_DAYS"
   SCOPE: EMPLOYEE
-  CONSTRAINT: IF (transaction.type == "PTO_REQUEST" AND transaction.duration_days > 5) THEN DENY_TRANSACTION
+  CONSTRAINT: IF (leave_request.leave_type == "ANNUAL" AND leave_request.requested_hours > 40) THEN DENY_TRANSACTION
   AUDIT_LEVEL: HIGH
 }`;
 

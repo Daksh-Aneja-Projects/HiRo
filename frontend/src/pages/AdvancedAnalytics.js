@@ -106,9 +106,44 @@ const ChartOrEmpty = memo(({ data, minHeight, color, label }) => (
 ));
 ChartOrEmpty.displayName = 'ChartOrEmpty';
 
+// The least-squares fit through the points, and how much of the variation it
+// actually explains. The card was titled "Regression" and drew none, so there
+// was nothing on it to read a relationship from.
+const fitLine = (points) => {
+    const n = points.length;
+    if (n < 3) return null;
+    const sx = points.reduce((a, p) => a + p.tenure, 0);
+    const sy = points.reduce((a, p) => a + p.rating, 0);
+    const sxx = points.reduce((a, p) => a + p.tenure * p.tenure, 0);
+    const syy = points.reduce((a, p) => a + p.rating * p.rating, 0);
+    const sxy = points.reduce((a, p) => a + p.tenure * p.rating, 0);
+    const denom = n * sxx - sx * sx;
+    if (!denom) return null;
+    const slope = (n * sxy - sx * sy) / denom;
+    const intercept = (sy - slope * sx) / n;
+    const spread = Math.sqrt(denom * (n * syy - sy * sy));
+    const r = spread ? (n * sxy - sx * sy) / spread : 0;
+    const xs = points.map((p) => p.tenure);
+    const lo = Math.min(...xs);
+    const hi = Math.max(...xs);
+    return {
+        r,
+        points: [{ tenure: lo, rating: slope * lo + intercept },
+                 { tenure: hi, rating: slope * hi + intercept }],
+        // Say what the line is worth. A trend line drawn through a cloud with
+        // no relationship in it invites a conclusion the data does not support.
+        strength: Math.abs(r) < 0.15 ? 'no real relationship between the two'
+            : Math.abs(r) < 0.35 ? 'a weak relationship'
+            : Math.abs(r) < 0.6 ? 'a moderate relationship'
+            : 'a strong relationship',
+        direction: slope < 0 ? 'falls' : 'rises',
+    };
+};
+
 // Real performance-vs-tenure scatter across the sampled workforce.
 const PerfTenureScatter = memo(({ points }) => {
     if (!points || !points.length) return <EmptyChart minHeight="300px" />;
+    const fit = fitLine(points);
     return (
         <div style={{ width: '100%', height: '100%', minHeight: '300px' }}>
             <RContainer width="100%" height="100%">
@@ -123,8 +158,18 @@ const PerfTenureScatter = memo(({ points }) => {
                         contentStyle={{ backgroundColor: tokens.color?.['panel-800'] || '#fff', borderRadius: '8px', border: `1px solid ${tokens.color?.['border-600'] || '#e5e5e5'}` }}
                         itemStyle={{ color: tokens.color?.['text-100'] || '#000' }} />
                     <Scatter name="Employees" data={points} fill={tokens.color?.['accent-primary'] || '#0071e3'} fillOpacity={0.6} />
+                    {fit && (
+                        <Scatter name="Trend" data={fit.points} line={{ stroke: tokens.color?.warning, strokeWidth: 2 }}
+                                 shape={() => null} legendType="none" isAnimationActive={false} />
+                    )}
                 </RScatterChart>
             </RContainer>
+            {fit && (
+                <p style={{ margin: '6px 0 0', fontSize: 12, color: tokens.color?.['muted-600'] }}>
+                    Across {points.length.toLocaleString()} people, rating {fit.direction} with length of
+                    service: {fit.strength} (r = {fit.r.toFixed(2)}).
+                </p>
+            )}
         </div>
     );
 });
@@ -169,14 +214,17 @@ const AnalyticsDashboard = memo(() => {
         fetchData();
     }, [fetchData]);
 
-    // Real chart series from the employee UDM (headcount/attrition by dept, perf-vs-tenure).
+    // Chart series for whatever the filter is set to. These used to be fetched
+    // once with no department at all, so choosing a department changed the four
+    // stat cards and left every chart below them showing the whole company,
+    // presented as if it were the filtered view.
     useEffect(() => {
         let alive = true;
-        getAnalyticsCharts()
+        getAnalyticsCharts(filters.department || undefined)
             .then(res => { if (alive && res?.data) setCharts(res.data); })
             .catch(() => { /* leave empty; widgets show their own empty state */ });
         return () => { alive = false; };
-    }, []);
+    }, [filters.department]);
 
     const handleFilterChange = useCallback((e) => {
         setFilters(prev => ({ ...prev, [e.target.name]: e.target.value }));
@@ -242,7 +290,7 @@ const AnalyticsDashboard = memo(() => {
             <div style={styles.grid}>
                 {/* Scatter Chart - span 8 (real perf vs tenure across the workforce) */}
                 <div style={{ gridColumn: 'span 8' }}>
-                    <DataCard title="Performance vs. Tenure Regression" isChart={true} minHeight="300px">
+                    <DataCard title="Performance against length of service" isChart={true} minHeight="300px">
                         <PerfTenureScatter points={charts.perf_vs_tenure} />
                     </DataCard>
                 </div>

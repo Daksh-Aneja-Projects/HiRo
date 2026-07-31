@@ -58,11 +58,13 @@ const AgentModule = memo(() => {
             </div>
             <div style={{ gridColumn: 'span 3' }}>
                 <DataCard
-                    title="Work in progress"
-                    value={<CountUp value={orch?.active_tasks ?? 0} />}
+                    title="Digital twins in memory"
+                    value={<CountUp value={orch?.active_twins ?? orch?.active_tasks ?? 0} />}
                     color={tokens.color?.['accent-secondary']}
                     icon={<ListChecks size={16} />}
-                    subtitle={Number(orch?.active_tasks) > 0 ? 'Tasks running right now' : 'Nothing running right now'}
+                    subtitle={Number(orch?.active_twins ?? orch?.active_tasks) > 0
+                        ? 'Employee models the twin agent is holding open'
+                        : 'No employee model is open'}
                 />
             </div>
             <div style={{ gridColumn: 'span 3' }}>

@@ -4,11 +4,14 @@ Backed by MongoDB (same store the users live in, so recognition can resolve real
 display names). Functions take a motor `db` handle so they're unit-testable with a
 fake. Field shapes match exactly what pages/SocialFeed.js renders.
 """
+import logging
 import uuid
 from datetime import datetime, timezone, timedelta
 
 FEED_LIMIT = 50
 LEADERBOARD_LIMIT = 20
+logger = logging.getLogger(__name__)
+
 MAX_POST_LEN = 2000
 MAX_REASON_LEN = 500
 
@@ -50,6 +53,27 @@ async def leaderboard(db, limit: int = LEADERBOARD_LIMIT):
     return [{"user_id": r["_id"], "user_name": r.get("user_name") or r["_id"], "stars": r["stars"]} for r in rows]
 
 
+async def _employee_named(identifier: str):
+    """Find a colleague by employee id, and read their name from the PII vault.
+
+    Everyone in the workforce can be recognised, whether or not they have ever
+    signed in. Returns (key, display name), or None if nobody matches.
+    """
+    try:
+        from services.pii_vault import PIIVault
+        rows = await PIIVault.get_instance().execute_pii_query(
+            "SELECT employee_uuid, full_name_encrypted FROM employee_pii WHERE employee_uuid = $1",
+            "employee_pii", "SocialRecognition", None, identifier,
+        )
+    except Exception as e:
+        logger.warning(f"could not look up {identifier} for recognition: {e}")
+        return None
+    if not rows:
+        return None
+    row = rows[0]
+    return row.get("employee_uuid") or identifier, row.get("full_name") or identifier
+
+
 async def give_star(db, *, from_user, to_user, reason):
     """Award a recognition star.
 
@@ -60,17 +84,26 @@ async def give_star(db, *, from_user, to_user, reason):
     if not to_user:
         raise ValueError("Choose someone to recognise.")
 
+    # Recognition is about people, not about accounts. This resolved only against
+    # db.users, which holds five sign-in accounts against a workforce of 21,470,
+    # so Give Star failed for all but a handful of the people the picker offered,
+    # and three of the eight names on the leaderboard could not be starred at all.
     target = await db.users.find_one({"username": to_user}) \
         or await db.users.find_one({"employee_uuid": to_user})
-    if not target:
-        raise ValueError(f"No account matches '{to_user}'.")
 
-    # Normalise to the sign-in name so the leaderboard groups correctly however
-    # the caller identified the person.
-    to_user = target.get("username") or to_user
+    if target:
+        # Normalise to the sign-in name so the leaderboard groups correctly
+        # however the caller identified the person.
+        to_user = target.get("username") or to_user
+        to_user_name = target.get("full_name") or to_user
+    else:
+        colleague = await _employee_named(to_user)
+        if not colleague:
+            raise ValueError(f"There is nobody on record matching '{to_user}'.")
+        to_user, to_user_name = colleague
+
     if to_user == from_user:
         raise ValueError("You cannot give recognition to yourself.")
-    to_user_name = target.get("full_name") or to_user
     await db.recognition_stars.insert_one({
         "from_user": from_user,
         "to_user": to_user,
