@@ -336,6 +336,10 @@ async def lifespan(app: FastAPI):
         )
 
         app.state.hr_modules_service = HRModulesService(app.state.mongo_client, app.state.event_publisher)
+
+        # Notifications are what tell a person their request was decided.
+        from services import notification_service
+        await notification_service.ensure_table()
         app.state.hrsd_system = MultiAgentHRSDSystem(
             ai_service=app.state.ai_service,
             hr_modules_service=app.state.hr_modules_service,

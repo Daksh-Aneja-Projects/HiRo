@@ -549,3 +549,8 @@ export const getRLFFMonitorStatus = getAdminDashboardData;
 export const getServiceNowHealth = getHRSDMonitoringOverview;
 export const getFinancialForecast = () => aggregateMetrics({ metric_type: 'financial_impact', query: 'Q1 Payroll Delta' });
 export const getPredictiveRiskAlias = getPredictiveRisk;
+
+// --- Notifications: what tells a person their request was decided ---
+export const getNotifications = (limit = 20) => api.get(`/notifications?limit=${limit}`);
+export const markNotificationRead = (id) => api.post(`/notifications/${encodeURIComponent(id)}/read`);
+export const markAllNotificationsRead = () => api.post('/notifications/read-all');

@@ -6,6 +6,7 @@ import json
 from typing import Dict, Any, Optional
 from datetime import datetime, timezone, timedelta
 from services.postgres_client import pg_client
+from services import notification_service as notify_svc
 from services.event_publisher_service import EventPublisherService
 from services.pii_vault import PIIVault
 from services.enforcement_engine import runtime_enforcer # CRITICAL: Import real enforcer
@@ -256,6 +257,16 @@ class HRModulesService:
             "submitted_at": now_utc
         }
         await self.timesheets.insert_one(mongo_doc)
+        await notify_svc.notify_manager_of(
+            employee_id,
+            notify_svc.KIND_APPROVAL_WAITING,
+            "A timesheet needs your decision",
+            f"Someone on your team submitted {total_hours:g} hours"
+            + (" and it is over the working-time limit, so it needs a closer look."
+               if decision != "APPROVE" else "."),
+            link="/manager-portal?module=approvals",
+            related_id=ts_id,
+        )
         
         # 5. Publish to Agent Queue for ML Reconciliation (even if manually approved by policy)
         await self.pub.publish_agent_task(
@@ -445,6 +456,20 @@ class HRModulesService:
         )
         if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="Expense claim not found.")
+
+        claim = await self.expenses.find_one({"expense_id": expense_id},
+                                             {"_id": 0, "employee_uuid": 1, "amount": 1, "currency": 1})
+        amount = float((claim or {}).get("amount") or 0)
+        await notify_svc.notify(
+            (claim or {}).get("employee_uuid"),
+            notify_svc.KIND_EXPENSE,
+            f"Your expense claim was {'approved' if approved else 'declined'}",
+            notify_svc.decision_sentence(
+                f"claim for {(claim or {}).get('currency', 'USD')} {amount:.2f}",
+                approved, detail=(comments or "").strip()),
+            link="/employee-portal?module=expenses",
+            related_id=expense_id,
+        )
         return {"status": status, "expense_id": expense_id}
 
     async def _direct_report_ids(self, manager_uuid: str) -> list:
@@ -498,6 +523,18 @@ class HRModulesService:
         )
         if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="Timesheet not found.")
+
+        sheet = await self.timesheets.find_one({"timesheet_id": timesheet_id}, {"_id": 0, "user_id": 1, "total_hours": 1})
+        await notify_svc.notify(
+            (sheet or {}).get("user_id"),
+            notify_svc.KIND_TIMESHEET,
+            f"Your timesheet was {'approved' if approved else 'sent back'}",
+            notify_svc.decision_sentence(
+                f"timesheet for {float((sheet or {}).get('total_hours') or 0):g} hours",
+                approved, detail=(comments or "").strip()),
+            link="/employee-portal?module=timesheets",
+            related_id=timesheet_id,
+        )
         return {"status": status, "timesheet_id": timesheet_id}
 
     async def submit_expense(self, employee_id: str, expense: Dict[str, Any], receipt_filename: Optional[str] = None) -> Dict[str, Any]:
@@ -513,6 +550,15 @@ class HRModulesService:
             "submitted_at": datetime.now(timezone.utc).isoformat(),
         }
         await self.expenses.insert_one(dict(doc))
+        await notify_svc.notify_manager_of(
+            employee_id,
+            notify_svc.KIND_APPROVAL_WAITING,
+            "An expense claim needs your decision",
+            f"Someone on your team claimed {doc['currency']} {doc['amount']:.2f}"
+            f"{' for ' + str(doc['category']).lower() if doc.get('category') else ''}.",
+            link="/manager-portal?module=approvals",
+            related_id=doc["expense_id"],
+        )
         return {"status": "SUBMITTED", "expense": doc}
 
     async def get_skills(self, employee_id: str) -> Dict[str, Any]:

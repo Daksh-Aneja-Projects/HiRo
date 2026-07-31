@@ -35,6 +35,22 @@ def call(method, path, token=None, body=None, expect=200):
     return payload
 
 
+def reset_leave_for_tests(hours=400):
+    """Give the test employee a known, workable leave position.
+
+    The balance is shared state: every test that asks for time off draws it
+    down, and anything left pending from an earlier run still counts against
+    what is available. Without this the suite passes or fails depending on the
+    order it ran in and on what previous runs left behind.
+    """
+    mgr, hr = login("manager"), login("hrbp")
+    for item in call("GET", "/mss/approvals/queue", mgr):
+        if str(item.get("type", "")).startswith("LEAVE"):
+            call("POST", "/mss/approvals/action", mgr,
+                 {"request_id": item["request_id"], "approved": False, "comments": "test reset"})
+    call("POST", "/hr/leave/balance/EMP-005", hr, {"hours": hours, "reason": "workflow test setup"})
+
+
 def login(user):
     return call("POST", "/auth/login", body={"username": user, "password": user})["access_token"]
 
@@ -50,6 +66,7 @@ def check(name, fn):
 
 def wf_leave_approval():
     """Employee requests leave, manager approves, employee sees APPROVED."""
+    reset_leave_for_tests(400)
     emp, mgr = login("employee"), login("manager")
     created = call("POST", "/ess/leave/submit", emp,
                    {"start_date": "2026-09-01", "end_date": "2026-09-03", "hours": 24})
@@ -70,6 +87,7 @@ def wf_leave_approval():
 
 def wf_leave_rejection():
     """A rejected request must read REJECTED, not APPROVED."""
+    reset_leave_for_tests(400)
     emp, mgr = login("employee"), login("manager")
     rid = call("POST", "/ess/leave/submit", emp,
                {"start_date": "2026-10-01", "end_date": "2026-10-02", "hours": 16})["request_id"]
@@ -169,6 +187,7 @@ def wf_unified_approval_queue():
     submitted successfully and then seen by nobody: there was no screen in the
     product that could approve it.
     """
+    reset_leave_for_tests(400)
     emp, mgr = login("employee"), login("manager")
 
     leave_id = call("POST", "/ess/leave/submit", emp, {
@@ -206,10 +225,8 @@ def wf_leave_balance_is_drawn_down():
     on submission could never fire, and people were approved far past what they
     had.
     """
-    emp, mgr, hr = login("employee"), login("manager"), login("hrbp")
-
-    # HR sets a known entitlement, so this test does not depend on history.
-    call("POST", "/hr/leave/balance/EMP-005", hr, {"hours": 100, "reason": "workflow test"})
+    reset_leave_for_tests(100)
+    emp, mgr = login("employee"), login("manager")
     before = call("GET", "/hr/leave/balance", emp)
     assert float(before["balance_hours"]) == 100, f"entitlement was not set: {before}"
 
@@ -238,12 +255,16 @@ def wf_leave_balance_is_drawn_down():
         "hours": 120, "reason": "more than is left"}, expect=403)
 
     # Requests already waiting count against what is available.
-    call("POST", "/ess/leave/submit", emp, {
+    holding = call("POST", "/ess/leave/submit", emp, {
         "leave_type": "ANNUAL", "start_date": "2027-07-01", "end_date": "2027-07-10",
-        "hours": 70, "reason": "first claim on the balance"})
+        "hours": 70, "reason": "first claim on the balance"})["request_id"]
     call("POST", "/ess/leave/submit", emp, {
         "leave_type": "ANNUAL", "start_date": "2027-08-01", "end_date": "2027-08-10",
         "hours": 70, "reason": "would exceed once the pending one is counted"}, expect=403)
+
+    # Decide it, or it stays pending and eats the balance on the next run.
+    call("POST", "/mss/approvals/action", mgr, {"request_id": holding, "approved": False,
+                                                "comments": "end of the workflow test"})
 
 
 def wf_policy_lifecycle():

@@ -3,6 +3,7 @@ import React from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { LogOut } from 'lucide-react';
+import NotificationBell from './NotificationBell';
 
 const TITLES = {
     '/dashboard': 'Dashboard',
@@ -32,6 +33,7 @@ const Navbar = () => {
                 <span style={styles.title}>{title}</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <NotificationBell />
                 <span style={styles.rolePill}>{(user?.role || 'guest').replace(/_/g, ' ')}</span>
                 <button onClick={logout} style={styles.logout} className="logout-btn" title="Sign out">
                     <LogOut size={15} /> Sign out

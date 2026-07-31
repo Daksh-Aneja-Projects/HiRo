@@ -11,7 +11,8 @@ from fastapi import HTTPException, status
 # CRITICAL FIX: Import required services and models
 from config.settings import settings
 from services.event_publisher_service import EventPublisherService 
-from services.postgres_client import pg_client 
+from services.postgres_client import pg_client
+from services import notification_service as notify_svc 
 from services.pii_vault import PIIVault 
 from services.enforcement_engine import runtime_enforcer 
 from services.agent_spec_dsl import TriggerType 
@@ -171,8 +172,17 @@ class ESSService:
                 # If NATS fails, the transaction will automatically commit, but we should log/alert.
                 logger.error(f"Failed to publish NATS event for leave request {request_id}. DB transaction committed.")
                 
-            return {
-                "status": "PENDING",
-                "request_id": request_id,
-                "message": "Leave request submitted and routed for manager approval."
-            }
+        await notify_svc.notify_manager_of(
+            employee_id,
+            notify_svc.KIND_APPROVAL_WAITING,
+            "A time off request needs your decision",
+            f"Someone on your team asked for {float(requested_hours or 0):g} hours off"
+            f" from {request_data['start_date']}.",
+            link="/manager-portal?module=approvals",
+            related_id=request_id,
+        )
+        return {
+            "status": "PENDING",
+            "request_id": request_id,
+            "message": "Leave request submitted and routed for manager approval."
+        }

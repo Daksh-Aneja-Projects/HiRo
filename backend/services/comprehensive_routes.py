@@ -7,6 +7,7 @@ from fastapi import APIRouter, Request, HTTPException, Depends, UploadFile, File
 from fastapi.responses import StreamingResponse, Response 
 from pydantic import BaseModel
 import asyncio
+from services import notification_service
 import json
 import hashlib
 from datetime import datetime, timezone, timedelta
@@ -141,6 +142,7 @@ command_router = APIRouter(prefix="/command", tags=["Command Execution"])
 
 # FIX START: Define the new recognition router to match the root path in api.js
 recognition_router = APIRouter(prefix="/recognition", tags=["Recognition"])
+notifications_router = APIRouter(prefix="/notifications", tags=["Notifications"])
 # FIX END
 
 
@@ -2576,6 +2578,32 @@ async def websocket_telemetry(websocket: WebSocket, client_id: str = "dashboard"
         logger.info(f"Client {client_id} disconnected from telemetry")
 
 # ======================================
+# NOTIFICATIONS
+# ======================================
+@notifications_router.get("")
+async def list_notifications(req: Request, limit: int = Query(50), unread_only: bool = Query(False),
+                             payload: Dict = Depends(employee_role_required)):
+    """What this person has been told, newest first, with the unread count."""
+    me = _self_uuid(payload)
+    items = await notification_service.list_for(me, limit=limit, unread_only=unread_only)
+    return {"notifications": items, "unread": await notification_service.unread_count(me)}
+
+
+@notifications_router.post("/{notification_id}/read")
+async def mark_notification_read(req: Request, notification_id: str,
+                                 payload: Dict = Depends(employee_role_required)):
+    """Mark one notification read. Scoped to the owner."""
+    changed = await notification_service.mark_read(_self_uuid(payload), notification_id)
+    return {"marked": changed, "notification_id": notification_id}
+
+
+@notifications_router.post("/read-all")
+async def mark_all_notifications_read(req: Request, payload: Dict = Depends(employee_role_required)):
+    """Clear the whole list for this person."""
+    return {"marked": await notification_service.mark_read(_self_uuid(payload))}
+
+
+# ======================================
 # FINAL EXPORT (CRITICAL FIX: Ensure all routers are included)
 # ======================================
 ALL_ROUTERS = [
@@ -2590,6 +2618,7 @@ ALL_ROUTERS = [
     dao_router, compliance_router, social_router, innovation_router, 
     orchestrator_router, command_router,
     # FIX ENDPOINT: Recognition Router
-    recognition_router
+    recognition_router,
+    notifications_router,
 ]
 

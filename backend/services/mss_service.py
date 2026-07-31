@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from services.postgres_client import pg_client
 from services.pii_vault import PIIVault
 from services.event_publisher_service import EventPublisherService
+from services import notification_service as notify_svc
 import asyncio # CRITICAL FIX: Add missing import
 
 logger = logging.getLogger(__name__)
@@ -99,4 +100,17 @@ class MSSService:
                 key=request_id
             )
 
-            return {"status": status, "request_id": request_id}
+        # Tell the person who asked. Outside the transaction: a notification that
+        # fails to send must not undo a decision that was made correctly.
+        hours = float(row["hours"] or 0)
+        await notify_svc.notify(
+            row["employee_uuid"],
+            notify_svc.KIND_LEAVE,
+            f"Your time off was {'approved' if approved else 'declined'}",
+            notify_svc.decision_sentence(
+                f"request for {hours:g} hours of time off", approved,
+                detail=(comments or "").strip()),
+            link="/employee-portal?module=leave",
+            related_id=request_id,
+        )
+        return {"status": status, "request_id": request_id}
