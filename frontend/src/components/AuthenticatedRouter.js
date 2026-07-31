@@ -1,7 +1,7 @@
 // /frontend/src/components/AuthenticatedRouter.js - FINAL PRODUCTION-READY REPLACEMENT
 import React, { useMemo, memo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { Navigate, Outlet } from 'react-router-dom';
+import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { settings } from '../config/settings';
 import { hasAccess } from '../config/portalAccess';
 
@@ -24,6 +24,12 @@ const ROLE_TO_PATH_MAP = {
  */
 const AuthenticatedRouter = memo(() => {
     const { user, userRole, isLoading } = useAuth();
+    // Subscribe to the router location. This component is a layout route that
+    // returns <Navigate> at "/" and <Outlet> elsewhere; without a location
+    // subscription, memo keeps it from re-rendering after its own redirect, so
+    // it stays returning a now-no-op <Navigate> and the portal Outlet never
+    // mounts — the blank screen every role saw right after login.
+    const location = useLocation();
     
     // CRITICAL FIX: The logic must wait for loading to complete
     if (isLoading) {
@@ -50,9 +56,7 @@ const AuthenticatedRouter = memo(() => {
     }
     
     // 3. If the current path is the root "/" or "/dashboard", redirect to the role-specific path.
-    // NOTE: useLocation is often used here, but since this component is nested directly under 
-    // the generic / and /dashboard routes (see App.js), a simple check is sufficient.
-    const currentPath = window.location.pathname;
+    const currentPath = location.pathname;
     
     // If the user lands on the base path or the generic dashboard, redirect them.
     if (currentPath === '/' || currentPath === '/dashboard') {
