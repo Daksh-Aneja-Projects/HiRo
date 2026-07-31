@@ -212,9 +212,7 @@ const GovernanceModule = memo(() => {
                     <div style={{ minWidth: 0 }}>
                         <h3 style={ui.h3}>Every decision the policy engine made</h3>
                         <p style={ui.hint}>
-                            {model
-                                ? `Recorded while ${model} was the active model. Each line says what was attempted, what the engine decided and why.`
-                                : 'Waiting to learn which model the platform is running.'}
+                            Each line says what was attempted, what the policy engine decided and why.
                         </p>
                     </div>
                     {decisions.length > 0 && (

@@ -195,8 +195,9 @@ RecognitionLeaderboard.displayName = 'RecognitionLeaderboard';
 
 // --- MAIN SOCIAL FEED COMPONENT ---
 export const SocialFeed = memo(() => {
+    const { toast } = useToast();
     // CRITICAL API INTEGRATION 2: Fetch Social Feed (Polls every 30s for a 'live' feel)
-    const { 
+    const {
         data: posts, 
         isLoading: isFeedLoading, 
         error: feedError, 
