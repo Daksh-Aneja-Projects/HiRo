@@ -198,6 +198,54 @@ def wf_unified_approval_queue():
          {"request_id": "TS-NOT-YOURS", "approved": True, "type": "TIMESHEET"}, expect=404)
 
 
+def wf_leave_balance_is_drawn_down():
+    """Approved leave actually comes off the entitlement, once.
+
+    Approving used to update the request row and nothing else, so used_hours sat
+    at zero for every employee however much leave was granted. The balance check
+    on submission could never fire, and people were approved far past what they
+    had.
+    """
+    emp, mgr, hr = login("employee"), login("manager"), login("hrbp")
+
+    # HR sets a known entitlement, so this test does not depend on history.
+    call("POST", "/hr/leave/balance/EMP-005", hr, {"hours": 100, "reason": "workflow test"})
+    before = call("GET", "/hr/leave/balance", emp)
+    assert float(before["balance_hours"]) == 100, f"entitlement was not set: {before}"
+
+    rid = call("POST", "/ess/leave/submit", emp, {
+        "leave_type": "ANNUAL", "start_date": "2027-05-03", "end_date": "2027-05-05",
+        "hours": 24, "reason": "workflow test"})["request_id"]
+
+    # Nothing moves until somebody decides.
+    pending = call("GET", "/hr/leave/balance", emp)
+    assert float(pending["balance_hours"]) == 100, f"balance moved before approval: {pending}"
+
+    call("POST", "/mss/approvals/action", mgr, {"request_id": rid, "approved": True})
+    after = call("GET", "/hr/leave/balance", emp)
+    assert float(after["balance_hours"]) == 76, f"approval did not draw the balance down: {after}"
+    assert float(after["used_hours"]) - float(before["used_hours"]) == 24, \
+        f"used hours did not move by the hours approved: {after}"
+
+    # Approving the same request again must not draw it down twice.
+    call("POST", "/mss/leave/approve", mgr, {"request_id": rid, "approved": True})
+    twice = call("GET", "/hr/leave/balance", emp)
+    assert float(twice["balance_hours"]) == 76, f"a second approval moved the balance again: {twice}"
+
+    # You cannot ask for more than is left.
+    call("POST", "/ess/leave/submit", emp, {
+        "leave_type": "ANNUAL", "start_date": "2027-06-01", "end_date": "2027-06-20",
+        "hours": 120, "reason": "more than is left"}, expect=403)
+
+    # Requests already waiting count against what is available.
+    call("POST", "/ess/leave/submit", emp, {
+        "leave_type": "ANNUAL", "start_date": "2027-07-01", "end_date": "2027-07-10",
+        "hours": 70, "reason": "first claim on the balance"})
+    call("POST", "/ess/leave/submit", emp, {
+        "leave_type": "ANNUAL", "start_date": "2027-08-01", "end_date": "2027-08-10",
+        "hours": 70, "reason": "would exceed once the pending one is counted"}, expect=403)
+
+
 def wf_policy_lifecycle():
     """HRBP drafts, submits, approves, activates and attests a policy."""
     hrbp = login("hrbp")
@@ -371,6 +419,7 @@ def main():
     check("employee -> manager expense approval round trip", wf_expense_approval)
     check("timesheet policy check is real, approval round trip", wf_timesheet_approval)
     check("leave, timesheets and expenses all reach the manager queue", wf_unified_approval_queue)
+    check("approved leave is drawn off the balance, once", wf_leave_balance_is_drawn_down)
     check("HRBP policy lifecycle draft -> activate -> ledger", wf_policy_lifecycle)
     check("HRBP reads decrypted compensation", wf_compensation)
     check("document ingestion persists a real job", wf_ingestion)

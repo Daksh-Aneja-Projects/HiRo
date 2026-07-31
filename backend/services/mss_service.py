@@ -49,19 +49,49 @@ class MSSService:
             raise RuntimeError(f"Failed to retrieve team data securely: {e}")
 
     async def approve_leave(self, request_id: str, manager_id: str, approved: bool, comments: Optional[str] = None) -> Dict:
-        """Approves or rejects a leave request with transactional safety."""
+        """Approve or reject a leave request, and draw the hours off the balance.
+
+        Approving used to update leave_requests and nothing else, so used_hours
+        stayed at zero for every employee in the company however much leave was
+        approved. Nothing ever drew the entitlement down, which meant the balance
+        check on submission could never fire and people were approved far past
+        what they had.
+
+        The status update is conditional on the request still being PENDING, so
+        approving twice cannot draw the balance down twice.
+        """
         status = "APPROVED" if approved else "REJECTED"
 
         async with pg_client.transaction("MSS_Agent", "Leave_Approval") as conn:
-            # CRITICAL FIX: Use the transaction connection object for execution
-            await conn.execute(
-                "UPDATE leave_requests SET status=$1, approved_by=$2, decided_at=$3, denial_reason=$5 WHERE request_id=$4",
+            row = await conn.fetchrow(
+                """UPDATE leave_requests
+                   SET status=$1, approved_by=$2, decided_at=$3, denial_reason=$5
+                   WHERE request_id=$4 AND status='PENDING'
+                   RETURNING employee_uuid, hours""",
                 status,
                 manager_id,
                 datetime.now(timezone.utc).isoformat(),
                 request_id,
-                comments if not approved else None
+                comments if not approved else None,
             )
+
+            if row is None:
+                # Either the id is unknown or somebody has already decided it.
+                existing = await conn.fetchrow(
+                    "SELECT status FROM leave_requests WHERE request_id=$1", request_id)
+                if existing is None:
+                    raise ValueError(f"There is no leave request with the id {request_id}.")
+                return {"status": existing["status"], "request_id": request_id,
+                        "note": "This request had already been decided, so nothing changed."}
+
+            if approved:
+                await conn.execute(
+                    """UPDATE leave_balance
+                       SET used_hours = COALESCE(used_hours, 0) + $2,
+                           balance_hours = GREATEST(COALESCE(balance_hours, 0) - $2, 0)
+                       WHERE employee_uuid = $1""",
+                    row["employee_uuid"], row["hours"],
+                )
 
             await self.publisher.publish_event(
                 "Employee_Action",

@@ -106,10 +106,31 @@ class ESSService:
         
         if enforcer_result["decision"] in ["DENY", "STOP", "BLOCK"]:
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, 
+                status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Leave request blocked by policy: {enforcer_result['reason']}"
             )
-            
+
+        # Ask for no more than is actually left. This counts what is already
+        # awaiting a decision as well as what has been taken: without that, five
+        # pending requests for the full balance would all be accepted, and the
+        # manager would only find out by approving them one at a time.
+        balance = await pg_client.fetchrow(
+            """SELECT COALESCE(lb.balance_hours, 0) AS remaining,
+                      COALESCE((SELECT SUM(hours) FROM leave_requests
+                                WHERE employee_uuid = $1 AND status = 'PENDING'), 0) AS pending
+               FROM leave_balance lb WHERE lb.employee_uuid = $1""",
+            employee_id,
+        )
+        if balance is not None and requested_hours:
+            available = float(balance["remaining"]) - float(balance["pending"])
+            if float(requested_hours) > available:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=(f"You asked for {float(requested_hours):g} hours but only "
+                            f"{max(available, 0):g} are left, once the requests you already have "
+                            "waiting for a decision are counted."),
+                )
+
         # CRITICAL FIX: Start a transaction for data integrity before publishing
         async with pg_client.transaction(requesting_agent_id=ESS_AGENT_ID, purpose="submit_leave"):
             

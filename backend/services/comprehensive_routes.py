@@ -953,6 +953,41 @@ async def get_leave_balance(req: Request, payload: Dict=Depends(employee_role_re
         raise HTTPException(status_code=404, detail="No employee record linked to this account.")
     return await hr_modules_service.get_employee_leave_balance(employee_uuid)
 
+@hr_router.post("/leave/balance/{employee_id}")
+async def set_leave_balance(req: Request, employee_id: str,
+                            hours: float = Body(..., embed=True),
+                            reason: str = Body("", embed=True),
+                            payload: Dict = Depends(policy_admin_role_required)):
+    """Grant or correct an employee's remaining leave entitlement.
+
+    There was no way to do this anywhere in the product: entitlements only ever
+    came from the initial seed, so HR could not grant a new starter their
+    allowance, apply an annual reset, or correct a mistake.
+
+    This sets what is left to take. Hours already taken are not disturbed.
+    """
+    if hours < 0:
+        raise HTTPException(status_code=400, detail="An entitlement cannot be negative.")
+    exists = await pg_client.fetchrow(
+        "SELECT 1 AS ok FROM employee_pii WHERE employee_uuid = $1", employee_id)
+    if not exists:
+        raise HTTPException(status_code=404, detail=f"There is no employee with the id {employee_id}.")
+
+    await pg_client.execute(
+        """INSERT INTO leave_balance (employee_uuid, balance_hours, used_hours, policy_id)
+           VALUES ($1, $2, 0, 'LEAVE_POLICY_GLOBAL')
+           ON CONFLICT (employee_uuid) DO UPDATE SET balance_hours = EXCLUDED.balance_hours""",
+        employee_id, hours,
+    )
+    logger.info(f"Leave entitlement for {employee_id} set to {hours}h by {payload['sub']}: {reason or 'no reason given'}")
+    return {
+        "employee_id": employee_id,
+        "remaining_hours": hours,
+        "set_by": payload["sub"],
+        "reason": reason,
+        "message": f"{employee_id} now has {hours:g} hours of leave left to take.",
+    }
+
 @hr_router.get("/leave/requests")
 async def get_leave_history(req: Request, limit: int = Query(50), offset: Optional[int] = Query(None), payload: Dict=Depends(employee_role_required)):
     hr_modules_service: HRModulesService = getattr(req.app.state, "hr_modules_service", None)
