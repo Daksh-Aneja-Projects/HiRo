@@ -44,10 +44,16 @@ class PolicyScrapingAgent:
         logger.info("✓ PolicyScrapingAgent Initialized (Global Sentinel Mode).")
 
     async def _process_single_feed(self, jurisdiction: str, feed_type: str) -> Tuple[bool, str]:
-        # Logic to process feed - simplified for brevity but functional
-        logger.info(f"Processing feed: {feed_type} for {jurisdiction}")
-        await asyncio.sleep(0.1) # Simulate external API call latency
-        return True, "Processed"
+        """Fetch and apply one regulatory feed.
+
+        There is no feed attached. This slept for 100ms and returned
+        ("Processed"), so the sweep above reported success for every
+        jurisdiction and logged "Full policy sweep cycle finished" hourly while
+        nothing was ever read. Reporting honestly is what makes it visible that
+        this needs a real source before it can do anything.
+        """
+        logger.info(f"No regulatory source is configured for {feed_type} in {jurisdiction}.")
+        return False, "No source configured"
 
     async def execute_full_sweep(self, jurisdictions: Optional[List[str]] = None) -> Dict[str, Any]:
         """Executes a one-time sweep across all jurisdictions."""

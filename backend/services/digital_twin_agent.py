@@ -102,13 +102,18 @@ class DigitalTwinAgent:
             raise ValueError("LLM returned unusable structure")
 
         except Exception as e:
+            # This used to return a scenario with an invented 0.3 impact and the
+            # drivers "market" and "burnout", which reached the screen looking
+            # exactly like a real one. A scenario nobody generated must not be
+            # presented as a scenario.
             logger.error(f"LLM Scenario Generation failed: {e}")
             return {
-                "scenario_id": "SCENARIO_MOCK",
-                "scenario_description": "Mock: LLM unavailable",
-                "impact_magnitude_score": 0.3,
-                "drivers": ["market", "burnout"],
-                "time_horizon": "medium"
+                "scenario_id": None,
+                "scenario_description": "No scenario could be generated: the model was unavailable.",
+                "impact_magnitude_score": None,
+                "drivers": [],
+                "time_horizon": None,
+                "available": False,
             }
             
     async def _simulate_scenario_impact(
@@ -138,8 +143,9 @@ class DigitalTwinAgent:
             return aggregated_risk, mitigation_recommendation
 
         except Exception as e:
+            # 0.3 was a made-up risk figure presented as a computed one.
             logger.error(f"Scenario simulation failed: {e}")
-            return 0.3, "Simulation failed. Manual review required."
+            return None, "This could not be simulated, so there is no risk figure to show."
 
     def _generate_mitigation_recommendation(
         self,
@@ -190,7 +196,7 @@ class DigitalTwinAgent:
                         scenario, current_state
                     )
 
-                    if risk_score >= CRITICAL_RISK_THRESHOLD:
+                    if risk_score is not None and risk_score >= CRITICAL_RISK_THRESHOLD:
                         if self.publisher and hasattr(self.publisher, 'publish_event'):
                             await self.publisher.publish_event(
                                 topic=self.publisher.TOPIC_DTLA_SCENARIO, 
@@ -250,11 +256,20 @@ class DigitalTwinAgent:
                 user_scenario, current_state
             )
 
+            if risk_score is None:
+                return {
+                    "status": "UNAVAILABLE",
+                    "risk_score": None,
+                    "recommendation": recommendation,
+                    "message": "This scenario could not be simulated, so there is no result to show.",
+                    "requester": requester_id,
+                    "scenario_id": user_scenario.get('scenario_id', 'USER_SCENARIO'),
+                }
             return {
                 "status": "SUCCESS",
                 "risk_score": risk_score,
                 "recommendation": recommendation,
-                "message": f"Scenario simulation complete",
+                "message": "Scenario simulation complete",
                 "requester": requester_id,
                 "scenario_id": user_scenario.get('scenario_id', 'USER_SCENARIO')
             }

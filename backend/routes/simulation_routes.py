@@ -4,7 +4,6 @@ import logging
 from typing import Dict, Any, List 
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Request, Depends
 from pydantic import BaseModel
-import random 
 from datetime import datetime, timezone 
 import asyncio 
 import uuid 
@@ -16,21 +15,13 @@ logger = logging.getLogger(__name__)
 # FIX 1: Added explicit router prefix for consistency with frontend calls (e.g., /simulation/run)
 router = APIRouter(prefix="/simulation") 
 
-# Placeholder for SyntheticTwinEngine if not retrieved from app.state
-class SyntheticTwinEnginePlaceholder:
-    # CRITICAL REFINEMENT: Add user_id to the placeholder method signature to match the final service
-    async def run_simulation(self, employee_id, adjustments, simulation_type, user_id=None):
-        await asyncio.sleep(0.5)
-        return {
-            "employee_id": employee_id,
-            "risk_score_delta": random.uniform(-0.1, 0.1),
-            "attrition_probability_change": random.uniform(-0.05, 0.05),
-            "productivity_impact": random.uniform(0.01, 0.2),
-            "cost_implication": random.uniform(100, 5000),
-            "recommendations": [],
-            "simulation_timestamp": datetime.now(timezone.utc).isoformat(),
-            "user_id": user_id or "placeholder_user"
-        }
+# There used to be a SyntheticTwinEnginePlaceholder here that returned
+# random.uniform() for risk delta, attrition change, productivity and cost, and
+# was substituted silently whenever the real engine was missing from app.state.
+# A wiring failure would have turned "simulation" into a random number generator
+# with nothing on screen to say so, and a manager would have made a decision
+# about a real person on the strength of it. It is better for the screen to say
+# the simulator is unavailable.
 
 class SimulationRequest(BaseModel):
     employee_id: str
@@ -50,11 +41,11 @@ async def run_what_if_simulation(request: SimulationRequest, req: Request, paylo
     
     engine = getattr(req.app.state, 'synthetic_twin_engine', None)
     
-    # CRITICAL REFINEMENT: If the service is not wired, use the placeholder
     if not engine:
-        # NOTE: This ensures the route works even if the full app context isn't running
-        engine = SyntheticTwinEnginePlaceholder()
-        
+        raise HTTPException(
+            status_code=503,
+            detail="The simulator is not available right now, so no result can be produced.")
+
     try:
         # CRITICAL REFINEMENT: Pass the user_id from the payload for auditing/access control
         result = await engine.run_simulation(
@@ -76,8 +67,10 @@ async def run_batch_simulation(request: BatchSimulationRequest, req: Request, pa
     
     engine = getattr(req.app.state, 'synthetic_twin_engine', None)
     if not engine:
-        engine = SyntheticTwinEnginePlaceholder()
-        
+        raise HTTPException(
+            status_code=503,
+            detail="The simulator is not available right now, so no results can be produced.")
+
     simulation_tasks = [
         # CRITICAL REFINEMENT: Pass the user_id from the payload to each simulation
         engine.run_simulation(
