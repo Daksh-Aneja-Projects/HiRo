@@ -16,6 +16,10 @@ import Navbar from './components/Navbar'; // CRITICAL: Import stabilized Navbar
 import AuthenticatedRouter from './components/AuthenticatedRouter';
 import LoadingScreen from './components/LoadingScreen'; // CRITICAL: Import stabilized Loading Screen
 
+// Config/Theme
+import { theme as tokens } from './theme';
+import './App.css'; // Global styles import
+
 // Pages (Lazy Loaded for Performance - Code Splitting)
 const Login = React.lazy(() => import('./pages/Login'));
 const AdminPortalComponent = React.lazy(() => import('./pages/AdminPortal'));
@@ -28,10 +32,6 @@ const DashboardComponent = React.lazy(() => import('./pages/Dashboard').then(mod
 const UserPage = React.lazy(() => import('./pages/UserPage'));
 const SocialFeed = React.lazy(() => import('./pages/SocialFeed').then(module => ({ default: module.SocialFeed })));
 const AdvancedAnalyticsComponent = React.lazy(() => import('./pages/AdvancedAnalytics'));
-
-// Config/Theme
-import { theme as tokens } from './theme';
-import './App.css'; // Global styles import
 
 // --- Main Authenticated Layout Container (Nested Router Element) ---
 /**
