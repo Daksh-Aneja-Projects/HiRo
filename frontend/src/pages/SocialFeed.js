@@ -5,7 +5,7 @@ import { theme as tokens } from '../theme';
 // CRITICAL API IMPORTS
 import {
     getSocialFeed, postSocialPost, getRecognitionLeaderboard,
-    giveRecognitionStar, getInnovationIdeas
+    giveRecognitionStar, getInnovationIdeas, submitInnovationIdea, voteInnovationIdea
 } from '../config/api';
 import { useApi } from '../hooks/useApi';
 import { useToast } from '../hooks/use-toast';
@@ -212,7 +212,35 @@ export const SocialFeed = memo(() => {
     } = useApi(getRecognitionLeaderboard, [], true, []);
 
     // CRITICAL API INTEGRATION 5: Innovation ideas, charted by real vote counts.
-    const { data: ideas } = useApi(getInnovationIdeas, [], true);
+    const { data: ideas, refetch: refetchIdeas } = useApi(getInnovationIdeas, [], true);
+    const [ideaTitle, setIdeaTitle] = useState('');
+    const [submittingIdea, setSubmittingIdea] = useState(false);
+
+    const raiseIdea = useCallback(async (e) => {
+        e.preventDefault();
+        const title = ideaTitle.trim();
+        if (!title) return;
+        setSubmittingIdea(true);
+        try {
+            await submitInnovationIdea(title, '');
+            setIdeaTitle('');
+            refetchIdeas();
+            toast({ title: 'Idea raised', description: 'Colleagues can vote on it now.', variant: 'success' });
+        } catch (err) {
+            toast({ title: 'The idea was not saved', description: err.response?.data?.detail || err.message, variant: 'destructive' });
+        } finally {
+            setSubmittingIdea(false);
+        }
+    }, [ideaTitle, refetchIdeas, toast]);
+
+    const voteForIdea = useCallback(async (id) => {
+        try {
+            await voteInnovationIdea({ idea_id: id });
+            refetchIdeas();
+        } catch (err) {
+            toast({ title: 'Your vote was not counted', description: err.response?.data?.detail || err.message, variant: 'destructive' });
+        }
+    }, [refetchIdeas, toast]);
     const ideaVotes = useMemo(
         () => (Array.isArray(ideas) ? ideas : (ideas?.ideas || []))
             .map((i) => ({ name: i.title || i.name || i.idea || 'Idea', value: Number(i.votes ?? i.upvotes ?? i.score) || 0 }))
@@ -272,9 +300,58 @@ export const SocialFeed = memo(() => {
                         refetchLeaderboard={refetchLeaderboard}
                     />
                      <div style={{ marginTop: tokens.spacing?.lg }}>
-                        <DataCard title="Innovation Ideas by Votes" isChart minHeight="250px">
+                        <DataCard title="Ideas people have raised" subtitle="Ranked by how many colleagues backed them"
+                                  isChart minHeight="250px">
                             <BarChartWidget data={ideaVotes} minHeight="200px" color={tokens.color?.['accent-primary']} />
                         </DataCard>
+                    </div>
+
+                    <div style={{ marginTop: tokens.spacing?.lg, padding: tokens.spacing?.md, background: tokens.color?.['panel-800'], border: `1px solid ${tokens.color?.['border-600']}`, borderRadius: tokens.border?.radius?.card }}>
+                        <h3 style={{ margin: 0, fontSize: 14, color: tokens.color?.['text-100'] }}>Raise an idea</h3>
+                        <p style={{ margin: '4px 0 10px', fontSize: 12.5, color: tokens.color?.['muted-600'] }}>
+                            Anything that would make the work go better. Colleagues vote on what they want picked up.
+                        </p>
+                        <form onSubmit={raiseIdea} style={{ display: 'flex', gap: 8 }}>
+                            <input
+                                type="text"
+                                value={ideaTitle}
+                                onChange={(e) => setIdeaTitle(e.target.value)}
+                                placeholder="For example: one shared calendar for on-call"
+                                style={{
+                                    flex: 1, minWidth: 0, padding: '8px 10px', fontSize: 13,
+                                    borderRadius: 8, background: tokens.color?.['panel-700'],
+                                    border: `1px solid ${tokens.color?.['border-600']}`,
+                                    color: tokens.color?.['text-100'], fontFamily: 'inherit',
+                                }}
+                            />
+                            <button type="submit" disabled={submittingIdea || !ideaTitle.trim()}
+                                    style={{
+                                        padding: '8px 14px', fontSize: 13, borderRadius: 8, cursor: 'pointer',
+                                        border: `1px solid ${tokens.color?.['accent-primary']}`,
+                                        background: `${tokens.color?.['accent-primary']}22`,
+                                        color: tokens.color?.['text-100'], fontFamily: 'inherit',
+                                        opacity: submittingIdea || !ideaTitle.trim() ? 0.5 : 1,
+                                    }}>
+                                {submittingIdea ? 'Saving' : 'Raise it'}
+                            </button>
+                        </form>
+
+                        {(ideas || []).length > 0 && (
+                            <div style={{ marginTop: 12, display: 'grid', gap: 8 }}>
+                                {(ideas || []).slice(0, 5).map((idea) => (
+                                    <div key={idea.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 12.5 }}>
+                                        <span style={{ color: tokens.color?.['text-100'], overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            {idea.title}
+                                        </span>
+                                        <button type="button" onClick={() => voteForIdea(idea.id)}
+                                                style={{ flexShrink: 0, border: 'none', background: 'transparent',
+                                                         color: tokens.color?.['accent-primary'], cursor: 'pointer', fontSize: 12.5 }}>
+                                            Back this ({idea.votes || 0})
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>

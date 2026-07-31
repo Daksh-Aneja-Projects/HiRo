@@ -502,6 +502,11 @@ export const getIngestionJobs = (limit = 20) => api.get('/ingestion/jobs', { par
 export const getSocialFeed = () => api.get('/social/feed');
 export const postSocialPost = (data) => api.post('/social/posts', data);
 export const getInnovationIdeas = () => api.get('/innovation/ideas');
+// The endpoint to raise an idea existed and had no wrapper, so the "Innovation
+// Ideas by Votes" card could never hold anything: nothing in the product could
+// create the first one.
+export const submitInnovationIdea = (title, description) =>
+    api.post('/innovation/ideas', { title, description });
 export const voteInnovationIdea = (payload) => api.post('/innovation/ideas/vote', payload);
 export const createActivitySite = (activityDetails) => api.post(`/social/activity`, activityDetails);
 export const getJoinableActivities = () => api.get(`/social/activities`);
