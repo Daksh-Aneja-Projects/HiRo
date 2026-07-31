@@ -1286,15 +1286,31 @@ async def update_personal_info(req: Request, data: Dict, payload: Dict=Depends(e
     return {"status": "Update Requested", "request_id": request_id}
 
 
-async def _pending_leave_requests(limit: int = 100) -> List[Dict[str, Any]]:
-    """Real pending leave-approval items from the Postgres leave_requests table."""
+async def _pending_leave_requests(limit: int = 100, team_of: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Pending leave-approval items from the Postgres leave_requests table.
+
+    `team_of` scopes to a manager's own direct reports. Without it a line manager
+    saw, and could approve, every pending request in the company.
+    """
+    lim = max(1, min(int(limit or 100), 500))
     try:
-        rows = await pg_client.fetch(
-            """SELECT request_id, employee_uuid, start_date, end_date, hours, status, submitted_at
-               FROM leave_requests WHERE status = 'PENDING'
-               ORDER BY submitted_at ASC LIMIT $1""",
-            max(1, min(int(limit or 100), 500)),
-        )
+        if team_of:
+            rows = await pg_client.fetch(
+                """SELECT lr.request_id, lr.employee_uuid, lr.start_date, lr.end_date,
+                          lr.hours, lr.status, lr.submitted_at
+                   FROM leave_requests lr
+                   JOIN employee_pii e ON e.employee_uuid = lr.employee_uuid
+                   WHERE lr.status = 'PENDING' AND e.manager_id = $1
+                   ORDER BY lr.submitted_at ASC LIMIT $2""",
+                team_of, lim,
+            )
+        else:
+            rows = await pg_client.fetch(
+                """SELECT request_id, employee_uuid, start_date, end_date, hours, status, submitted_at
+                   FROM leave_requests WHERE status = 'PENDING'
+                   ORDER BY submitted_at ASC LIMIT $1""",
+                lim,
+            )
     except Exception as e:
         logger.warning(f"pending leave query failed: {e}")
         return []
@@ -1304,6 +1320,52 @@ async def _pending_leave_requests(limit: int = 100) -> List[Dict[str, Any]]:
          "hours": r["hours"], "status": r["status"], "submitted_at": str(r["submitted_at"])}
         for r in rows
     ]
+
+
+async def _approval_queue(req: Request, payload: Dict, limit: int = 100) -> List[Dict[str, Any]]:
+    """Everything waiting on this approver, across all three request kinds.
+
+    The queue used to read leave only, so a timesheet or an expense claim an
+    employee submitted never appeared for their manager at all: the person saw
+    "submitted" and the manager saw an empty queue, with no screen anywhere that
+    could clear it. Leave, timesheets and expenses all land here now, each scoped
+    to the approver's own direct reports (HR roles see the whole organisation).
+    """
+    role = (payload.get("role") or "").lower()
+    team_of = payload.get("employee_uuid") if role == "manager" else None
+    hr = _hr(req)
+
+    leave, timesheets, expenses = await asyncio.gather(
+        _pending_leave_requests(limit=limit, team_of=team_of),
+        hr.get_timesheets_for_approval(limit=limit, team_of=team_of),
+        hr.get_expenses(status="SUBMITTED", limit=limit, team_of=team_of),
+        return_exceptions=True,
+    )
+
+    def usable(result, kind):
+        if isinstance(result, Exception):
+            logger.warning(f"{kind} could not be loaded for the approval queue: {result}")
+            return []
+        return result or []
+
+    items: List[Dict[str, Any]] = list(usable(leave, "leave"))
+    items += list(usable(timesheets, "timesheets"))
+    for e in usable(expenses, "expenses"):
+        items.append({
+            "request_id": e.get("expense_id"),
+            "type": "EXPENSE",
+            "employee_uuid": e.get("employee_uuid"),
+            "amount": e.get("amount"),
+            "currency": e.get("currency", "USD"),
+            "category": e.get("category"),
+            "description": e.get("description"),
+            "status": e.get("status"),
+            "submitted_at": e.get("submitted_at"),
+        })
+
+    # Oldest first: the longest-waiting person is the one being blocked most.
+    items.sort(key=lambda i: str(i.get("submitted_at") or ""))
+    return [i for i in items if i.get("request_id")][:max(1, min(int(limit or 100), 500))]
 
 @mss_router.get("/team/roster")
 async def get_team_roster(req: Request, manager_id: Optional[str] = Query(None), status: Optional[str] = Query(None),
@@ -1382,28 +1444,52 @@ async def mss_approve(req: Request, request_id: str = Body(...), approved: bool 
     return await mss_service.approve_leave(request_id, payload['sub'], approved)
 
 @mss_router.get("/approvals/queue")
-async def get_approval_queue(req: Request, payload: Dict=Depends(manager_role_required)):
-    """Real pending leave-approval queue from Postgres."""
-    return await _pending_leave_requests()
+async def get_approval_queue(req: Request, limit: int = Query(100), payload: Dict=Depends(manager_role_required)):
+    """Everything waiting on this manager: leave, timesheets and expense claims."""
+    return await _approval_queue(req, payload, limit=limit)
 
 @mss_router.get("/approvals/hrit-queue")
 async def get_hrit_queue(req: Request, payload: Dict=Depends(hrit_admin_role_required)):
-    """HRIT-wide pending approval queue from Postgres."""
-    return await _pending_leave_requests(limit=500)
+    """Organisation-wide pending approval queue."""
+    return await _approval_queue(req, payload, limit=500)
 
 @mss_router.post("/approvals/action")
 async def action_approval(req: Request, payload_data: Dict, payload: Dict=Depends(manager_role_required)):
-    """Approve/reject a pending leave request. Delegates to the real MSS service which
-    updates leave_requests transactionally and publishes the decision event."""
-    mss_service: MSSService = getattr(req.app.state, "mss_service", None)
-    if not mss_service:
-        raise HTTPException(status_code=503, detail="MSS Service unavailable.")
+    """Approve or reject anything in the approval queue.
+
+    One screen clears the whole queue, so this dispatches by request kind to the
+    same handlers the dedicated endpoints use.
+
+    The kind is always resolved from the caller's own queue, never from the
+    request body. Trusting a client-supplied type would let a manager approve
+    another team's timesheet by naming its id, because the per-kind decision
+    handlers below take an id and do not re-check whose report it belongs to.
+    Being in your queue is what authorises the decision.
+    """
     request_id = payload_data.get("request_id") or payload_data.get("id")
     if not request_id:
         raise HTTPException(status_code=400, detail="request_id is required.")
     approved = bool(payload_data.get("approved", payload_data.get("action") == "approve"))
     comments = payload_data.get("comments", "")
-    return await mss_service.approve_leave(request_id, payload["sub"], approved, comments)
+
+    queue = await _approval_queue(req, payload, limit=500)
+    match = next((i for i in queue if i.get("request_id") == request_id), None)
+    if not match:
+        raise HTTPException(
+            status_code=404,
+            detail="That request is not in your approval queue. It may already have been decided.")
+    kind = str(match.get("type") or "").upper()
+
+    if kind == "TIMESHEET":
+        return await _hr(req).decide_timesheet(request_id, approved, payload["sub"], comments)
+    if kind == "EXPENSE":
+        return await _hr(req).decide_expense(request_id, approved, payload["sub"], comments)
+    if kind in ("LEAVE_REQUEST", "LEAVE"):
+        mss_service: MSSService = getattr(req.app.state, "mss_service", None)
+        if not mss_service:
+            raise HTTPException(status_code=503, detail="MSS Service unavailable.")
+        return await mss_service.approve_leave(request_id, payload["sub"], approved, comments)
+    raise HTTPException(status_code=400, detail=f"There is no approval handler for a {kind or 'blank'} request.")
 
 
 # ======================================

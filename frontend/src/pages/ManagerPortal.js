@@ -195,6 +195,41 @@ const requestKind = (type) => ({
     EXPENSE: 'Expense claim',
 }[String(type || '').toUpperCase()] || humanText(type) || 'Request');
 
+const money = (amount, currency) => {
+    const value = Number(amount);
+    if (!Number.isFinite(value)) return null;
+    try {
+        return new Intl.NumberFormat(undefined, { style: 'currency', currency: currency || 'USD' }).format(value);
+    } catch {
+        return `${currency || 'USD'} ${value.toFixed(2)}`;
+    }
+};
+
+// The queue carries three different kinds of request, so each one gets a sentence
+// that is actually true of it. A timesheet reported as "asked for 41 hours off"
+// is the sort of thing a manager approves by mistake.
+const describeRequest = (item, who) => {
+    const name = who || 'A team member';
+    const hours = Number(item.hours) || 0;
+    switch (String(item.type || '').toUpperCase()) {
+        case 'TIMESHEET':
+            return `${name} submitted a timesheet for ${hours} hours${
+                item.week_ending ? `, week ending ${fmtDate(item.week_ending)}` : ''}.`;
+        case 'EXPENSE': {
+            const value = money(item.amount, item.currency);
+            return `${name} claimed ${value || 'an expense'}${
+                item.category ? ` for ${humanText(item.category).toLowerCase()}` : ''}${
+                item.description ? `: ${item.description}` : ''}.`;
+        }
+        case 'LEAVE_REQUEST':
+        case 'LEAVE':
+            return `${name} has asked for ${hours} hours off${
+                item.start_date ? `, from ${fmtDate(item.start_date)} to ${fmtDate(item.end_date)}` : ''}.`;
+        default:
+            return `${name} has raised a request.`;
+    }
+};
+
 const ApprovalsModule = memo(() => {
     const { toast } = useToast();
     const { data: queue, isLoading, error, refetch } = useApi(getApprovalQueue, [], true);
@@ -206,7 +241,11 @@ const ApprovalsModule = memo(() => {
     const [comments, setComments] = useState({});
     const [busy, setBusy] = useState(null);
 
-    const totalHours = items.reduce((sum, i) => sum + (Number(i.hours) || 0), 0);
+    // Only leave hours are comparable; adding timesheet hours to them would be a
+    // number that means nothing.
+    const leaveHours = items
+        .filter((i) => String(i.type || '').toUpperCase().startsWith('LEAVE'))
+        .reduce((sum, i) => sum + (Number(i.hours) || 0), 0);
 
     const decide = useCallback(async (item, approved) => {
         const who = names[item.employee_uuid] || 'this person';
@@ -267,11 +306,11 @@ const ApprovalsModule = memo(() => {
             </div>
             <div style={styles.stat}>
                 <DataCard
-                    title="Hours requested"
-                    value={<CountUp value={totalHours} />}
+                    title="Time off requested"
+                    value={<CountUp value={leaveHours} />}
                     unit="hours"
                     icon={<CalendarDays size={15} />}
-                    subtitle="Across everything in the queue"
+                    subtitle="Time off asked for in this queue"
                 />
             </div>
             <div style={styles.stat}>
@@ -298,14 +337,13 @@ const ApprovalsModule = memo(() => {
                     <EmptyState
                         icon={CheckCircle}
                         title="Nothing is waiting for you"
-                        action="When someone on your team asks for time off, it lands here."
+                        action="Time off, timesheets and expense claims from your team all land here."
                     />
                 )}
 
                 <div style={ui.scroller('440px')} className="emp-scroll">
                     {items.map((item) => {
                         const who = names[item.employee_uuid];
-                        const hours = Number(item.hours) || 0;
                         return (
                             <div key={item.request_id} style={styles.card}>
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: tokens.spacing?.sm, marginBottom: 8 }}>
@@ -316,9 +354,7 @@ const ApprovalsModule = memo(() => {
                                 </div>
 
                                 <p style={{ margin: '0 0 6px 0', color: tokens.color?.['text-100'], fontSize: tokens.typography?.base?.fontSize, lineHeight: 1.55 }}>
-                                    <strong>{who || 'A team member'}</strong>
-                                    {hours ? ` has asked for ${hours} hours off` : ' has raised a request'}
-                                    {item.start_date ? `, from ${fmtDate(item.start_date)} to ${fmtDate(item.end_date)}` : ''}.
+                                    {describeRequest(item, who)}
                                 </p>
                                 <p style={{ ...ui.hint, margin: '0 0 10px 0' }}>
                                     Submitted {fmtDate(item.submitted_at)}

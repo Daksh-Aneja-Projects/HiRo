@@ -162,6 +162,42 @@ def wf_timesheet_approval():
     assert decision["status"] == "APPROVED", f"expected APPROVED, got {decision}"
 
 
+def wf_unified_approval_queue():
+    """Every kind of request an employee raises reaches the one manager queue.
+
+    The queue used to read leave only, so a timesheet or an expense claim was
+    submitted successfully and then seen by nobody: there was no screen in the
+    product that could approve it.
+    """
+    emp, mgr = login("employee"), login("manager")
+
+    leave_id = call("POST", "/ess/leave/submit", emp, {
+        "leave_type": "ANNUAL", "start_date": "2027-02-01", "end_date": "2027-02-03",
+        "hours": 24, "reason": "workflow test"})["request_id"]
+    ts_id = call("POST", "/hr/timesheets", emp,
+                 {"total_hours": 38, "week_ending": "2027-02-05"})["timesheet_id"]
+
+    queue = call("GET", "/mss/approvals/queue", mgr)
+    kinds = {i["type"] for i in queue}
+    assert "LEAVE_REQUEST" in kinds, f"leave missing from the manager queue: {kinds}"
+    assert "TIMESHEET" in kinds, f"timesheets missing from the manager queue: {kinds}"
+    assert any(i["request_id"] == leave_id for i in queue), "this leave request is not in the queue"
+    assert any(i["request_id"] == ts_id for i in queue), "this timesheet is not in the queue"
+
+    # The one action endpoint has to decide each kind correctly.
+    for rid, kind in ((leave_id, "leave"), (ts_id, "timesheet")):
+        result = call("POST", "/mss/approvals/action", mgr, {"request_id": rid, "approved": True})
+        assert str(result.get("status", "")).upper() == "APPROVED", f"{kind} not approved: {result}"
+
+    after = {i["request_id"] for i in call("GET", "/mss/approvals/queue", mgr)}
+    assert leave_id not in after and ts_id not in after, "decided requests are still in the queue"
+
+    # Being in your queue is what authorises the decision. An id that is not in it
+    # must be refused even when the caller names the type themselves.
+    call("POST", "/mss/approvals/action", mgr,
+         {"request_id": "TS-NOT-YOURS", "approved": True, "type": "TIMESHEET"}, expect=404)
+
+
 def wf_policy_lifecycle():
     """HRBP drafts, submits, approves, activates and attests a policy."""
     hrbp = login("hrbp")
@@ -334,6 +370,7 @@ def main():
     check("leave rejection records REJECTED", wf_leave_rejection)
     check("employee -> manager expense approval round trip", wf_expense_approval)
     check("timesheet policy check is real, approval round trip", wf_timesheet_approval)
+    check("leave, timesheets and expenses all reach the manager queue", wf_unified_approval_queue)
     check("HRBP policy lifecycle draft -> activate -> ledger", wf_policy_lifecycle)
     check("HRBP reads decrypted compensation", wf_compensation)
     check("document ingestion persists a real job", wf_ingestion)
