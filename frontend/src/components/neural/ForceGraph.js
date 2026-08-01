@@ -21,6 +21,8 @@ const LINK_STYLE = {
     'agent-comms': { stroke: 'rgba(234,179,8,0.5)', width: 1, opacity: 0.8, dash: '1 7', animated: true },
     'connector-hub': { stroke: 'rgba(63,185,229,0.42)', width: 1.1, opacity: 0.8, dash: '4 4', animated: true },
     'connector-agent': { stroke: 'rgba(63,185,229,0.38)', width: 1, opacity: 0.7, dash: '2 4', animated: true },
+    // Workforce motes hold to their hub with the faintest possible thread.
+    mote: { stroke: 'var(--text-tertiary)', width: 0.6, opacity: 0.14 },
 };
 const DEFAULT_LINK = { stroke: 'var(--text-tertiary)', width: 1, opacity: 0.3 };
 
@@ -34,7 +36,7 @@ const REST_MAX = 420;
 
 const truncate = (s, n = 18) => (s && s.length > n ? `${s.slice(0, n - 1)}…` : s || '');
 
-const ForceGraph = memo(({ nodes, links, onNodeClick, focus, pulseTs }) => {
+const ForceGraph = memo(({ nodes, links, onNodeClick, focus, pulseTs, reduced: reducedProp }) => {
     const svgRef = useRef(null);
     const nodeEls = useRef(new Map());
     const pulseEls = useRef(new Map()); // agent silhouettes, flashed on telemetry
@@ -45,12 +47,15 @@ const ForceGraph = memo(({ nodes, links, onNodeClick, focus, pulseTs }) => {
     const rafRef = useRef(0);
     const focusRafRef = useRef(0);
     const hoverRef = useRef(null);
-    const reduced = useMemo(
-        () => typeof window !== 'undefined'
-            && window.matchMedia
-            && window.matchMedia('(prefers-reduced-motion: reduce)').matches,
-        []
-    );
+    // The owner of the motion decision is the page (see useMotionPreference),
+    // because the OS preference alone froze this map for anyone whose machine
+    // has animations off, including on battery saver. Reading the media query
+    // here as a fallback keeps the component usable on its own.
+    const reduced = reducedProp !== undefined
+        ? reducedProp
+        : (typeof window !== 'undefined'
+            && !!window.matchMedia
+            && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 
     const dataKey = useMemo(() => nodes.map((n) => n.id).join('|'), [nodes]);
 
@@ -186,11 +191,14 @@ const ForceGraph = memo(({ nodes, links, onNodeClick, focus, pulseTs }) => {
         // Clicking a hub pulses its cluster: a radial shock through every
         // floating node of that department, decaying under normal damping.
         if (focus.shock && !reduced) {
-            const hubY = VB.H * 0.74;
+            // Radial shock outward from the hub's actual position: the cluster
+            // pops as the camera arrives, then settles under normal damping.
+            const sx = focus.shockX ?? focus.x;
+            const sy = focus.shockY ?? focus.y;
             simRef.current.nodes.forEach((n) => {
                 if (n.dept !== focus.shock || n.fixed || n.dragging) return;
-                n.vx += (n.x - focus.x) * 0.03;
-                n.vy += (n.y - hubY) * 0.018;
+                n.vx += (n.x - sx) * 0.03;
+                n.vy += (n.y - sy) * 0.025;
             });
             simRef.current.alpha = Math.max(simRef.current.alpha, 0.9);
         }
@@ -363,8 +371,17 @@ const ForceGraph = memo(({ nodes, links, onNodeClick, focus, pulseTs }) => {
                         onPointerLeave={() => setHover(null)}
                         tabIndex={-1}
                     >
+                        {n.type === 'mote' && (
+                            // A slice of real headcount drifting around its hub.
+                            // Non-interactive by design: the hub is the handle.
+                            <circle r={n.r} fill={n.color} opacity="0.55" style={{ pointerEvents: 'none' }} />
+                        )}
                         {n.type === 'department' && (
                             <>
+                                {/* Soft brand-tinted halo scaled to the hub's mass,
+                                    so a large department warms its region of the map. */}
+                                <circle r={n.r * 2.6} fill={`${n.color}0a`} style={{ pointerEvents: 'none' }} />
+                                <circle r={n.r * 1.7} fill={`${n.color}10`} style={{ pointerEvents: 'none' }} />
                                 <circle r={n.r + 7} fill="none" stroke={n.color} strokeWidth="1.4" className="neural-hub-pulse" />
                                 <circle r={n.r} fill={`${n.color}26`} stroke={n.color} strokeWidth="1.6" />
                                 <text
@@ -376,7 +393,7 @@ const ForceGraph = memo(({ nodes, links, onNodeClick, focus, pulseTs }) => {
                                 <text
                                     ref={(el) => (el ? labelEls.current.set(n.id, el) : labelEls.current.delete(n.id))}
                                     data-tier="dept"
-                                    y={n.r + 22} textAnchor="middle"
+                                    y={n.labelAbove ? -(n.r + 14) : n.r + 22} textAnchor="middle"
                                     style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10, letterSpacing: '0.08em', fill: n.color, textTransform: 'uppercase', pointerEvents: 'none' }}
                                 >
                                     {truncate(n.label, 20)}
@@ -407,7 +424,7 @@ const ForceGraph = memo(({ nodes, links, onNodeClick, focus, pulseTs }) => {
                                 <text
                                     ref={(el) => (el ? labelEls.current.set(n.id, el) : labelEls.current.delete(n.id))}
                                     data-tier="small"
-                                    y={n.r + 15} textAnchor="middle"
+                                    y={n.labelAbove ? -(n.r + 9) : n.r + 15} textAnchor="middle"
                                     style={{ fontSize: 10, fill: 'var(--text-tertiary)', pointerEvents: 'none' }}
                                 >
                                     {truncate(n.label)}

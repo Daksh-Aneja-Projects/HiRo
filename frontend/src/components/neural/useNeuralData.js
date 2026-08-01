@@ -72,8 +72,26 @@ const CONNECTOR_LABELS = {
     ai_primary: 'AI Engine',
 };
 
-const spread = (i, n, centerX, width) =>
-    n <= 1 ? centerX : centerX - width / 2 + (i * width) / (n - 1);
+// Radial constellation geometry. HiRo's world is hub-heavy (a dozen large
+// departments, a handful of agents), and a horizontal band collapses that into
+// a thin strip with dead canvas everywhere else. A ring around the knowledge
+// core fills the frame and reads as one organism: the brain at the center,
+// departments orbiting it, everything else breathing on the spokes between.
+const CENTER = { x: 0.5, y: 0.485 };
+const RING = { rx: 0.345, ry: 0.36 };
+
+const hubAngle = (i, n) => -Math.PI / 2 + (i * 2 * Math.PI) / n;
+
+const onRing = (angle, W, H, scale = 1) => ({
+    x: W * CENTER.x + Math.cos(angle) * W * RING.rx * scale,
+    y: H * CENTER.y + Math.sin(angle) * H * RING.ry * scale,
+});
+
+// Hub size carries real mass: the radius grows with the square root of the
+// live headcount, so a 3,500-person department visibly outweighs a 4-person
+// platform team without dwarfing it.
+const hubRadius = (headcount) =>
+    Math.max(12, Math.min(27, 12 + Math.sqrt(Math.max(0, Number(headcount) || 0)) * 0.28));
 
 export default function useNeuralData() {
     const [raw, setRaw] = useState(null);
@@ -128,37 +146,45 @@ export default function useNeuralData() {
         const links = [];
         const { W, H } = VB;
 
-        // --- Department hubs (pinned band) ---
+        // --- Department hubs: a pinned ring around the knowledge core ---
         const deptDetail = Array.isArray(wfp?.skill_gap_detail) ? wfp.skill_gap_detail : [];
         const deptNames = deptDetail.map((d) => d.department);
         const hubs = [...deptNames, PLATFORM];
-        const slot = W / (hubs.length + 1);
-        const hubX = new Map();
+        const cx = W * CENTER.x;
+        const cy = H * CENTER.y;
+        const hubPos = new Map();
+        const hubAngles = new Map();
         hubs.forEach((name, i) => {
-            const x = slot * (i + 1);
-            hubX.set(name, x);
+            const angle = hubAngle(i, hubs.length);
+            const pos = onRing(angle, W, H);
+            hubPos.set(name, pos);
+            hubAngles.set(name, angle);
             const detail = deptDetail.find((d) => d.department === name);
+            const headcount = detail ? Number(detail.headcount) || 0 : 0;
             nodes.push({
                 id: `dept:${name}`,
                 type: 'department',
                 label: name,
                 dept: name,
                 color: DEPT_PALETTE[i % DEPT_PALETTE.length],
-                r: 17,
+                r: detail ? hubRadius(headcount) : 14,
                 fixed: true,
-                seed: { x, y: H * 0.74 },
+                seed: pos,
+                // Labels sit on the outward side of the ring so they never
+                // cross the spokes or each other.
+                labelAbove: pos.y < cy,
                 metric: detail ? String(detail.headcount) : String(orch?.agents ?? 0),
                 meta: detail
                     ? { ...detail, risk: wfp?.skill_gaps?.[name] || null, succession: wfp?.succession_readiness?.[name] ?? null }
                     : { platform: true, agents: orch?.agents ?? 0, health: orch?.system_health, healthReason: orch?.health_reason },
             });
         });
-        // Hubs connect in sequence - the layout is a line, not a ring.
-        for (let i = 1; i < hubs.length; i++) {
-            links.push({ source: `dept:${hubs[i - 1]}`, target: `dept:${hubs[i]}`, tier: 'hub-hub' });
+        // Neighbors on the ring connect - the layout is a circle, closed.
+        for (let i = 0; i < hubs.length; i++) {
+            links.push({ source: `dept:${hubs[i]}`, target: `dept:${hubs[(i + 1) % hubs.length]}`, tier: 'hub-hub' });
         }
 
-        // --- The brain (pinned) ---
+        // --- The brain (pinned at the center of the ring) ---
         // The live /knowledge/stats shape is {corpus: {total, by_source}, loop}.
         const docsKnown = Number(knowledge?.corpus?.total ?? ingestion?.total ?? 0);
         nodes.push({
@@ -167,15 +193,43 @@ export default function useNeuralData() {
             label: 'Knowledge Core',
             dept: null,
             color: '#fb923c',
-            r: 22,
+            r: 26,
             fixed: true,
-            seed: { x: W / 2, y: H * 0.94 },
+            seed: { x: cx, y: cy },
             metric: String(docsKnown),
             meta: { knowledge, ingestion, indexed: Boolean(knowledge) },
         });
         hubs.forEach((name) => links.push({ source: `dept:${name}`, target: 'brain', tier: 'hub-brain' }));
 
-        // --- Agents (floating above their hub) ---
+        // --- Workforce motes: the head-count mass made visible ---
+        // Each mote stands for a real slice of people (about 400 a dot) drifting
+        // around its department hub. They are the reason a big department reads
+        // as a living cluster instead of one lonely circle. Derived from the
+        // same live headcount as the hub metric; never interactive.
+        deptDetail.forEach((d) => {
+            const name = d.department;
+            const pos = hubPos.get(name);
+            const color = DEPT_PALETTE[deptNames.indexOf(name) % DEPT_PALETTE.length];
+            const count = Math.max(0, Math.min(9, Math.round((Number(d.headcount) || 0) / 400)));
+            const hubR = hubRadius(d.headcount);
+            for (let m = 0; m < count; m++) {
+                const a = (m * 2.399963) + deptNames.indexOf(name); // golden-angle spacing
+                const orbit = hubR + 13 + (m % 3) * 8;
+                nodes.push({
+                    id: `mote:${name}:${m}`,
+                    type: 'mote',
+                    label: '',
+                    dept: name,
+                    color,
+                    r: 2.3,
+                    seed: { x: pos.x + Math.cos(a) * orbit, y: pos.y + Math.sin(a) * orbit * 0.85 },
+                    meta: { peoplePerMote: 400 },
+                });
+                links.push({ source: `mote:${name}:${m}`, target: `dept:${name}`, tier: 'mote' });
+            }
+        });
+
+        // --- Agents: breathing on the spoke between the core and their hub ---
         const agentNames = Array.isArray(orch?.agent_names) ? orch.agent_names : [];
         const byDept = new Map();
         agentNames.forEach((name) => {
@@ -184,8 +238,12 @@ export default function useNeuralData() {
             byDept.get(dept).push(name);
         });
         byDept.forEach((names, dept) => {
-            const cx = hubX.get(dept) || hubX.get(PLATFORM);
+            const angle = hubAngles.get(dept) ?? hubAngles.get(PLATFORM);
             names.forEach((name, i) => {
+                // Halfway along the spoke, siblings fanned perpendicular to it.
+                const base = onRing(angle, W, H, 0.52);
+                const perp = angle + Math.PI / 2;
+                const off = (i - (names.length - 1) / 2) * 46;
                 nodes.push({
                     id: `agent:${name}`,
                     type: 'agent',
@@ -193,7 +251,7 @@ export default function useNeuralData() {
                     dept,
                     color: '#8b93f8',
                     r: 9,
-                    seed: { x: spread(i, names.length, cx, slot * 0.72), y: H * 0.44 + (i % 2 ? 12 : -12) },
+                    seed: { x: base.x + Math.cos(perp) * off, y: base.y + Math.sin(perp) * off },
                     meta: {
                         rawName: name,
                         registered: true,
@@ -221,9 +279,14 @@ export default function useNeuralData() {
             tasksByDept.get(dept).push(t);
         });
         tasksByDept.forEach((group, dept) => {
-            const cx = hubX.get(dept) || hubX.get(PLATFORM);
+            const angle = hubAngles.get(dept) ?? hubAngles.get(PLATFORM);
             group.forEach((t, i) => {
                 const id = `task:${t.result_id}`;
+                // Between the agents and the hub, fanned either side of the
+                // spoke and staggered in depth so a busy department blossoms
+                // outward instead of forming a straight overlapping arc.
+                const fan = angle + (i - (group.length - 1) / 2) * 0.22;
+                const pos = onRing(fan, W, H, 0.72 + (i % 3) * 0.07);
                 nodes.push({
                     id,
                     type: 'task',
@@ -231,7 +294,7 @@ export default function useNeuralData() {
                     dept,
                     color: '#f2c94c',
                     r: 7,
-                    seed: { x: spread(i, group.length, cx, slot * 0.86), y: H * 0.24 + (i % 2 ? 16 : -16) },
+                    seed: pos,
                     meta: t,
                 });
                 const agentId = `agent:${t.agent}`;
@@ -243,13 +306,17 @@ export default function useNeuralData() {
             });
         });
 
-        // --- Connectors from live component health ---
+        // --- Connectors from live component health: outside the ring ---
         const checks = health?.checks || {};
         const connectorNames = Object.keys(checks);
-        const pcx = hubX.get(PLATFORM);
+        const platformAngle = hubAngles.get(PLATFORM);
         connectorNames.forEach((key, i) => {
             const up = String(checks[key]).toUpperCase() === 'UP';
             const id = `connector:${key}`;
+            // Beyond the platform hub, arced around its angle: infrastructure
+            // sits at the edge of the organism, feeding inward.
+            const fan = platformAngle + (i - (connectorNames.length - 1) / 2) * 0.22;
+            const pos = onRing(fan, W, H, 1.28);
             nodes.push({
                 id,
                 type: 'connector',
@@ -257,7 +324,8 @@ export default function useNeuralData() {
                 dept: PLATFORM,
                 color: up ? '#3fb9e5' : '#eb5757',
                 r: 7,
-                seed: { x: spread(i, connectorNames.length, pcx, slot * 1.6), y: H * 0.09 },
+                seed: pos,
+                labelAbove: pos.y < cy,
                 meta: { component: key, up, overall: health?.status, summary: health?.summary },
             });
             links.push({ source: id, target: `dept:${PLATFORM}`, tier: 'connector-hub' });
@@ -277,7 +345,12 @@ export default function useNeuralData() {
         return {
             nodes,
             links,
-            hubs: hubs.map((name, i) => ({ name, x: hubX.get(name), color: DEPT_PALETTE[i % DEPT_PALETTE.length] })),
+            hubs: hubs.map((name, i) => ({
+                name,
+                x: hubPos.get(name).x,
+                y: hubPos.get(name).y,
+                color: DEPT_PALETTE[i % DEPT_PALETTE.length],
+            })),
             counts: {
                 departments: deptNames.length,
                 agents: agentNames.length,

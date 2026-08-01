@@ -6,7 +6,7 @@
 // corpus (chunks by source) and the closed-loop numbers, and search is a
 // grounded POST that answers with citations or refuses honestly. The "being
 // indexed" copy survives only as the genuine 404/error fallback.
-import React, { memo, useState } from 'react';
+import React, { memo, useCallback, useState } from 'react';
 import BrainParticles from './BrainParticles';
 import IngestBar from './IngestBar';
 import useCountUp from './useCountUp';
@@ -27,8 +27,21 @@ const CLUSTER_POS = [
 
 const Count = ({ v }) => <>{useCountUp(v)}</>;
 
-const BrainView = memo(({ world, raw, onRefresh }) => {
+const BrainView = memo(({ world, raw, onRefresh, reduced }) => {
     const [panelOpen, setPanelOpen] = useState(false);
+    // Callback ref + ResizeObserver, per the recipe: this component renders
+    // conditional branches, and a plain ref measured in a mount effect would
+    // observe nothing. The sphere scales with the stage instead of sitting as
+    // a fixed small blob in a large canvas.
+    const [stageH, setStageH] = useState(0);
+    const stageRef = useCallback((el) => {
+        if (!el) return;
+        setStageH(el.getBoundingClientRect().height);
+        const ro = new ResizeObserver((entries) => {
+            for (const entry of entries) setStageH(entry.contentRect.height);
+        });
+        ro.observe(el);
+    }, []);
     const [query, setQuery] = useState('');
     const [searching, setSearching] = useState(false);
     const [answer, setAnswer] = useState(null);
@@ -87,12 +100,14 @@ const BrainView = memo(({ world, raw, onRefresh }) => {
     };
 
     // The stage is a fixed logical space; everything positions in percent so
-    // it holds together at any width without overlap.
-    const sphereSize = 300;
+    // it holds together at any width without overlap. The sphere takes 56% of
+    // the measured stage height so the core dominates the view the way a
+    // knowledge core should, instead of floating as a small blob.
+    const sphereSize = Math.round(Math.max(300, Math.min(480, (stageH || 540) * 0.56)));
 
     return (
         <div style={ui.wrap}>
-            <div style={ui.stage}>
+            <div style={ui.stage} ref={stageRef}>
                 <IngestBar onIngested={onRefresh} />
                 {/* Rotating dashed orbit + brand-colored spokes and domains */}
                 <svg viewBox="0 0 1000 640" style={ui.orbitSvg} aria-hidden="true" preserveAspectRatio="xMidYMid meet">
@@ -127,7 +142,7 @@ const BrainView = memo(({ world, raw, onRefresh }) => {
                     aria-label="Open knowledge core stats"
                 >
                     <span style={ui.ring} aria-hidden="true" />
-                    <BrainParticles size={sphereSize} density={Math.min(1.4, 0.4 + docs * 0.06)} />
+                    <BrainParticles size={sphereSize} density={Math.min(1.4, 0.4 + docs * 0.06)} reduced={reduced} />
                     {indexed && Object.entries(bySource).slice(0, 3).map(([k, n], i) => (
                         <span key={k} className="mono" style={{ ...ui.clusterLabel, ...CLUSTER_POS[i] }}>
                             {`${(SOURCE_LABELS[k] || k).toUpperCase()} · ${n}`}

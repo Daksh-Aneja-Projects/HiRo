@@ -96,10 +96,11 @@
         
         /* Style for the install button (PWA) */
         .install-prompt {
+            /* Bottom-left corner: bottom-center collides with in-app camera
+               pills (Neural Map) and bottom-right belongs to the chat widget. */
             position: fixed;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
+            bottom: 16px;
+            left: 16px;
             padding: 10px 20px;
             background-color: var(--holo-primary);
             color: var(--bg-deep);

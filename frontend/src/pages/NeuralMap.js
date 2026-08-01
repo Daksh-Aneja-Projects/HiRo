@@ -12,6 +12,7 @@ import BrainView from '../components/neural/BrainView';
 import HierarchyView from '../components/neural/HierarchyView';
 import IngestBar from '../components/neural/IngestBar';
 import { useAgentWebsocket } from '../hooks/useAgentWebsocket';
+import useMotionPreference from '../hooks/useMotionPreference';
 import '../components/neural/neural.css';
 
 const MODES = [
@@ -26,6 +27,7 @@ const Count = ({ v }) => <>{useCountUp(v)}</>;
 const NeuralMap = memo(() => {
     const { world, raw, error, loading, refresh } = useNeuralData();
     const { telemetryMetrics } = useAgentWebsocket();
+    const motion = useMotionPreference();
     const [mode, setMode] = useState('map');
     const [selected, setSelected] = useState(null);
     const [focus, setFocus] = useState(null);
@@ -42,7 +44,16 @@ const NeuralMap = memo(() => {
             setFocus({ x: VB.W / 2, y: VB.H / 2, zoom: 1, ts: Date.now() });
         } else {
             const hub = hubs[index];
-            if (hub) setFocus({ x: hub.x, y: VB.H * 0.44, zoom: 1.4, ts: Date.now() });
+            // Aim between the hub and the core so the whole spoke - agents,
+            // tasks and the hub's own cluster - fits the frame.
+            if (hub) {
+                setFocus({
+                    x: hub.x + (VB.W / 2 - hub.x) * 0.25,
+                    y: hub.y + (VB.H / 2 - hub.y) * 0.25,
+                    zoom: 1.5,
+                    ts: Date.now(),
+                });
+            }
         }
     }, [hubs]);
 
@@ -52,8 +63,16 @@ const NeuralMap = memo(() => {
             const i = hubs.findIndex((h) => `dept:${h.name}` === node.id);
             if (i >= 0) {
                 setCamIndex(i);
-                // shock: the cluster pops outward as the camera flies in.
-                setFocus({ x: hubs[i].x, y: VB.H * 0.44, zoom: 1.4, ts: Date.now(), shock: hubs[i].name });
+                // shock: the cluster pops outward from the hub as the camera flies in.
+                setFocus({
+                    x: hubs[i].x + (VB.W / 2 - hubs[i].x) * 0.25,
+                    y: hubs[i].y + (VB.H / 2 - hubs[i].y) * 0.25,
+                    zoom: 1.5,
+                    ts: Date.now(),
+                    shock: hubs[i].name,
+                    shockX: hubs[i].x,
+                    shockY: hubs[i].y,
+                });
             }
         }
     }, [hubs]);
@@ -81,7 +100,28 @@ const NeuralMap = memo(() => {
                             {m.label}
                         </button>
                     ))}
+                    {/* Motion switch. The OS "reduce motion" setting freezes the map by
+                        default (it is on whenever Windows animations are off, including
+                        battery saver), so the user gets an explicit way to wake it up. */}
+                    <button
+                        className="mono"
+                        onClick={() => motion.setPreference(motion.reduced ? 'live' : 'calm')}
+                        title={motion.reduced
+                            ? (motion.source === 'system'
+                                ? 'Your device asks for reduced motion, so the map is holding still. Click to bring it to life anyway.'
+                                : 'You paused the motion. Click to bring the map to life.')
+                            : 'The map is alive. Click to hold it still.'}
+                        style={{ ...ui.modePill, ...(motion.reduced ? null : ui.modePillActive), marginLeft: 10 }}
+                        aria-pressed={!motion.reduced}
+                    >
+                        {motion.reduced ? 'Still' : 'Alive'}
+                    </button>
                 </div>
+                {motion.reduced && motion.source === 'system' && (
+                    <div style={{ marginTop: 6, fontSize: 10.5, color: 'var(--text-tertiary)', maxWidth: 300, lineHeight: 1.45 }}>
+                        Holding still because your device asks for reduced motion. The switch above overrides that for this map only.
+                    </div>
+                )}
             </div>
 
             {/* The canvas area */}
@@ -108,9 +148,10 @@ const NeuralMap = memo(() => {
                                 onNodeClick={onNodeClick}
                                 focus={focus}
                                 pulseTs={pulseTs}
+                                reduced={motion.reduced}
                             />
                         )}
-                        {mode === 'brain' && <BrainView world={world} raw={raw} onRefresh={refresh} />}
+                        {mode === 'brain' && <BrainView world={world} raw={raw} onRefresh={refresh} reduced={motion.reduced} />}
                         {mode === 'hierarchy' && <HierarchyView world={world} raw={raw} />}
 
                         {mode === 'map' && <IngestBar onIngested={refresh} />}

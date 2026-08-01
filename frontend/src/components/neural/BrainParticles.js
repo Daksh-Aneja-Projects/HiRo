@@ -14,7 +14,7 @@ const hash = (i, salt) => {
     return ((h ^ (h >> 16)) >>> 0) / 4294967296;
 };
 
-const BrainParticles = memo(({ size = 300, density = 1 }) => {
+const BrainParticles = memo(({ size = 300, density = 1, reduced: reducedProp }) => {
     const canvasRef = useRef(null);
     const rafRef = useRef(0);
 
@@ -96,14 +96,18 @@ const BrainParticles = memo(({ size = 300, density = 1 }) => {
             rafRef.current = requestAnimationFrame(step);
         };
 
-        const reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        // The page owns the motion decision (see useMotionPreference); the
+        // media query is only the fallback when no preference is passed down.
+        const reduced = reducedProp !== undefined
+            ? reducedProp
+            : (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
         if (reduced) {
             draw();
             return undefined;
         }
         rafRef.current = requestAnimationFrame(step);
         return () => cancelAnimationFrame(rafRef.current);
-    }, [size, density]);
+    }, [size, density, reducedProp]);
 
     return (
         <canvas

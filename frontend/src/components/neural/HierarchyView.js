@@ -48,6 +48,7 @@ const HierarchyView = memo(({ world, raw }) => {
     const depts = (world?.hubs || []).filter((h) => h.name !== 'Platform');
     const detail = raw?.wfp?.skill_gap_detail || [];
     const risks = raw?.wfp?.skill_gaps || {};
+    const succession = raw?.wfp?.succession_readiness || {};
     const orch = raw?.orch;
 
     const measure = useCallback(() => {
@@ -143,6 +144,23 @@ const HierarchyView = memo(({ world, raw }) => {
                                     </div>
                                     <HealthRing pct={covered} color={d.color} />
                                 </div>
+                                {/* Succession cover: share of senior roles with someone ready
+                                    to step up, from the live workforce projection. */}
+                                {succession[d.name]?.readiness != null && (
+                                    <div style={{ marginTop: -2 }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10.5, color: 'var(--text-tertiary)', marginBottom: 3 }}>
+                                            <span>Succession cover</span>
+                                            <span className="mono">{Math.round((Number(succession[d.name].readiness) || 0) * 100)}%</span>
+                                        </div>
+                                        <div style={{ height: 4, borderRadius: 2, background: 'var(--border-subtle)', overflow: 'hidden' }}>
+                                            <div style={{
+                                                width: `${Math.round((Number(succession[d.name].readiness) || 0) * 100)}%`,
+                                                height: '100%', borderRadius: 2, background: d.color, opacity: 0.75,
+                                                transition: 'width 0.9s cubic-bezier(0.22, 1, 0.36, 1)',
+                                            }} />
+                                        </div>
+                                    </div>
+                                )}
                                 <div style={ui.deptFoot}>
                                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                                         <span className="neural-live-dot" style={{ width: 6, height: 6, borderRadius: 999, background: RISK_COLOR[risk] || 'var(--text-tertiary)', display: 'inline-block' }} />
