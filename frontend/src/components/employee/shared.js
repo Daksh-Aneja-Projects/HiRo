@@ -74,7 +74,7 @@ export const ui = {
 };
 
 const TONE = {
-    APPROVED: 'success', SUBMITTED: 'success', PASS: 'success', SAVED: 'success', UPLOADED: 'success', COMPLETED: 'success',
+    APPROVED: 'success', SUBMITTED: 'success', PASS: 'success', SAVED: 'success', UPLOADED: 'success', COMPLETED: 'success', OPEN: 'success', APPLIED: 'success',
     PENDING: 'warning', PENDING_AGENT_REVIEW: 'warning', IN_REVIEW: 'warning', DRAFT: 'warning', REQUESTED: 'warning',
     REJECTED: 'danger', FAIL: 'danger', BLOCKED: 'danger', DENIED: 'danger',
 };
@@ -192,10 +192,10 @@ export const fmtDate = (v) => {
     return Number.isNaN(d.getTime()) ? String(v) : d.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' });
 };
 
-export const money = (n, currency = 'USD') => {
+export const money = (n, currency = 'USD', digits = 0) => {
     const num = Number(n) || 0;
-    try { return num.toLocaleString(undefined, { style: 'currency', currency, maximumFractionDigits: 0 }); }
-    catch { return `${currency} ${num.toFixed(0)}`; }
+    try { return num.toLocaleString(undefined, { style: 'currency', currency, maximumFractionDigits: digits }); }
+    catch { return `${currency} ${num.toFixed(digits)}`; }
 };
 
 // Injected once per module tree so buttons get a consistent hover.

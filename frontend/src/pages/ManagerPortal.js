@@ -19,6 +19,8 @@ import AreaChartWidget from '../components/charts/AreaChartWidget';
 import { CountUp, LiveMeter } from '../components/live/LivePrimitives';
 import { ui, Btn, Loading, EmptyState, ErrorNote, fmtDate, humanText, EmployeeStyles } from '../components/employee/shared';
 import { useRoster, RosterSelect, RosterPager, useEmployeeNames } from '../components/manager/roster';
+import { requestKind, describeRequest } from '../components/manager/approvalText';
+import HiringModule from '../components/manager/HiringModule';
 
 import DigitalTwinChat from '../components/DigitalTwinChat';
 import RiskOverview from '../components/RiskOverview';
@@ -28,12 +30,13 @@ import StarRecognitionWidget from '../components/StarRecognitionWidget';
 import {
     Users, CheckSquare, Gauge, ShieldAlert, FlaskConical, Award,
     CheckCircle, XCircle, AlertTriangle, MessageSquare, CalendarDays,
-    TrendingDown, Search, Play, UserCheck,
+    TrendingDown, Search, Play, UserCheck, Briefcase,
 } from 'lucide-react';
 
 const MODULES = [
     { key: 'team', label: 'Team Overview', title: 'Your team', icon: Users, blurb: 'Your direct reports, and a conversation with any of their digital twins.' },
     { key: 'approvals', label: 'Approvals', title: 'Approvals', icon: CheckSquare, blurb: 'Requests from your team that are waiting on a decision from you.' },
+    { key: 'hiring', label: 'Hiring', title: 'Hiring', icon: Briefcase, blurb: 'Open hiring requisitions, and where you raise a new one.' },
     { key: 'performance', label: 'Performance', title: 'Performance', icon: Gauge, blurb: 'How the team is rated over time, and where you record a review.' },
     { key: 'risk', label: 'Workforce Risk', title: 'Workforce risk', icon: ShieldAlert, blurb: 'Where the organisation is most likely to lose people, and why.' },
     { key: 'simulation', label: 'Attrition Simulation', title: 'Attrition simulation', icon: FlaskConical, blurb: 'Test a change on one person before you commit to it.' },
@@ -188,48 +191,6 @@ TeamModule.displayName = 'TeamModule';
 /* -------------------------------------------------------------------------- */
 /* Approvals                                                                  */
 /* -------------------------------------------------------------------------- */
-const requestKind = (type) => ({
-    LEAVE_REQUEST: 'Time off',
-    LEAVE: 'Time off',
-    TIMESHEET: 'Timesheet',
-    EXPENSE: 'Expense claim',
-}[String(type || '').toUpperCase()] || humanText(type) || 'Request');
-
-const money = (amount, currency) => {
-    const value = Number(amount);
-    if (!Number.isFinite(value)) return null;
-    try {
-        return new Intl.NumberFormat(undefined, { style: 'currency', currency: currency || 'USD' }).format(value);
-    } catch {
-        return `${currency || 'USD'} ${value.toFixed(2)}`;
-    }
-};
-
-// The queue carries three different kinds of request, so each one gets a sentence
-// that is actually true of it. A timesheet reported as "asked for 41 hours off"
-// is the sort of thing a manager approves by mistake.
-const describeRequest = (item, who) => {
-    const name = who || 'A team member';
-    const hours = Number(item.hours) || 0;
-    switch (String(item.type || '').toUpperCase()) {
-        case 'TIMESHEET':
-            return `${name} submitted a timesheet for ${hours} hours${
-                item.week_ending ? `, week ending ${fmtDate(item.week_ending)}` : ''}.`;
-        case 'EXPENSE': {
-            const value = money(item.amount, item.currency);
-            return `${name} claimed ${value || 'an expense'}${
-                item.category ? ` for ${humanText(item.category).toLowerCase()}` : ''}${
-                item.description ? `: ${item.description}` : ''}.`;
-        }
-        case 'LEAVE_REQUEST':
-        case 'LEAVE':
-            return `${name} has asked for ${hours} hours off${
-                item.start_date ? `, from ${fmtDate(item.start_date)} to ${fmtDate(item.end_date)}` : ''}.`;
-        default:
-            return `${name} has raised a request.`;
-    }
-};
-
 const ApprovalsModule = memo(() => {
     const { toast } = useToast();
     const { data: queue, isLoading, error, refetch } = useApi(getApprovalQueue, [], true);
@@ -853,6 +814,7 @@ export const ManagerPortalComponent = memo(() => {
         switch (requested) {
             case 'team': return <TeamModule />;
             case 'approvals': return <ApprovalsModule />;
+            case 'hiring': return <HiringModule />;
             case 'performance': return <PerformanceModule />;
             case 'risk': return <RiskOverview />;
             case 'simulation': return <SimulationModule />;

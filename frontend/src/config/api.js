@@ -205,7 +205,6 @@ export const getCommandHistory = (limit = 50) => api.get('/command/history', { p
 
 export const executeOrchestratorCommand = (payload) => api.post('/command/execute', payload);
 export const aggregateMetrics = (payload) => api.post('/advanced-analytics/metrics/aggregate', payload);
-export const legacyAiCommand = (payload) => api.post('/ai/command', payload);
 export const getProcessExecutionHistory = (processId) => api.get(`/orchestrator/history/${encodeURIComponent(processId)}`);
 export const getOrchestratorDashboardData = () => api.get('/orchestrator/dashboard');
 
@@ -293,7 +292,6 @@ export const getCurrentTelemetry = () => api.get('/telemetry/metrics/live');
 /* -------------------------------------------------------------------------- */
 export const getActivePolicy = (policyId) => api.get(`/policy/${encodeURIComponent(policyId)}/active`);
 export const getPolicyHistory = (policyId) => api.get(`/policy/${encodeURIComponent(policyId)}/history`);
-export const listPolicies = () => api.get('/policy/list');
 export const createPolicyDraft = (policyId, data) => api.post(`/policy/${encodeURIComponent(policyId)}/versions`, data);
 export const updatePolicyDraftContent = (versionId, data) => api.put(`/policy/versions/${encodeURIComponent(versionId)}/content`, data);
 export const submitPolicyForApproval = (versionId, approvers) => api.post(`/policy/versions/${encodeURIComponent(versionId)}/submit`, { approvers });
@@ -404,7 +402,6 @@ export const getManagerDashboardData = () => api.get('/admin/dashboard');
 export const getTeamRoster = (params = {}) => api.get('/mss/team/roster', { params });
 export const getRequisitions = (params = {}) => api.get('/mss/hiring/requisitions', { params });
 export const getManagerTeamData = (managerId) => api.get(`/mss/team/${encodeURIComponent(managerId)}`);
-export const approveLeaveRequest = (requestId, approved, comments = "") => api.post('/mss/leave/approve', { request_id: requestId, approved, comments });
 export const getApprovalQueue = () => api.get('/mss/approvals/queue');
 export const getHRITApprovalQueue = () => api.get('/mss/approvals/hrit-queue');
 export const actionApproval = (payload) => api.post('/mss/approvals/action', payload);
@@ -455,7 +452,6 @@ export const saveGeneratedWorkflow = (workflowData) => api.post('/ai/workflow/sa
 export const generateEmbedding = (text) => api.post('/ai/embedding', { text });
 export const getAiModels = () => api.get('/ai/models');
 export const tokenizePII = (value) => api.post('/pii/tokenize', { value });
-export const updateUserConsent = (data) => api.post('/pii/update_consent', data);
 
 /* -------------------------------------------------------------------------- */
 /* --- WFP (Workforce Planning) (Live) --- */
@@ -468,8 +464,9 @@ export const predictAttritionRisk = (employeeData) => api.post('/wfp/predict_att
 /* -------------------------------------------------------------------------- */
 export const getTalentPoolSnapshot = () => api.get('/ta/snapshot');
 export const predictTAPipelineRisk = (scenarioData) => api.post('/ta/predict_risk', { scenario_data: scenarioData });
-export const generateJobDescription = (data) => api.post('/talent/job-description/generate', data);
-export const generateJDDraft = (data) => api.post('/talent/job-description/generate-draft', data);
+// Both run the local language model, so both carry the long LLM timeout.
+export const generateJobDescription = (data) => api.post('/talent/job-description/generate', data, { timeout: LLM_TIMEOUT_MS });
+export const generateJDDraft = (data) => api.post('/talent/job-description/generate-draft', data, { timeout: LLM_TIMEOUT_MS });
 export const getPredictiveRisk = (scenarioData) => predictTAPipelineRisk(scenarioData);
 
 /* -------------------------------------------------------------------------- */
@@ -526,45 +523,9 @@ export const createCancelToken = () => { return axios.CancelToken.source(); };
 export default api;
 
 // =========================================================================================================
-// FINAL EXPORTS AND ALIASES (Consolidated, No Duplicates)
+// ALIASES (only names still imported somewhere; the rest were pruned)
 // =========================================================================================================
-export const getHealthStatus = getSystemHealthStatus;
-export const getUserData = fetchMe;
-export const submitPolicyDraft = createPolicyDraft;
-export const policyLedgerCommit = commitToPolicyLedger;
-export const getDAOProposals = getActiveProposals;
-export const voteOnProposal = castVote;
-export const getLeaveRequests = getLeaveHistory;
-export const submitExpenseClaim = submitExpense;
-export const runOcrScan = scanExpenseReceipt;
-export const getEmployeeDashboardData = getEmployeeDashboard;
-export const getEmployeeData = getEmployeeDashboard;
-export const getPortalData = getManagerDashboardData;
-export const getEmployees = getTeamRoster;
-export const getApprovalsQueue = getApprovalQueue;
-export const processApproval = actionApproval;
-export const createNewAgent = createNewAIAgent;
-export const deployAgentConfig = createNewAIAgent;
-export const getUsers = getAllUsers;
-export const createUser = createUserAccount;
-export const updateUser = updateUserRole;
-export const postAnnouncement = createAnnouncement;
-export const triggerPQCKeyRotation = rotateAgentKeys;
-export const triggerHardPurge = resetAllData;
-export const getHRITDashboardData = getHRITPortalData;
-export const getSystemHealth = getSystemHealthStatus;
-export const runAttritionSimulation = runSimulation;
-export const scanBPCL = securityScanBpcl;
-export const generateBPCL = generateBPMN;
-export const ingestDataFile = uploadIngestionFile;
-export const getGovernanceData = getGovernanceDashboardData;
-export const getKernelMetrics = getCurrentTelemetry;
-export const getServiceStatus = getSystemHealthStatus;
-export const getAutonomousHealingLog = (auditId) => getRemediationHistory(auditId || 'SYSTEM_LOG');
-export const getRLFFMonitorStatus = getAdminDashboardData;
 export const getServiceNowHealth = getHRSDMonitoringOverview;
-export const getFinancialForecast = () => aggregateMetrics({ metric_type: 'financial_impact', query: 'Q1 Payroll Delta' });
-export const getPredictiveRiskAlias = getPredictiveRisk;
 
 // --- Notifications: what tells a person their request was decided ---
 export const getNotifications = (limit = 20) => api.get(`/notifications?limit=${limit}`);

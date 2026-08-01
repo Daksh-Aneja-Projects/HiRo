@@ -13,7 +13,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import {
     getActivePolicy, getPolicyHistory, createPolicyDraft, updatePolicyDraftContent,
     processPolicyApproval, activateApprovedPolicy, manualPolicyRollback,
-    commitToPolicyLedger, runPolicyScan, post,
+    commitToPolicyLedger, runPolicyScan, submitPolicyForApproval,
 } from '../../config/api';
 import DataCard from '../DataCard';
 import {
@@ -164,9 +164,9 @@ const PolicyLifecycleWorkbench = memo(() => {
             toast({ title: 'Name at least one approver', description: 'Use the account name of whoever signs this off, for example your own.', variant: 'warning' });
             return;
         }
-        // The backend reads this body as a bare JSON list. api.js wraps it in an
-        // object, which the server rejects, so the generic client is used here.
-        run('submit', () => post(`/policy/versions/${encodeURIComponent(selected.version_id)}/submit`, list), {
+        // The backend expects { approvers: [...] }, which is exactly what the
+        // wrapper sends. A raw bare-list body is rejected with a 422.
+        run('submit', () => submitPolicyForApproval(selected.version_id, list), {
             ok: 'Sent for approval',
             fail: 'Could not send for approval',
             describe: (d) => `Approval request ${d?.request_id} is now waiting on ${list.join(', ')}.`,

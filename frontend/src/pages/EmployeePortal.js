@@ -27,12 +27,13 @@ import TalentExperienceHub from '../components/TalentExperienceHub';
 import PayModule from '../components/employee/PayModule';
 import ExpenseModule from '../components/employee/ExpenseModule';
 import DocumentsModule from '../components/employee/DocumentsModule';
+import OffboardingModule from '../components/employee/OffboardingModule';
 import { ui, Btn, Loading, EmptyState, ErrorNote, StatusPill, fmtDate, readablePolicy, readableRole, EmployeeStyles } from '../components/employee/shared';
 
 import {
     User, Calendar, CheckCircle, XCircle, AlertTriangle, Eye, EyeOff,
     LayoutDashboard, Clock, Wallet, Sparkles, FileText, ReceiptText, Lock,
-    Star, Send, Award, MessageSquare, CalendarPlus,
+    Star, Send, Award, MessageSquare, CalendarPlus, Archive,
 } from 'lucide-react';
 
 const MODULES = [
@@ -44,6 +45,7 @@ const MODULES = [
     { key: 'documents', label: 'Documents', title: 'My documents', icon: FileText },
     { key: 'expenses', label: 'Expenses', title: 'Expense claims', icon: ReceiptText },
     { key: 'pii', label: 'Privacy', title: 'Privacy, consent and feedback', icon: Lock },
+    { key: 'offboarding', label: 'Offboarding', title: 'Offboarding and knowledge transfer', icon: Archive },
 ];
 
 /* -------------------------------------------------------------------------- */
@@ -598,6 +600,7 @@ export const EmployeePortalComponent = memo(() => {
             case 'documents': return <DocumentsModule />;
             case 'expenses': return <ExpenseModule />;
             case 'pii': return <PIISecurityModule />;
+            case 'offboarding': return <OffboardingModule />;
             default:
                 return (
                     <EmptyState icon={AlertTriangle} title={`There is no employee section called "${requested}"`}

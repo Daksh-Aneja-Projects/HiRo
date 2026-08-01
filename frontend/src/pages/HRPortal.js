@@ -8,7 +8,7 @@ import {
     getHRSDTickets, createHRSDTicket, getEmployeeCompensation,
     updateEmployeeCompensation,
     uploadIngestionFile, getIngestionJobs, getAnalyticsCharts,
-    getWFPProjections, put
+    getWFPProjections, resolveHRSDTicket
 } from '../config/api';
 import { useApi } from '../hooks/useApi';
 import { useToast } from '../hooks/use-toast';
@@ -449,10 +449,9 @@ const CasesModule = memo(() => {
         }
         setResolving(ticket.ticket_id);
         try {
-            // The endpoint reads this body as a bare JSON string. api.js wraps it
-            // in an object, which the server rejects, so the generic client is
-            // used against the same documented route.
-            await put(`/hrsd/tickets/${encodeURIComponent(ticket.ticket_id)}/resolve`, summary);
+            // The backend expects { resolution_summary }, which is exactly what
+            // the wrapper sends. A raw bare-string body is rejected with a 422.
+            await resolveHRSDTicket(ticket.ticket_id, summary);
             toast({ title: 'Case closed', description: `${ticket.title || ticket.ticket_id} was closed with your resolution.`, variant: 'success' });
             setSummaries((prev) => ({ ...prev, [ticket.ticket_id]: '' }));
             refetchTickets();

@@ -1,19 +1,32 @@
 // Employee portal: Expenses module.
-// Real endpoints: POST /api/hr/expenses (multipart) and POST /api/hr/expenses/ocr-scan
-// (local LLM parses the receipt into a draft). The backend exposes no expense
-// history endpoint, so this page only ever shows claims filed from this session.
+// Real endpoints: GET/POST /api/hr/expenses (multipart on submit) and
+// POST /api/hr/expenses/ocr-scan (local LLM parses the receipt into a draft).
+// The list below is the full claim history from the server, decisions included.
 import React, { memo, useCallback, useMemo, useState } from 'react';
 import { theme as tokens } from '../../theme';
+import { useApi } from '../../hooks/useApi';
 import { useToast } from '../../hooks/use-toast';
-import { submitExpense, scanExpenseReceipt } from '../../config/api';
+import { submitExpense, scanExpenseReceipt, getExpenses } from '../../config/api';
 import DataCard from '../DataCard';
 import PieChartWidget from '../charts/PieChartWidget';
 import { CountUp } from '../live/LivePrimitives';
-import { ui, Btn, EmptyState, StatusPill, fmtDate, money, EmployeeStyles } from './shared';
-import { ScanLine, Send, Paperclip, ReceiptText, Info } from 'lucide-react';
+import { ui, Btn, Loading, EmptyState, ErrorNote, StatusPill, fmtDate, money, EmployeeStyles } from './shared';
+import { ScanLine, Send, Paperclip, ReceiptText } from 'lucide-react';
 
 const CATEGORIES = ['Travel', 'Meals', 'Accommodation', 'Equipment', 'Training', 'General'];
 const BLANK = { amount: '', currency: 'USD', category: 'Travel', description: '', date: '' };
+
+// Plain-English sentence for how a claim was decided.
+const decisionText = (e) => {
+    const status = String(e.status || '').toUpperCase();
+    if (status === 'APPROVED') {
+        return `Approved${e.decided_at ? ` on ${fmtDate(e.decided_at)}` : ''}${e.decision_comments ? `: ${e.decision_comments}` : ''}`;
+    }
+    if (status === 'REJECTED' || status === 'DENIED') {
+        return `Declined${e.decided_at ? ` on ${fmtDate(e.decided_at)}` : ''}${e.decision_comments ? `: ${e.decision_comments}` : ''}`;
+    }
+    return 'Waiting on a decision from your manager';
+};
 
 const ExpenseModule = memo(() => {
     const { toast } = useToast();
@@ -21,7 +34,9 @@ const ExpenseModule = memo(() => {
     const [receipt, setReceipt] = useState(null);
     const [isScanning, setIsScanning] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [filed, setFiled] = useState([]); // claims filed in this session, straight from the API response
+
+    const { data: rawExpenses, isLoading, error, refetch } = useApi(getExpenses, [], true);
+    const filed = useMemo(() => (Array.isArray(rawExpenses) ? rawExpenses : []), [rawExpenses]);
 
     const set = (key) => (e) => setForm((prev) => ({ ...prev, [key]: e.target.value }));
 
@@ -37,6 +52,7 @@ const ExpenseModule = memo(() => {
     }, [filed]);
 
     const total = filed.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+    const pendingCount = filed.filter((e) => !['APPROVED', 'REJECTED', 'DENIED'].includes(String(e.status || '').toUpperCase())).length;
 
     const handleScan = useCallback(async () => {
         if (!receipt) {
@@ -70,24 +86,23 @@ const ExpenseModule = memo(() => {
         }
         setIsSubmitting(true);
         try {
-            const res = await submitExpense({
+            await submitExpense({
                 amount: amountNum,
                 currency: form.currency,
                 category: form.category,
                 description: form.description,
                 date: form.date,
             }, receipt);
-            const saved = res.data?.expense;
-            if (saved) setFiled((prev) => [saved, ...prev]);
-            toast({ title: 'Expense filed', description: `${money(amountNum, form.currency)} submitted under ${form.category}.`, variant: 'success' });
+            toast({ title: 'Expense filed', description: `${money(amountNum, form.currency)} submitted under ${form.category}. It now appears in your claim history.`, variant: 'success' });
             setForm(BLANK);
             setReceipt(null);
+            refetch();
         } catch (err) {
             toast({ title: 'Could not file that expense', description: err.response?.data?.detail || err.message, variant: 'destructive' });
         } finally {
             setIsSubmitting(false);
         }
-    }, [valid, amountNum, form, receipt, toast]);
+    }, [valid, amountNum, form, receipt, toast, refetch]);
 
     return (
         <div style={ui.grid} className="portal-grid">
@@ -148,24 +163,25 @@ const ExpenseModule = memo(() => {
             </div>
 
             <div style={{ ...ui.panel, gridColumn: 'span 7' }}>
-                <h3 style={ui.h3}>Filed in this session</h3>
-                <p style={ui.hint}>
-                    <Info size={12} style={{ verticalAlign: '-2px', marginRight: 4 }} />
-                    There is no expense history endpoint yet, so this list only shows claims you filed since opening this page. Each row is the record the server returned.
-                </p>
-                {filed.length === 0 ? (
-                    <EmptyState icon={ReceiptText} title="Nothing filed yet"
-                        action="Submit a claim on the left and the saved record, including its reference number, appears here." />
-                ) : (
-                    <div className="emp-scroll" style={{ ...ui.scroller('300px'), marginTop: tokens.spacing?.sm }}>
+                <h3 style={ui.h3}>Your expense claims</h3>
+                <p style={ui.hint}>Every claim you have filed, newest first, with how it was decided.</p>
+
+                {isLoading && filed.length === 0 && <Loading label="Reading your claim history" />}
+                <ErrorNote error={error} context="your expense claims" />
+                {!isLoading && !error && filed.length === 0 && (
+                    <EmptyState icon={ReceiptText} title="No expense claims yet"
+                        action="Submit a claim on the left. It appears here with its reference number and, once your manager decides, the outcome." />
+                )}
+                {filed.length > 0 && (
+                    <div className="emp-scroll" style={{ ...ui.scroller('340px'), marginTop: tokens.spacing?.sm }}>
                         {filed.map((e) => (
                             <div key={e.expense_id} style={ui.listRow}>
                                 <div style={ui.rowMain}>
-                                    <span style={ui.rowTitle}>{money(e.amount, e.currency)}, {e.category}</span>
+                                    <span style={ui.rowTitle}>{money(e.amount, e.currency, 2)}, {e.category}</span>
                                     <span style={ui.rowMeta}>
-                                        {e.description || 'No description given'}, reference {e.expense_id}, filed {fmtDate(e.submitted_at)}
-                                        {e.receipt ? `, receipt ${e.receipt}` : ', no receipt attached'}
+                                        {e.description || 'No description given'}, filed {fmtDate(e.submitted_at)}, reference {e.expense_id}
                                     </span>
+                                    <span style={ui.rowMeta}>{decisionText(e)}</span>
                                 </div>
                                 <StatusPill status={e.status} />
                             </div>
@@ -174,13 +190,17 @@ const ExpenseModule = memo(() => {
                 )}
             </div>
 
-            <div style={{ gridColumn: 'span 4' }}>
-                <DataCard title="Filed this session" value={<CountUp value={filed.length} />} unit="claims"
+            <div style={{ gridColumn: 'span 2' }}>
+                <DataCard title="Claims filed" value={<CountUp value={filed.length} />} unit="claims"
                     icon={<ReceiptText size={15} />} color={tokens.color?.['accent-primary']} />
             </div>
+            <div style={{ gridColumn: 'span 2' }}>
+                <DataCard title="Awaiting a decision" value={<CountUp value={pendingCount} />} unit="claims"
+                    icon={<ReceiptText size={15} />} color={pendingCount ? tokens.color?.warning : tokens.color?.success} />
+            </div>
             <div style={{ gridColumn: 'span 8' }}>
-                <DataCard title={`Value filed this session, ${money(total)}`} isChart minHeight="260px">
-                    <PieChartWidget data={byCategory} minHeight="220px" label="Split of what you filed, by category." />
+                <DataCard title={`Value claimed to date, ${money(total)}`} isChart minHeight="260px">
+                    <PieChartWidget data={byCategory} minHeight="220px" label="Split of everything you have claimed, by category." />
                 </DataCard>
             </div>
         </div>
