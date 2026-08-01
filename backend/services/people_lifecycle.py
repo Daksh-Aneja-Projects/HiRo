@@ -8,7 +8,7 @@ with a fake, and every write path has a matching read path exposed by a route.
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from services.postgres_client import pg_client
 from services.pii_vault import PIIVault
@@ -76,19 +76,36 @@ async def get_my_onboarding_plan(db, employee_uuid: str) -> Optional[Dict[str, A
     return plan
 
 
-async def complete_onboarding_item(db, *, employee_uuid: str, item_id: str, completed_by: str) -> Dict[str, Any]:
-    """Mark one item on this employee's own plan done, and tell whoever else cares.
+async def complete_onboarding_item(db, *, item_id: str, completed_by: str,
+                                   scope_uuids: Optional[List[str]] = None,
+                                   allowed_owners: Sequence[str] = ("employee",)) -> Dict[str, Any]:
+    """Mark one onboarding item done, and tell whoever else cares.
 
-    Scoped to the caller's own plan: `employee_uuid` must own the plan the item
-    lives on, so nobody can close out someone else's onboarding checklist.
+    A plan's items are owned by the employee, their manager or HR, and each owner
+    closes their own. Two independent guards keep that honest:
+
+    `scope_uuids` limits which people's plans the caller may touch at all: the
+    employee passes their own uuid, a manager passes their direct reports, HR
+    passes None for the whole organisation.
+
+    `allowed_owners` limits which items within a reachable plan the caller may
+    close. Without it an employee could close out the steps their manager and HR
+    still owe them, which is how a plan reaches 100% with the work undone.
     """
-    plan = await db.onboarding_plans.find_one(
-        {"employee_uuid": employee_uuid, "items.item_id": item_id}, {"_id": 0}, sort=[("created_at", -1)]
-    )
+    query: Dict[str, Any] = {"items.item_id": item_id}
+    if scope_uuids is not None:
+        query["employee_uuid"] = {"$in": list(scope_uuids)}
+    plan = await db.onboarding_plans.find_one(query, {"_id": 0}, sort=[("created_at", -1)])
     if not plan:
-        raise ValueError("There is no onboarding item with that id on your plan.")
+        raise ValueError("There is no onboarding item with that id on a plan you can act on.")
 
+    employee_uuid = plan["employee_uuid"]
     item = next((i for i in plan["items"] if i["item_id"] == item_id), None)
+    if item and item.get("owner") not in allowed_owners:
+        raise PermissionError(
+            f"That step is {item.get('owner')}'s to complete, not yours."
+        )
+
     now = datetime.now(timezone.utc).isoformat()
     if item and item.get("status") != "DONE":
         await db.onboarding_plans.update_one(
@@ -121,8 +138,12 @@ async def complete_onboarding_item(db, *, employee_uuid: str, item_id: str, comp
     return {"item": item, "progress": _plan_progress(plan_items)}
 
 
-async def get_team_onboarding(db, manager_uuid: str) -> List[Dict[str, Any]]:
-    """Onboarding progress for this manager's direct reports."""
+async def direct_report_uuids(manager_uuid: str) -> List[str]:
+    """The employee uuids reporting to this manager, or an empty list.
+
+    A lookup failure returns empty rather than raising, so a caller scoping a
+    write by this list ends up able to touch nothing instead of everything.
+    """
     try:
         rows = await pg_client.fetch(
             "SELECT employee_uuid FROM employee_pii WHERE manager_id = $1", manager_uuid
@@ -130,7 +151,12 @@ async def get_team_onboarding(db, manager_uuid: str) -> List[Dict[str, Any]]:
     except Exception as e:
         logger.warning(f"direct-report lookup failed for {manager_uuid}: {e}")
         return []
-    report_ids = [r["employee_uuid"] for r in rows]
+    return [r["employee_uuid"] for r in rows]
+
+
+async def get_team_onboarding(db, manager_uuid: str) -> List[Dict[str, Any]]:
+    """Onboarding progress for this manager's direct reports."""
+    report_ids = await direct_report_uuids(manager_uuid)
     if not report_ids:
         return []
     cursor = db.onboarding_plans.find({"employee_uuid": {"$in": report_ids}}, {"_id": 0}).sort("created_at", -1)

@@ -554,7 +554,11 @@ export const draftGoal = (intent) => api.post('/ess/goals/draft', { intent }, { 
 
 // --- ESS: Onboarding my-plan ---
 export const getMyOnboardingPlan = () => api.get('/ess/onboarding/my-plan');
+// Each owner closes their own steps: the employee theirs, the manager the
+// manager-owned ones on a report's plan, HR the HR-owned ones on any plan.
 export const completeOnboardingItem = (itemId) => api.post(`/ess/onboarding/items/${encodeURIComponent(itemId)}/complete`);
+export const completeTeamOnboardingItem = (itemId) => api.post(`/mss/onboarding/items/${encodeURIComponent(itemId)}/complete`);
+export const completeHROnboardingItem = (itemId) => api.post(`/hr/onboarding/items/${encodeURIComponent(itemId)}/complete`);
 
 // --- ESS: Pulse survey ---
 export const submitPulseSurvey = (data) => api.post('/ess/pulse', data);

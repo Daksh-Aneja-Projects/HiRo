@@ -327,6 +327,10 @@ def _patch_notify(monkeypatch):
 # Onboarding: completion notifies + progress math
 # ---------------------------------------------------------------------------
 
+def _item_owned_by(plan, owner):
+    return next(i["item_id"] for i in plan["items"] if i["owner"] == owner)
+
+
 def test_onboarding_completion_notifies_and_progress_math(monkeypatch):
     noop = _patch_notify(monkeypatch)
     db = FakeMongoDB()
@@ -334,10 +338,11 @@ def test_onboarding_completion_notifies_and_progress_math(monkeypatch):
     plan = run(people_lifecycle.create_onboarding_plan(db, employee_uuid="EMP-100", created_by="hrbp"))
     total = len(plan["items"])
     assert total == len(people_lifecycle.DEFAULT_ONBOARDING_TEMPLATE)
-    first_item = plan["items"][0]["item_id"]
+    own_item = _item_owned_by(plan, "employee")
 
     result = run(people_lifecycle.complete_onboarding_item(
-        db, employee_uuid="EMP-100", item_id=first_item, completed_by="EMP-100"))
+        db, item_id=own_item, completed_by="EMP-100",
+        scope_uuids=["EMP-100"], allowed_owners=("employee",)))
 
     assert result["item"]["status"] == "DONE"
     assert result["progress"] == {"done": 1, "total": total, "percent": round((1 / total) * 100, 1)}
@@ -347,7 +352,8 @@ def test_onboarding_completion_notifies_and_progress_math(monkeypatch):
     # Completing the same item again is a no-op, not a duplicate notification.
     noop.calls.clear()
     result2 = run(people_lifecycle.complete_onboarding_item(
-        db, employee_uuid="EMP-100", item_id=first_item, completed_by="EMP-100"))
+        db, item_id=own_item, completed_by="EMP-100",
+        scope_uuids=["EMP-100"], allowed_owners=("employee",)))
     assert result2["progress"]["done"] == 1
     assert noop.calls == []
 
@@ -357,8 +363,62 @@ def test_onboarding_unknown_item_rejected():
     run(people_lifecycle.create_onboarding_plan(db, employee_uuid="EMP-101", created_by="hrbp"))
     try:
         run(people_lifecycle.complete_onboarding_item(
-            db, employee_uuid="EMP-101", item_id="NO-SUCH-ITEM", completed_by="EMP-101"))
+            db, item_id="NO-SUCH-ITEM", completed_by="EMP-101", scope_uuids=["EMP-101"]))
         assert False, "expected ValueError"
+    except ValueError:
+        pass
+
+
+def test_onboarding_employee_cannot_close_another_owners_step(monkeypatch):
+    """An employee ticking off HR's and their manager's steps would let a plan
+    reach 100% with the actual work undone."""
+    _patch_notify(monkeypatch)
+    db = FakeMongoDB()
+    plan = run(people_lifecycle.create_onboarding_plan(db, employee_uuid="EMP-102", created_by="hrbp"))
+
+    for owner in ("hr", "manager"):
+        try:
+            run(people_lifecycle.complete_onboarding_item(
+                db, item_id=_item_owned_by(plan, owner), completed_by="EMP-102",
+                scope_uuids=["EMP-102"], allowed_owners=("employee",)))
+            assert False, f"expected PermissionError for the {owner}-owned step"
+        except PermissionError:
+            pass
+
+    # ...and it really is still pending, not just refused at the door.
+    after = run(people_lifecycle.get_my_onboarding_plan(db, "EMP-102"))
+    assert after["progress"]["done"] == 0
+
+
+def test_onboarding_manager_closes_manager_step_but_not_hr_step(monkeypatch):
+    """The manager-owned steps had no endpoint at all, so no plan could finish."""
+    _patch_notify(monkeypatch)
+    db = FakeMongoDB()
+    plan = run(people_lifecycle.create_onboarding_plan(db, employee_uuid="EMP-103", created_by="hrbp"))
+
+    result = run(people_lifecycle.complete_onboarding_item(
+        db, item_id=_item_owned_by(plan, "manager"), completed_by="EMP-004",
+        scope_uuids=["EMP-103"], allowed_owners=("manager",)))
+    assert result["item"]["status"] == "DONE"
+
+    try:
+        run(people_lifecycle.complete_onboarding_item(
+            db, item_id=_item_owned_by(plan, "hr"), completed_by="EMP-004",
+            scope_uuids=["EMP-103"], allowed_owners=("manager",)))
+        assert False, "expected PermissionError for the HR-owned step"
+    except PermissionError:
+        pass
+
+
+def test_onboarding_manager_cannot_reach_a_plan_outside_their_reports(monkeypatch):
+    _patch_notify(monkeypatch)
+    db = FakeMongoDB()
+    plan = run(people_lifecycle.create_onboarding_plan(db, employee_uuid="EMP-104", created_by="hrbp"))
+    try:
+        run(people_lifecycle.complete_onboarding_item(
+            db, item_id=_item_owned_by(plan, "manager"), completed_by="EMP-999",
+            scope_uuids=["EMP-777"], allowed_owners=("manager",)))
+        assert False, "expected ValueError: the plan is out of scope"
     except ValueError:
         pass
 

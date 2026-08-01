@@ -21,6 +21,9 @@ import { ui, Btn, Loading, EmptyState, ErrorNote, fmtDate, humanText, EmployeeSt
 import { useRoster, RosterSelect, RosterPager, useEmployeeNames } from '../components/manager/roster';
 import { requestKind, describeRequest } from '../components/manager/approvalText';
 import HiringModule from '../components/manager/HiringModule';
+import CadenceModule from '../components/manager/CadenceModule';
+import TeamGoalsModule from '../components/manager/TeamGoalsModule';
+import TeamOnboardingPanel from '../components/manager/TeamOnboardingPanel';
 
 import DigitalTwinChat from '../components/DigitalTwinChat';
 import RiskOverview from '../components/RiskOverview';
@@ -30,12 +33,15 @@ import StarRecognitionWidget from '../components/StarRecognitionWidget';
 import {
     Users, CheckSquare, Gauge, ShieldAlert, FlaskConical, Award,
     CheckCircle, XCircle, AlertTriangle, MessageSquare, CalendarDays,
-    TrendingDown, Search, Play, UserCheck, Briefcase,
+    TrendingDown, Search, Play, UserCheck, Briefcase, Bell, Target, ClipboardCheck,
 } from 'lucide-react';
 
 const MODULES = [
     { key: 'team', label: 'Team Overview', title: 'Your team', icon: Users, blurb: 'Your direct reports, and a conversation with any of their digital twins.' },
+    { key: 'cadence', label: 'Your Week', title: 'Your week', icon: Bell, blurb: 'What needs you now, who you have not spoken to, and whose anniversary is coming up.' },
     { key: 'approvals', label: 'Approvals', title: 'Approvals', icon: CheckSquare, blurb: 'Requests from your team that are waiting on a decision from you.' },
+    { key: 'goals', label: 'Goals & Reviews', title: 'Goals and reviews', icon: Target, blurb: 'What the team committed to, and the ratings this review cycle is waiting on from you.' },
+    { key: 'onboarding', label: 'New Joiners', title: 'New joiners', icon: ClipboardCheck, blurb: 'How far each new starter has got, and which steps are yours to close.' },
     { key: 'hiring', label: 'Hiring', title: 'Hiring', icon: Briefcase, blurb: 'Open hiring requisitions, and where you raise a new one.' },
     { key: 'performance', label: 'Performance', title: 'Performance', icon: Gauge, blurb: 'How the team is rated over time, and where you record a review.' },
     { key: 'risk', label: 'Workforce Risk', title: 'Workforce risk', icon: ShieldAlert, blurb: 'Where the organisation is most likely to lose people, and why.' },
@@ -813,7 +819,15 @@ export const ManagerPortalComponent = memo(() => {
     const body = () => {
         switch (requested) {
             case 'team': return <TeamModule />;
+            case 'cadence': return <CadenceModule />;
             case 'approvals': return <ApprovalsModule />;
+            case 'goals': return <TeamGoalsModule />;
+            case 'onboarding': return (
+                <div style={ui.grid} className="portal-grid">
+                    <EmployeeStyles />
+                    <TeamOnboardingPanel />
+                </div>
+            );
             case 'hiring': return <HiringModule />;
             case 'performance': return <PerformanceModule />;
             case 'risk': return <RiskOverview />;

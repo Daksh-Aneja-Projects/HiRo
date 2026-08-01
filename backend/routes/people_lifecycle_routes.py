@@ -103,10 +103,14 @@ async def my_onboarding_plan_route(req: Request, payload: Dict = Depends(employe
 @onboarding_ess_router.post("/items/{item_id}/complete")
 async def complete_onboarding_item_route(req: Request, item_id: str,
                                          payload: Dict = Depends(employee_role_required)):
+    """The employee closes their own steps, and only their own."""
     try:
         return await people_lifecycle.complete_onboarding_item(
-            _mongo(req), employee_uuid=_self_uuid(payload), item_id=item_id, completed_by=payload["sub"],
+            _mongo(req), item_id=item_id, completed_by=payload["sub"],
+            scope_uuids=[_self_uuid(payload)], allowed_owners=("employee",),
         )
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -114,6 +118,43 @@ async def complete_onboarding_item_route(req: Request, item_id: str,
 @onboarding_mss_router.get("/team")
 async def team_onboarding_route(req: Request, payload: Dict = Depends(manager_role_required)):
     return {"plans": await people_lifecycle.get_team_onboarding(_mongo(req), _manager_uuid(payload))}
+
+
+@onboarding_mss_router.post("/items/{item_id}/complete")
+async def complete_team_onboarding_item_route(req: Request, item_id: str,
+                                              payload: Dict = Depends(manager_role_required)):
+    """The manager closes the manager-owned steps on their own reports' plans.
+
+    Without this the "welcome conversation with your manager" style steps had no
+    endpoint at all and sat PENDING forever, so no plan could ever reach 100%.
+    """
+    reports = await people_lifecycle.direct_report_uuids(_manager_uuid(payload))
+    if not reports:
+        raise HTTPException(status_code=404, detail="You have no direct reports with an onboarding plan.")
+    try:
+        return await people_lifecycle.complete_onboarding_item(
+            _mongo(req), item_id=item_id, completed_by=payload["sub"],
+            scope_uuids=reports, allowed_owners=("manager",),
+        )
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@onboarding_hr_router.post("/items/{item_id}/complete")
+async def complete_hr_onboarding_item_route(req: Request, item_id: str,
+                                            payload: Dict = Depends(hrbp_role_required)):
+    """HR closes the HR-owned steps, on any plan, for the same reason."""
+    try:
+        return await people_lifecycle.complete_onboarding_item(
+            _mongo(req), item_id=item_id, completed_by=payload["sub"],
+            scope_uuids=None, allowed_owners=("hr",),
+        )
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 # ======================================

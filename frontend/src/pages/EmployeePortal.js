@@ -32,6 +32,7 @@ import OnboardingPlanModule, { OnboardingPlanCard } from '../components/employee
 import GoalsModule from '../components/employee/GoalsModule';
 import PerformanceCycleModule from '../components/employee/PerformanceCycleModule';
 import PulseSurveyCard from '../components/employee/PulseSurveyCard';
+import AskHiRoModule from '../components/employee/AskHiRoModule';
 import { ui, Btn, Loading, EmptyState, ErrorNote, StatusPill, fmtDate, readablePolicy, readableRole, EmployeeStyles } from '../components/employee/shared';
 
 import {
@@ -47,6 +48,7 @@ const MODULES = [
     { key: 'leave', label: 'Leave', title: 'Leave and balance', icon: Calendar },
     { key: 'pay', label: 'Pay & Benefits', title: 'Pay and benefits', icon: Wallet },
     { key: 'goals', label: 'Goals', title: 'Goals and key results', icon: Target },
+    { key: 'ask', label: 'Ask HiRo', title: 'Ask HiRo, and what it tells you', icon: Sparkles },
     { key: 'growth', label: 'Growth', title: 'Skills, career and performance', icon: Sparkles },
     { key: 'documents', label: 'Documents', title: 'My documents', icon: FileText },
     { key: 'expenses', label: 'Expenses', title: 'Expense claims', icon: ReceiptText },
@@ -621,6 +623,7 @@ export const EmployeePortalComponent = memo(() => {
             case 'leave': return <LeaveModule />;
             case 'pay': return <PayModule />;
             case 'goals': return <GoalsModule />;
+            case 'ask': return <AskHiRoModule />;
             case 'growth': return <GrowthModule />;
             case 'documents': return <DocumentsModule />;
             case 'expenses': return <ExpenseModule />;
