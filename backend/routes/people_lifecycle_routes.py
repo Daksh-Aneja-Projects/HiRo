@@ -271,6 +271,12 @@ async def my_cycle_entries_route(payload: Dict = Depends(employee_role_required)
     return {"entries": await performance_cycles.get_my_cycle_entries(_self_uuid(payload))}
 
 
+@perf_mss_router.get("/cycles")
+async def cycles_for_manager_route(payload: Dict = Depends(manager_role_required)):
+    """The cycles this manager's own reports are in."""
+    return {"cycles": await performance_cycles.list_cycles_for_manager(_manager_uuid(payload))}
+
+
 @perf_mss_router.get("/cycle-entries")
 async def cycle_entries_route(req: Request, cycle_id: str = Query(...),
                               payload: Dict = Depends(manager_role_required)):

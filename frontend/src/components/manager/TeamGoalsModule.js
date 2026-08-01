@@ -12,7 +12,7 @@ import { theme as tokens } from '../../theme';
 import { useApi } from '../../hooks/useApi';
 import { useToast } from '../../hooks/use-toast';
 import {
-    getTeamGoals, commentOnGoal, listPerformanceCycles, getCycleEntries, reviewCycleEntry,
+    getTeamGoals, commentOnGoal, getMyTeamCycles, getCycleEntries, reviewCycleEntry,
 } from '../../config/api';
 import { ui, Btn, Loading, EmptyState, ErrorNote, StatusPill, fmtDate, EmployeeStyles } from '../employee/shared';
 import { useEmployeeNames } from './roster';
@@ -144,7 +144,7 @@ TeamGoalsPanel.displayName = 'TeamGoalsPanel';
 /* -------------------------------------------------------------------------- */
 const CycleReviewPanel = memo(() => {
     const { toast } = useToast();
-    const { data: cycleData, isLoading: cyclesLoading, error: cyclesError } = useApi(listPerformanceCycles, [], true);
+    const { data: cycleData, isLoading: cyclesLoading, error: cyclesError } = useApi(getMyTeamCycles, [], true);
     const cycles = useMemo(() => cycleData?.cycles || [], [cycleData]);
 
     const [cycleId, setCycleId] = useState('');
@@ -198,8 +198,8 @@ const CycleReviewPanel = memo(() => {
             {cyclesLoading && <Loading label="Reading the open cycles" />}
             <ErrorNote error={cyclesError} context="the performance cycles" />
             {!cyclesLoading && !cyclesError && cycles.length === 0 && (
-                <EmptyState icon={Gauge} title="No performance cycle has been opened"
-                    action="HR opens review cycles. Once one is open, your team's entries appear here for you to rate." />
+                <EmptyState icon={Gauge} title="None of your team are in a review cycle"
+                    action="HR opens review cycles. Once one includes somebody who reports to you, their entries appear here for you to rate." />
             )}
 
             {cycles.length > 0 && (

@@ -557,7 +557,7 @@ const HealthModule = memo(() => {
                     <AreaChartWidget data={cpuSeries} minHeight="170px" color={tokens.color?.['accent-primary']} label="Host processor load, sampled every three seconds" />
                 </DataCard>
             </div>
-                        <div style={{ gridColumn: 'span 12' }}>
+            <div style={{ gridColumn: 'span 12' }}>
                 <LiveTelemetryFeed />
             </div>
         </div>

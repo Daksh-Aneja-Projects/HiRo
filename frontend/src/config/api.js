@@ -600,6 +600,9 @@ export const deleteOneOnOne = (id) => api.delete(`/mss/one-on-ones/${encodeURICo
 export const getOneOnOneStatus = () => api.get('/mss/one-on-ones/status');
 
 // --- MSS: Performance cycle review ---
+// The cycles this manager's own reports are in. The HR listing is HRBP-gated,
+// so a manager needs their own scoped one to find the cycle waiting on them.
+export const getMyTeamCycles = () => api.get('/mss/performance/cycles');
 export const getCycleEntries = (cycleId) => api.get('/mss/performance/cycle-entries', { params: { cycle_id: cycleId } });
 export const reviewCycleEntry = (data) => api.post('/mss/performance/review-entry', data);
 

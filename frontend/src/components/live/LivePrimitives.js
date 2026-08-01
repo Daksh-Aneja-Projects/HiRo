@@ -27,7 +27,7 @@ export function useMetricSeries(key, { intervalMs = 3000, maxPoints = 24, scale 
   return series;
 }
 
-const prefersReducedMotion = () =>
+export const prefersReducedMotion = () =>
   typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 // Animate a number from its previous value to `value` on change.

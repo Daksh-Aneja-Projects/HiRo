@@ -112,8 +112,8 @@ export const Dashboard = memo(() => {
             </div>
             <div style={s.meters}>
               <LiveMeter pct={num(live.cpu_load)} label="CPU load" color={tokens.color?.['accent-primary']} />
-              <LiveMeter pct={num(live.memory_load)} label="Memory" color={tokens.color?.['accent-2']} />
-              <LiveMeter pct={num(live.memory_load)} label="Memory in use" color={tokens.color?.success} />
+              <LiveMeter pct={num(live.memory_load)} label="Memory in use" color={tokens.color?.['accent-2']} />
+              <LiveMeter pct={num(live.machine_load)} label="Machine load" color={tokens.color?.success} />
             </div>
             <div style={s.spark}>
               <span style={{ fontSize: 11.5, color: 'var(--text-tertiary)' }}><Cpu size={13} /> live load</span>
@@ -160,14 +160,14 @@ const s = {
   h1: { fontSize: '1.6rem', fontWeight: 640, letterSpacing: '-0.022em', margin: 0, color: 'var(--text-primary)' },
   sub: { color: 'var(--text-secondary)', margin: '4px 0 0', fontSize: 13.5 },
   notice: { padding: 20, borderRadius: 12, background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)' },
-  kpiRow: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 },
+  kpiRow: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 },
   telemetry: { background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 12, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 14 },
   telemetryHead: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
   telemetryTitle: { display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' },
   badge: { fontSize: 11, fontWeight: 600, letterSpacing: '0.04em', padding: '3px 9px', borderRadius: 999, background: 'rgba(255,255,255,0.05)' },
-  meters: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 22 },
+  meters: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16 },
   spark: { display: 'flex', alignItems: 'center', gap: 12, borderTop: '1px solid var(--border-subtle)', paddingTop: 12 },
-  chartRow: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 },
+  chartRow: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 16 },
   integrity: { display: 'flex', flexDirection: 'column', gap: 16, padding: '8px 4px', justifyContent: 'center', height: '100%' },
   miniLabel: { fontSize: 11.5, color: 'var(--text-tertiary)' },
   miniVal: { fontSize: 20, fontWeight: 640, color: 'var(--text-primary)', marginTop: 2 },

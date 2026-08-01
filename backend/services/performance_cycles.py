@@ -349,6 +349,26 @@ async def list_cycle_entries(cycle_id: str) -> List[Dict[str, Any]]:
     } for r in rows]
 
 
+async def list_cycles_for_manager(manager_uuid: str) -> List[Dict[str, Any]]:
+    """The cycles at least one of this manager's reports is actually in.
+
+    Rating an entry needs a cycle_id, and the only listing was HRBP-gated, so a
+    manager could be the one thing a cycle was waiting on with no way to find it.
+    Scoping to their own reports also keeps a manager from enumerating cycles
+    that have nothing to do with them.
+    """
+    await _ensure_schema()
+    rows = await pg_client.fetch(
+        """SELECT DISTINCT c.* FROM perf_cycles c
+           JOIN perf_cycle_entries e ON e.cycle_id = c.cycle_id
+           JOIN employee_pii p ON p.employee_uuid = e.employee_uuid
+           WHERE p.manager_id = $1
+           ORDER BY c.created_at DESC""",
+        manager_uuid,
+    )
+    return [_row_to_cycle(r) for r in rows]
+
+
 async def list_cycle_entries_for_manager(cycle_id: str, manager_uuid: str,
                                          goals_summary_fn=None) -> List[Dict[str, Any]]:
     """Entries for this manager's own reports in one cycle, each with a goals

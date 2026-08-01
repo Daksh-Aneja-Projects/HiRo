@@ -159,7 +159,7 @@ const CompensationModule = memo(() => {
         row: { display: 'flex', gap: 10, marginBottom: 18, flexWrap: 'wrap' },
         input: { padding: '9px 12px', background: 'var(--bg-input)', border: '1px solid var(--border-subtle)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13.5, minWidth: 160 },
         btn: { padding: '9px 16px', background: 'var(--accent-primary)', border: 'none', borderRadius: 8, color: '#fff', fontSize: 13, fontWeight: 550, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7 },
-        grid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: tokens.spacing?.lg, marginBottom: tokens.spacing?.lg },
+        grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: tokens.spacing?.lg, marginBottom: tokens.spacing?.lg },
         hint: { color: 'var(--text-tertiary)', fontSize: 12.5, marginBottom: 14 },
     };
 
@@ -244,21 +244,17 @@ const TalentModule = memo(() => {
                 <BarChartWidget data={readiness} minHeight="340px" color={tokens.color?.success}
                                 label="Percent of senior roles covered" />
             </DataCard>
-            <div style={{ display: 'flex', gap: tokens.spacing?.lg, marginTop: tokens.spacing?.lg }}>
-                <div style={{ flex: 1 }}>
-                    <DataCard
-                        title="Skills each department is short of"
-                        subtitle="Counted against what the work in that department needs"
-                        isChart minHeight="300px">
-                        <BarChartWidget data={gaps} minHeight="240px" color={tokens.color?.warning}
-                                        label="Number of skills not held broadly enough" />
-                    </DataCard>
-                </div>
-                <div style={{ flex: 1 }}>
-                    <DataCard title="Attrition Risk by Department" isChart minHeight="300px">
-                        <BarChartWidget data={charts?.attrition_by_department || []} minHeight="240px" color={tokens.color?.danger} />
-                    </DataCard>
-                </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: tokens.spacing?.lg, marginTop: tokens.spacing?.lg }}>
+                <DataCard
+                    title="Skills each department is short of"
+                    subtitle="Counted against what the work in that department needs"
+                    isChart minHeight="300px">
+                    <BarChartWidget data={gaps} minHeight="240px" color={tokens.color?.warning}
+                                    label="Number of skills not held broadly enough" />
+                </DataCard>
+                <DataCard title="Attrition Risk by Department" isChart minHeight="300px">
+                    <BarChartWidget data={charts?.attrition_by_department || []} minHeight="240px" color={tokens.color?.danger} />
+                </DataCard>
             </div>
 
             {gapDetail.length > 0 && (

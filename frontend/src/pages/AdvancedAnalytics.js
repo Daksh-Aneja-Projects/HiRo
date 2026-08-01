@@ -40,7 +40,8 @@ const getStyles = (tokens) => ({
     grid: {
         display: 'grid',
         gridTemplateColumns: 'repeat(12, 1fr)',
-        gap: tokens.spacing?.colGutter,
+        gap: tokens.spacing?.lg,
+        alignItems: 'stretch',
     },
     input: {
         width: '100%',
@@ -84,6 +85,8 @@ const getStyles = (tokens) => ({
     },
     filterGroup: {
         display: 'flex',
+        alignItems: 'center',
+        flexWrap: 'wrap',
         gap: tokens.spacing?.sm,
         marginBottom: tokens.spacing?.md,
     }
@@ -231,19 +234,19 @@ const AnalyticsDashboard = memo(() => {
     }, []);
 
     const statCards = useMemo(() => [
-        { id: 1, title: 'Composite workforce health', value: data.key_metric, unit: 'overall', icon: Zap, color: tokens.color?.['success'], span: 3 },
-        { id: 2, title: 'Projected retention', value: data.retention, unit: 'of the workforce', icon: TrendingUp, color: tokens.color?.['warning'], span: 3 },
+        { id: 1, title: 'Composite workforce health', value: data.key_metric, unit: 'overall', icon: <Zap size={16} />, color: tokens.color?.['success'] },
+        { id: 2, title: 'Projected retention', value: data.retention, unit: 'of the workforce', icon: <TrendingUp size={16} />, color: tokens.color?.['warning'] },
         // The band comes from the backend; it used to be the constant "Low"
         // regardless of how high the risk actually was.
-        { id: 3, title: 'Attrition risk', value: data.attrition_risk, unit: data.attrition_band || '', icon: AlertTriangle, color: `rgb(${tokens.color?.['accent-2-rgb'] || '0,200,255'})`, span: 3 },
+        { id: 3, title: 'Attrition risk', value: data.attrition_risk, unit: data.attrition_band || '', icon: <AlertTriangle size={16} />, color: `rgb(${tokens.color?.['accent-2-rgb'] || '0,200,255'})` },
         // This is the average performance rating, not any model's F1 score.
-        { id: 4, title: 'Average performance rating', value: data.average_performance || data.ml_score, unit: 'across reviews', icon: Cpu, color: tokens.color?.['text-100'], span: 3 },
+        { id: 4, title: 'Average performance rating', value: data.average_performance || data.ml_score, unit: 'across reviews', icon: <Cpu size={16} />, color: tokens.color?.['text-100'] },
     ], [data]);
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: tokens.spacing?.lg }}>
             <div style={{...styles.filterGroup, borderBottom: tokens.ui?.border?.inner || tokens.color?.['border-600'], paddingBottom: tokens.spacing?.sm}}>
-                <Filter size={16} style={{ color: tokens.color?.['muted-500'], marginTop: '10px' }} />
+                <Filter size={16} style={{ color: tokens.color?.['muted-500'], flexShrink: 0 }} />
                 {/* Real departments from the workforce, not a hardcoded list that
                     never matched the data. */}
                 <select
@@ -270,24 +273,16 @@ const AnalyticsDashboard = memo(() => {
                 </button>
             </div>
 
-            <div style={styles.grid}>
-                {/* Stat Cards - span 3 each */}
-                {statCards.map(stat =>
-                    (
-                        <div key={stat.id} style={{ gridColumn: 'span 3' }}>
-                            <DataCard title={stat.title}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: tokens.spacing?.sm }}>
-                                    {stat.icon && <stat.icon
-                                    size={20} color={tokens.color?.['text-100']} />}
-                                    <p style={{ fontSize: tokens.typography?.h1?.fontSize, fontWeight: tokens.typography?.h1?.fontWeight, color: stat.color }}>
-                                        {stat.value} <span style={{ fontSize: tokens.typography?.base?.fontSize, color: tokens.color?.['muted-500'] }}>{stat.unit}</span>
-                                    </p>
-                                </div>
-                            </DataCard>
-                        </div>
+            <div style={styles.grid} className="portal-grid">
+                {/* Stat cards use DataCard's stat mode so figures align with
+                    every other portal instead of a bespoke unaligned layout. */}
+                {statCards.map((stat) => (
+                    <div key={stat.id} style={{ gridColumn: 'span 3' }}>
+                        <DataCard title={stat.title} value={stat.value} unit={stat.unit} icon={stat.icon} color={stat.color} />
+                    </div>
                 ))}
             </div>
-            <div style={styles.grid}>
+            <div style={styles.grid} className="portal-grid">
                 {/* Scatter Chart - span 8 (real perf vs tenure across the workforce) */}
                 <div style={{ gridColumn: 'span 8' }}>
                     <DataCard title="Performance against length of service" isChart={true} minHeight="300px">

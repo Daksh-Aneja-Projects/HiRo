@@ -119,7 +119,9 @@ const LiveTelemetryFeed = memo(() => {
     }, []);
 
     const styles = useMemo(() => ({
-        grid: { display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: tokens.spacing?.lg },
+        // auto-fit lets the four tiles wrap 4/2/1-up instead of a rigid
+        // 12-column split that clipped the last tile below 800px wide.
+        grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: tokens.spacing?.lg },
         statusDot: (currentStatus) => ({
             width: '12px', height: '12px', borderRadius: '50%', marginRight: tokens.spacing?.xs,
             backgroundColor: currentStatus === 'ONLINE' ? tokens.color?.success : (currentStatus === 'OFFLINE' ? tokens.color?.danger : (currentStatus === 'CONNECTING' ? tokens.color?.warning : tokens.color?.danger)), 
@@ -157,25 +159,25 @@ const LiveTelemetryFeed = memo(() => {
             {/* Metrics Grid */}
             <div style={styles.grid}>
                 {/* CPU Load - span 3 */}
-                <div style={{ gridColumn: 'span 3' }}>
+                <div>
                     <DataCard title="CPU Load" value={metrics.cpu_load.toFixed(1)} unit="%" color={tokens.color?.['accent-primary']}>
                         <Cpu size={24} color={tokens.color?.['accent-primary']} />
                     </DataCard>
                 </div>
                 {/* Memory Load - span 3 */}
-                <div style={{ gridColumn: 'span 3' }}>
+                <div>
                     <DataCard title="Memory Load" value={metrics.memory_load.toFixed(1)} unit="%" color={tokens.color?.['accent-primary']}>
                         <Server size={24} color={tokens.color?.['accent-primary']} />
                     </DataCard>
                 </div>
                 {/* Events / Second - span 3 */}
-                <div style={{ gridColumn: 'span 3' }}>
+                <div>
                     <DataCard title="Events / Second" value={metrics.events_per_second.toFixed(0)} unit="events" color={tokens.color?.['accent-primary']}>
                         <Clock size={24} color={tokens.color?.['accent-primary']} />
                     </DataCard>
                 </div>
                 {/* Active Nodes - span 3 */}
-                <div style={{ gridColumn: 'span 3' }}>
+                <div>
                     <DataCard title="Active Nodes" value={metrics.active_nodes.toFixed(0)} unit="nodes" color={tokens.color?.['accent-primary']}>
                         <Server size={24} color={tokens.color?.['accent-primary']} />
                     </DataCard>

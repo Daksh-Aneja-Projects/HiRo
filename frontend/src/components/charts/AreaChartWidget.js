@@ -2,6 +2,7 @@ import React, { useId } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { theme as tokens } from '../../theme';
 import ChartEmptyState from './ChartEmptyState';
+import { prefersReducedMotion } from '../live/LivePrimitives';
 
 // No fake fallback series: an omitted/empty `data` renders the empty state,
 // never a hardcoded demo trend.
@@ -29,7 +30,9 @@ const AreaChartWidget = ({ data = [], minHeight = "200px", color = tokens.color?
                 contentStyle={{ backgroundColor: tokens.color?.['panel-800'] || '#fff', borderRadius: tokens.border?.radius?.card || '8px', border: `1px solid ${tokens.color?.['border-600'] || '#e5e5e5'}`, boxShadow: tokens.shadow?.sm }}
                 itemStyle={{ color: tokens.color?.['text-100'] || '#000' }}
               />
-              <Area type="monotone" dataKey="value" stroke={color} fillOpacity={1} fill={`url(#${gradientId})`} />
+              <Area type="monotone" dataKey="value" stroke={color} strokeWidth={2} fillOpacity={1} fill={`url(#${gradientId})`}
+                dot={false} activeDot={{ r: 4, strokeWidth: 0 }}
+                isAnimationActive={!prefersReducedMotion()} animationDuration={800} animationEasing="ease-out" />
             </AreaChart>
           </ResponsiveContainer>
         </div>
