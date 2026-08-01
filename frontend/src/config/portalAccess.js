@@ -1,5 +1,5 @@
 // /frontend/src/config/portalAccess.js - FINAL PRODUCTION-READY REPLACEMENT
-import { Briefcase, Cpu, Users, Settings, User, Zap, BarChart3, MessageCircle, ShieldCheck } from 'lucide-react';
+import { Briefcase, Cpu, Users, Settings, User, Zap, BarChart3, MessageCircle, ShieldCheck, Network } from 'lucide-react';
 import { settings } from './settings';
 
 const ROLES = settings.ROLES;
@@ -84,8 +84,16 @@ export const SIDEBAR_NAV = [
             { label: 'Privacy', path: '/employee-portal?module=pii' },
         ]
     },
-    { 
-        label: 'Advanced Analytics', 
+    {
+        label: 'Neural Map',
+        path: '/neural',
+        icon: Network,
+        roles: [ROLES.HRIT_MANAGER, ROLES.HRBP, ROLES.SUPER_ADMIN],
+        color: 'accent-primary',
+        subModules: []
+    },
+    {
+        label: 'Advanced Analytics',
         path: '/advanced-analytics', 
         icon: BarChart3, 
         roles: [ROLES.HRIT_MANAGER, ROLES.HRBP, ROLES.SUPER_ADMIN], 

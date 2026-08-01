@@ -1,0 +1,46 @@
+/* Neural Map motion vocabulary. Every animation here is zeroed under
+   prefers-reduced-motion, so the map degrades to a calm static instrument. */
+
+@keyframes neural-dash {
+  to { stroke-dashoffset: -20; }
+}
+@keyframes neural-pulse {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50% { opacity: 0.18; transform: scale(1.22); }
+}
+@keyframes neural-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes neural-rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes neural-blink {
+  0%, 55% { opacity: 1; }
+  56%, 100% { opacity: 0; }
+}
+@keyframes neural-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.neural-link-animated { animation: neural-dash 1.6s linear infinite; }
+.neural-hub-pulse { animation: neural-pulse 3.4s ease-in-out infinite; transform-origin: center; transform-box: fill-box; }
+.neural-halo-spin { animation: neural-spin 90s linear infinite; transform-origin: center; transform-box: fill-box; }
+.neural-rise { animation: neural-rise 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.neural-cursor { animation: neural-blink 1.1s step-end infinite; }
+.neural-live-dot { animation: neural-dot 2s ease-in-out infinite; }
+
+.neural-node { cursor: pointer; }
+.neural-node:focus { outline: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .neural-link-animated,
+  .neural-hub-pulse,
+  .neural-halo-spin,
+  .neural-rise,
+  .neural-cursor,
+  .neural-live-dot {
+    animation: none !important;
+  }
+}

@@ -531,3 +531,9 @@ export const getServiceNowHealth = getHRSDMonitoringOverview;
 export const getNotifications = (limit = 20) => api.get(`/notifications?limit=${limit}`);
 export const markNotificationRead = (id) => api.post(`/notifications/${encodeURIComponent(id)}/read`);
 export const markAllNotificationsRead = () => api.post('/notifications/read-all');
+
+// --- Knowledge core (Neural Map). These endpoints are being built and may
+// 404 for now; callers degrade honestly when they do. ---
+export const getKnowledgeStats = () => api.get('/knowledge/stats');
+export const askKnowledge = (q) => api.get('/knowledge/ask', { params: { q } });
+export const syncKnowledge = () => api.post('/knowledge/sync');

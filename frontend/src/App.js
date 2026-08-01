@@ -32,6 +32,7 @@ const DashboardComponent = React.lazy(() => import('./pages/Dashboard').then(mod
 const UserPage = React.lazy(() => import('./pages/UserPage'));
 const SocialFeed = React.lazy(() => import('./pages/SocialFeed').then(module => ({ default: module.SocialFeed })));
 const AdvancedAnalyticsComponent = React.lazy(() => import('./pages/AdvancedAnalytics'));
+const NeuralMapComponent = React.lazy(() => import('./pages/NeuralMap'));
 
 // --- Main Authenticated Layout Container (Nested Router Element) ---
 /**
@@ -144,6 +145,7 @@ function App() {
                                             <Route path="/social-feed" element={<SocialFeed />} />
                                             <Route path="/user-profile" element={<UserPage />} />
                                             <Route path="/advanced-analytics" element={<AdvancedAnalyticsComponent />} />
+                                            <Route path="/neural" element={<NeuralMapComponent />} />
                                         </Route>
                                     </Route>
 
