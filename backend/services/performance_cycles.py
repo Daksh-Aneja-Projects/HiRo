@@ -90,6 +90,24 @@ def _row_to_entry(r: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+async def employees_in_department(department: str) -> List[str]:
+    """Everyone currently in one department, or the whole organisation for "all".
+
+    HR opens a cycle over a population, not over a list of uuids typed by hand.
+    Resolving the population server-side from the live employee records is the
+    same thing comp cycles already do, and it means a cycle opened today covers
+    who actually works there today.
+    """
+    if department and department.lower() != "all":
+        rows = await pg_client.fetch(
+            "SELECT employee_uuid FROM employee_pii WHERE department = $1 ORDER BY employee_uuid",
+            department,
+        )
+    else:
+        rows = await pg_client.fetch("SELECT employee_uuid FROM employee_pii ORDER BY employee_uuid")
+    return [r["employee_uuid"] for r in rows]
+
+
 async def create_cycle(*, name: str, opens_at, closes_at, employee_uuids: List[str],
                        created_by: str) -> Dict[str, Any]:
     await _ensure_schema()
@@ -296,6 +314,39 @@ async def get_my_cycle_entries(employee_uuid: str) -> List[Dict[str, Any]]:
         employee_uuid,
     )
     return [{**_row_to_entry(r), "cycle_name": r["name"], "cycle_stage": r["stage"]} for r in rows]
+
+
+async def list_cycle_entries(cycle_id: str) -> List[Dict[str, Any]]:
+    """Every entry in one cycle, for HR calibration.
+
+    Calibration is HR's step and works one employee at a time, so without a way
+    to read the whole cycle there was no way to know which employees to calibrate
+    or how one rating compared with the rest. Each entry carries the person's
+    name and department, because calibration is exactly the comparison across
+    teams that raw uuids make impossible.
+    """
+    await _ensure_schema()
+    # Names live encrypted in the PII vault, so department and job title come
+    # from the join and the name comes back through the vault helper the
+    # succession and comp screens already share.
+    rows = await pg_client.fetch(
+        """SELECT e.*, p.department, p.job_title
+           FROM perf_cycle_entries e
+           LEFT JOIN employee_pii p ON p.employee_uuid = e.employee_uuid
+           WHERE e.cycle_id = $1
+           ORDER BY p.department NULLS LAST, e.manager_rating DESC NULLS LAST""",
+        cycle_id,
+    )
+    from services.talent_intelligence import names_for_uuids
+    names = await names_for_uuids([r["employee_uuid"] for r in rows])
+    return [{
+        **_row_to_entry(r),
+        # names_for_uuids falls back to the uuid; a name we could not decrypt is
+        # reported as absent rather than as a uuid pretending to be a name.
+        "full_name": names.get(r["employee_uuid"]) if names.get(r["employee_uuid"]) != r["employee_uuid"] else None,
+        "department": r.get("department"),
+        "job_title": r.get("job_title"),
+    } for r in rows]
 
 
 async def list_cycle_entries_for_manager(cycle_id: str, manager_uuid: str,

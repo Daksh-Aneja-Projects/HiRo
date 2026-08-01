@@ -648,6 +648,8 @@ export const getHeadcountVariance = () => api.get('/hr/headcount/variance');
 // --- Performance cycle admin ---
 export const listPerformanceCycles = () => api.get('/hr/performance/cycles');
 export const createPerformanceCycle = (data) => api.post('/hr/performance/cycles', data);
+// Every entry in one cycle: what calibration compares ratings across.
+export const getCycleEntriesForHR = (cycleId) => api.get(`/hr/performance/cycles/${encodeURIComponent(cycleId)}/entries`);
 export const getPerformanceCycle = (cycleId) => api.get(`/hr/performance/cycles/${encodeURIComponent(cycleId)}`);
 export const advancePerformanceCycle = (cycleId) => api.post(`/hr/performance/cycles/${encodeURIComponent(cycleId)}/advance`);
 export const calibratePerformanceEntry = (cycleId, employeeUuid, calibratedRating) =>

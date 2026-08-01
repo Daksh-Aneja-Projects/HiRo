@@ -34,6 +34,8 @@ import HeadcountPanel from '../components/hr/HeadcountPanel';
 import OnboardingPanel from '../components/hr/OnboardingPanel';
 import EngagementPanel from '../components/hr/EngagementPanel';
 import SuccessionPanel from '../components/hr/SuccessionPanel';
+import PerformanceCyclesPanel from '../components/hr/PerformanceCyclesPanel';
+import PeopleOpsPanel from '../components/hr/PeopleOpsPanel';
 
 
 // --- 7.1. Sub-Module: Policy Lifecycle ---
@@ -613,6 +615,10 @@ export const HRPortalComponent = memo(() => {
                 return <EngagementPanel />;
             case 'onboarding':
                 return <OnboardingPanel />;
+            case 'perfcycles':
+                return <PerformanceCyclesPanel />;
+            case 'peopleops':
+                return <PeopleOpsPanel />;
             case 'ingestion':
                 return <IngestionModule />;
             case 'cases':
@@ -641,6 +647,8 @@ export const HRPortalComponent = memo(() => {
         headcount: 'Headcount Planning',
         engagement: 'Engagement and eNPS',
         onboarding: 'Onboarding Plans',
+        perfcycles: 'Performance Cycles and Calibration',
+        peopleops: 'Reviews, Requests and Knowledge',
         ingestion: 'AI Document Ingestion',
         cases: 'HRSD Case Management',
     };

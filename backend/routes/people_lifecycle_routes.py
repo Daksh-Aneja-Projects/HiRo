@@ -167,10 +167,24 @@ perf_mss_router = APIRouter(prefix="/mss/performance", tags=["Performance Cycles
 
 @perf_hr_router.post("/cycles")
 async def create_cycle_route(data: Dict[str, Any], payload: Dict = Depends(hrbp_role_required)):
+    """Open a cycle over an explicit list of employees, or over a department.
+
+    `department` ("all" for the whole organisation) is resolved server-side from
+    the live employee records, so HR never has to supply uuids by hand.
+    """
+    employee_uuids = data.get("employee_uuids") or []
+    department = data.get("department")
+    if not employee_uuids and department:
+        employee_uuids = await performance_cycles.employees_in_department(department)
+        if not employee_uuids:
+            raise HTTPException(
+                status_code=400,
+                detail=f"No employees are on record in {department}, so there is nobody to review.",
+            )
     try:
         return await performance_cycles.create_cycle(
             name=data.get("name", ""), opens_at=_as_date(data.get("opens_at")),
-            closes_at=_as_date(data.get("closes_at")), employee_uuids=data.get("employee_uuids") or [],
+            closes_at=_as_date(data.get("closes_at")), employee_uuids=employee_uuids,
             created_by=payload["sub"],
         )
     except ValueError as e:
@@ -188,6 +202,12 @@ async def get_cycle_route(cycle_id: str, payload: Dict = Depends(hrbp_role_requi
     if not cycle:
         raise HTTPException(status_code=404, detail=f"There is no performance cycle with the id {cycle_id}.")
     return cycle
+
+
+@perf_hr_router.get("/cycles/{cycle_id}/entries")
+async def cycle_entries_for_hr_route(cycle_id: str, payload: Dict = Depends(hrbp_role_required)):
+    """Every entry in the cycle, which is what calibration compares across."""
+    return {"entries": await performance_cycles.list_cycle_entries(cycle_id)}
 
 
 @perf_hr_router.post("/cycles/{cycle_id}/advance")

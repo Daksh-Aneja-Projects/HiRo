@@ -40,6 +40,8 @@ export const SIDEBAR_NAV = [
             { label: 'Headcount Planning', path: '/hr-portal?module=headcount' },
             { label: 'Engagement', path: '/hr-portal?module=engagement' },
             { label: 'Onboarding Plans', path: '/hr-portal?module=onboarding' },
+            { label: 'Performance Cycles', path: '/hr-portal?module=perfcycles' },
+            { label: 'Reviews & Requests', path: '/hr-portal?module=peopleops' },
             { label: 'Document Ingestion', path: '/hr-portal?module=ingestion' },
             { label: 'HRSD Case Mgmt', path: '/hr-portal?module=cases' },
         ]
