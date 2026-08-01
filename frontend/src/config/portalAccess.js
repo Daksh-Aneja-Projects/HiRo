@@ -34,7 +34,12 @@ export const SIDEBAR_NAV = [
             { label: 'Workforce Governance', path: '/hr-portal?module=governance' },
             { label: 'Audit Trail', path: '/hr-portal?module=audit' },
             { label: 'Compensation Workbench', path: '/hr-portal?module=comp' },
+            { label: 'Comp Review Cycles', path: '/hr-portal?module=compcycles' },
             { label: 'Talent Insights', path: '/hr-portal?module=talent' },
+            { label: 'Succession & 9-Box', path: '/hr-portal?module=succession' },
+            { label: 'Headcount Planning', path: '/hr-portal?module=headcount' },
+            { label: 'Engagement', path: '/hr-portal?module=engagement' },
+            { label: 'Onboarding Plans', path: '/hr-portal?module=onboarding' },
             { label: 'Document Ingestion', path: '/hr-portal?module=ingestion' },
             { label: 'HRSD Case Mgmt', path: '/hr-portal?module=cases' },
         ]
@@ -75,13 +80,16 @@ export const SIDEBAR_NAV = [
         color: 'accent-secondary', 
         subModules: [
             { label: 'My Dashboard', path: '/employee-portal?module=dashboard' },
+            { label: 'Onboarding', path: '/employee-portal?module=onboarding' },
             { label: 'Timesheets', path: '/employee-portal?module=timesheets' },
             { label: 'Leave', path: '/employee-portal?module=leave' },
             { label: 'Pay & Benefits', path: '/employee-portal?module=pay' },
+            { label: 'Goals', path: '/employee-portal?module=goals' },
             { label: 'Growth', path: '/employee-portal?module=growth' },
             { label: 'Documents', path: '/employee-portal?module=documents' },
             { label: 'Expenses', path: '/employee-portal?module=expenses' },
             { label: 'Privacy', path: '/employee-portal?module=pii' },
+            { label: 'Offboarding', path: '/employee-portal?module=offboarding' },
         ]
     },
     {

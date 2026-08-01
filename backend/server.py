@@ -725,15 +725,15 @@ async def get_current_user(request: Request, payload: SchemaAuthPayload = Depend
     except Exception as e:
         raise HTTPException(status_code=500, detail="Error fetching user details")
 
-# --- Include Service Routers ---
-try:
-    from services.comprehensive_routes import ALL_ROUTERS
-    for router in ALL_ROUTERS:
-        api.include_router(router)
-except ImportError:
-    pass
-
 # --- People lifecycle routers ---
+# Registered BEFORE comprehensive_routes on purpose. FastAPI matches routes in
+# registration order, and comprehensive_routes owns catch-all path params such as
+# /hr/performance/{employee_id} and /hr/comp/{employee_id}. Registered first,
+# those swallow the literal sibling paths here: GET /hr/comp/cycles was matched as
+# employee_id="cycles" and 500'd, and GET /hr/performance/cycles returned a
+# fabricated-looking empty review record for an employee named "cycles".
+# The routers below use dedicated prefixes and declare no top-level bare path
+# param, so nothing in comprehensive_routes is shadowed by this ordering.
 from routes.people_lifecycle_routes import PEOPLE_LIFECYCLE_ROUTERS
 for router in PEOPLE_LIFECYCLE_ROUTERS:
     api.include_router(router)
@@ -745,6 +745,14 @@ try:
         api.include_router(router)
 except ImportError as e:
     logger.warning(f"Talent intelligence routers unavailable: {e}")
+
+# --- Include Service Routers ---
+try:
+    from services.comprehensive_routes import ALL_ROUTERS
+    for router in ALL_ROUTERS:
+        api.include_router(router)
+except ImportError:
+    pass
 
 app.include_router(api, prefix="/api")
 

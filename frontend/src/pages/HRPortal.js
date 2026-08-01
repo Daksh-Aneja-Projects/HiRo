@@ -29,6 +29,11 @@ import BPCLPolicyLinter from '../components/BPCLPolicyLinter';
 import PolicyLifecycleWorkbench from '../components/policy/PolicyLifecycleWorkbench';
 import DAOGovernancePanel from '../components/policy/DAOGovernancePanel';
 import { s as ps, dim, apiError } from '../components/policy/ui';
+import CompCyclesPanel from '../components/hr/CompCyclesPanel';
+import HeadcountPanel from '../components/hr/HeadcountPanel';
+import OnboardingPanel from '../components/hr/OnboardingPanel';
+import EngagementPanel from '../components/hr/EngagementPanel';
+import SuccessionPanel from '../components/hr/SuccessionPanel';
 
 
 // --- 7.1. Sub-Module: Policy Lifecycle ---
@@ -596,8 +601,18 @@ export const HRPortalComponent = memo(() => {
                 return <AuditModule />;
             case 'comp':
                 return <CompensationModule />;
+            case 'compcycles':
+                return <CompCyclesPanel />;
             case 'talent':
                 return <TalentModule />;
+            case 'succession':
+                return <SuccessionPanel />;
+            case 'headcount':
+                return <HeadcountPanel />;
+            case 'engagement':
+                return <EngagementPanel />;
+            case 'onboarding':
+                return <OnboardingPanel />;
             case 'ingestion':
                 return <IngestionModule />;
             case 'cases':
@@ -620,7 +635,12 @@ export const HRPortalComponent = memo(() => {
         governance: 'Workforce Governance',
         audit: 'Audit Trail',
         comp: 'Compensation Workbench',
+        compcycles: 'Compensation Review Cycles',
         talent: 'Talent Insights & Planning',
+        succession: 'Succession and the 9-Box',
+        headcount: 'Headcount Planning',
+        engagement: 'Engagement and eNPS',
+        onboarding: 'Onboarding Plans',
         ingestion: 'AI Document Ingestion',
         cases: 'HRSD Case Management',
     };

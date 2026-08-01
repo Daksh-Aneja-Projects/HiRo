@@ -7,7 +7,7 @@ import { theme as tokens } from '../../theme';
 import { useApi } from '../../hooks/useApi';
 import { useToast } from '../../hooks/use-toast';
 import { getMyOnboardingPlan, completeOnboardingItem } from '../../config/api';
-import { ui, Btn, Loading, humanText } from './shared';
+import { ui, Btn, Loading, EmptyState, humanText } from './shared';
 import { ClipboardCheck, CheckCircle, Circle, UserCog, User, Building2 } from 'lucide-react';
 
 const OWNER_LABEL = { hr: 'HR', manager: 'Your manager', employee: 'You' };
@@ -115,6 +115,13 @@ const OnboardingPlanModule = memo(() => {
         <div style={ui.grid} className="portal-grid">
             {isLoading && <div style={{ gridColumn: 'span 12' }}><Loading label="Reading your onboarding plan" /></div>}
             {error && <div style={{ gridColumn: 'span 12', color: tokens.color?.danger }}>Could not load your onboarding plan. {error}</div>}
+
+            {!isLoading && !error && !plan && (
+                <div style={{ gridColumn: 'span 12' }}>
+                    <EmptyState icon={ClipboardCheck} title="You do not have an onboarding plan"
+                        action="Plans are created by HR for new joiners. If you have just started and nothing is here, ask your HR business partner to open one." />
+                </div>
+            )}
 
             {!isLoading && plan && (
                 <>

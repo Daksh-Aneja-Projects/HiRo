@@ -624,9 +624,7 @@ export const getNineBox = () => api.get('/hr/succession/nine-box');
 export const createSuccessionNomination = (data) => api.post('/hr/succession/nominations', data);
 
 // --- Compensation review cycles ---
-// GET /hr/comp/cycles (list) is shadowed by the older GET /hr/comp/{employee_id}
-// route on the backend and currently 500s; only create/get-by-id/patch/finalize
-// are used until that route collision is fixed server-side.
+export const listCompCycles = () => api.get('/hr/comp/cycles');
 export const createCompCycle = (department, budgetPct, name) =>
     api.post('/hr/comp/cycles', { department, budget_pct: budgetPct, name });
 export const getCompCycle = (cycleId) => api.get(`/hr/comp/cycles/${encodeURIComponent(cycleId)}`);
@@ -644,9 +642,7 @@ export const deleteHeadcountPlan = (planId) => api.delete(`/hr/headcount/plans/$
 export const getHeadcountVariance = () => api.get('/hr/headcount/variance');
 
 // --- Performance cycle admin ---
-// GET /hr/performance/cycles (list) is shadowed by the older
-// GET /hr/performance/{employee_id} route on the backend; same workaround as
-// the comp cycles above (create/get-by-id/advance/calibrate only).
+export const listPerformanceCycles = () => api.get('/hr/performance/cycles');
 export const createPerformanceCycle = (data) => api.post('/hr/performance/cycles', data);
 export const getPerformanceCycle = (cycleId) => api.get(`/hr/performance/cycles/${encodeURIComponent(cycleId)}`);
 export const advancePerformanceCycle = (cycleId) => api.post(`/hr/performance/cycles/${encodeURIComponent(cycleId)}/advance`);

@@ -28,25 +28,44 @@ import PayModule from '../components/employee/PayModule';
 import ExpenseModule from '../components/employee/ExpenseModule';
 import DocumentsModule from '../components/employee/DocumentsModule';
 import OffboardingModule from '../components/employee/OffboardingModule';
+import OnboardingPlanModule, { OnboardingPlanCard } from '../components/employee/OnboardingPlanModule';
+import GoalsModule from '../components/employee/GoalsModule';
+import PerformanceCycleModule from '../components/employee/PerformanceCycleModule';
+import PulseSurveyCard from '../components/employee/PulseSurveyCard';
 import { ui, Btn, Loading, EmptyState, ErrorNote, StatusPill, fmtDate, readablePolicy, readableRole, EmployeeStyles } from '../components/employee/shared';
 
 import {
     User, Calendar, CheckCircle, XCircle, AlertTriangle, Eye, EyeOff,
     LayoutDashboard, Clock, Wallet, Sparkles, FileText, ReceiptText, Lock,
-    Star, Send, Award, MessageSquare, CalendarPlus, Archive,
+    Star, Send, Award, MessageSquare, CalendarPlus, Archive, ClipboardCheck, Target,
 } from 'lucide-react';
 
 const MODULES = [
     { key: 'dashboard', label: 'My Dashboard', title: 'My dashboard', icon: LayoutDashboard },
+    { key: 'onboarding', label: 'Onboarding', title: 'Your onboarding plan', icon: ClipboardCheck },
     { key: 'timesheets', label: 'Timesheets', title: 'Timesheets', icon: Clock },
     { key: 'leave', label: 'Leave', title: 'Leave and balance', icon: Calendar },
     { key: 'pay', label: 'Pay & Benefits', title: 'Pay and benefits', icon: Wallet },
-    { key: 'growth', label: 'Growth', title: 'Skills, career and learning', icon: Sparkles },
+    { key: 'goals', label: 'Goals', title: 'Goals and key results', icon: Target },
+    { key: 'growth', label: 'Growth', title: 'Skills, career and performance', icon: Sparkles },
     { key: 'documents', label: 'Documents', title: 'My documents', icon: FileText },
     { key: 'expenses', label: 'Expenses', title: 'Expense claims', icon: ReceiptText },
     { key: 'pii', label: 'Privacy', title: 'Privacy, consent and feedback', icon: Lock },
     { key: 'offboarding', label: 'Offboarding', title: 'Offboarding and knowledge transfer', icon: Archive },
 ];
+
+// Growth pairs the learning hub with the two things it feeds: what you committed
+// to this cycle, and where the review of that cycle has got to.
+const GrowthModule = memo(() => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: tokens.spacing?.lg }}>
+        <TalentExperienceHub />
+        <div style={ui.grid} className="portal-grid">
+            <EmployeeStyles />
+            <PerformanceCycleModule />
+        </div>
+    </div>
+));
+GrowthModule.displayName = 'GrowthModule';
 
 /* -------------------------------------------------------------------------- */
 /* Dashboard                                                                   */
@@ -99,6 +118,10 @@ const EmployeeDashboardModule = memo(() => {
             <EmployeeStyles />
 
             {dashError && <div style={{ gridColumn: 'span 12' }}><ErrorNote error={dashError} context="your dashboard summary" /></div>}
+
+            {/* Both render nothing unless there is something real to act on. */}
+            <OnboardingPlanCard />
+            <PulseSurveyCard />
 
             <div style={{ gridColumn: 'span 3' }}>
                 <DataCard title="Leave hours available" value={<CountUp value={balanceHours} decimals={1} />} unit="hours"
@@ -593,10 +616,12 @@ export const EmployeePortalComponent = memo(() => {
     const body = () => {
         switch (requested) {
             case 'dashboard': return <EmployeeDashboardModule />;
+            case 'onboarding': return <OnboardingPlanModule />;
             case 'timesheets': return <TimesheetSubmission />;
             case 'leave': return <LeaveModule />;
             case 'pay': return <PayModule />;
-            case 'growth': return <TalentExperienceHub />;
+            case 'goals': return <GoalsModule />;
+            case 'growth': return <GrowthModule />;
             case 'documents': return <DocumentsModule />;
             case 'expenses': return <ExpenseModule />;
             case 'pii': return <PIISecurityModule />;
