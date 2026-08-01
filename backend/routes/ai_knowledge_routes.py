@@ -5,6 +5,7 @@ this single file (plus services/retrieval.py, services/grounded_answers.py,
 services/agent_memory.py) so it can land alongside other in-flight backend
 work without touching shared route files.
 """
+import asyncio
 import json
 import logging
 from datetime import datetime, timezone
@@ -172,13 +173,35 @@ async def knowledge_stats(req: Request, payload: Dict = Depends(manager_role_req
 # --------------------------------------------------------------------------
 # HRSD closed loop: suggestion attach (background) + feedback
 # --------------------------------------------------------------------------
+# asyncio.create_task only creates a weak reference: a task nobody holds can be
+# garbage collected before it finishes. These calls wait 20-40s on a CPU-only
+# model, which is ample time to be collected mid-flight, and that is exactly what
+# was happening -- suggestions never appeared on real tickets while the same
+# question answered fine through /knowledge/ask. Holding the task until it is
+# done is the fix.
+_BACKGROUND_TASKS: set = set()
+
+
+def spawn_suggested_resolution(app_state, ticket_id: str, subject: str, description: str) -> None:
+    """Start the suggestion in the background and keep it alive until it ends."""
+    task = asyncio.create_task(attach_suggested_resolution(app_state, ticket_id, subject, description))
+    _BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_BACKGROUND_TASKS.discard)
+
+
 async def attach_suggested_resolution(app_state, ticket_id: str, subject: str, description: str) -> None:
     """Runs as a background task from comprehensive_routes.create_ticket so ticket
     creation never blocks on a 20-40s CPU-only LLM call. Only attaches a
     confidence-gated suggestion for a human (or the employee) to accept or
-    dismiss -- never closes or otherwise changes the ticket."""
+    dismiss -- never closes or otherwise changes the ticket.
+
+    Every outcome is logged. Declining to suggest is a normal, frequent result
+    (the corpus does not cover the question, or the answer failed the overlap
+    check), but silence made it indistinguishable from the task never running.
+    """
     ai_service = getattr(app_state, "ai_service", None)
     if not ai_service:
+        logger.info(f"No AI service available, so no suggestion for {ticket_id}.")
         return
     mongo_client = getattr(app_state, "mongo_client", None)
     try:
@@ -188,7 +211,18 @@ async def attach_suggested_resolution(app_state, ticket_id: str, subject: str, d
         logger.warning(f"Suggested-resolution generation failed for {ticket_id}: {e}")
         return
 
-    if result.get("status") != "answered" or (result.get("confidence") or 0) < CONFIDENCE_THRESHOLD:
+    confidence = result.get("confidence") or 0
+    if result.get("status") != "answered":
+        logger.info(
+            f"No suggestion for {ticket_id}: the grounded layer refused "
+            f"({result.get('reason') or 'no reason given'}, confidence {confidence:.2f})."
+        )
+        return
+    if confidence < CONFIDENCE_THRESHOLD:
+        logger.info(
+            f"No suggestion for {ticket_id}: confidence {confidence:.2f} is below "
+            f"the {CONFIDENCE_THRESHOLD} threshold."
+        )
         return
 
     suggestion = {
@@ -201,6 +235,10 @@ async def attach_suggested_resolution(app_state, ticket_id: str, subject: str, d
         await pg_client.execute(
             "UPDATE hrsd_tickets SET metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb WHERE ticket_id = $1",
             ticket_id, json.dumps({"suggested_resolution": suggestion}),
+        )
+        logger.info(
+            f"Suggested resolution attached to {ticket_id} "
+            f"(confidence {confidence:.2f}, {len(result['citations'])} citations)."
         )
     except Exception as e:
         logger.warning(f"Could not persist suggested resolution for {ticket_id}: {e}")

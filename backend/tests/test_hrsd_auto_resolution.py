@@ -150,6 +150,29 @@ def test_suggestion_attached_then_solved_closes_and_records_outcome(monkeypatch)
     assert outcomes[0]["chunk_ids"] == [chunk_id]
 
 
+def test_spawn_keeps_a_reference_so_the_task_cannot_be_collected(monkeypatch):
+    """asyncio.create_task only holds a weak reference, so a fire-and-forget task
+    can be garbage collected before it finishes. These wait 20-40s on a CPU-only
+    model, and suggestions really were vanishing on live tickets while the same
+    question answered fine through /knowledge/ask."""
+    fake_pg = FakePg([CHUNK])
+    monkeypatch.setattr(retrieval, "pg_client", fake_pg)
+    monkeypatch.setattr(akr, "pg_client", fake_pg)
+    app_state = AppState(FakeAI(), FakeMongoClient(), FakeHrsdSystem())
+
+    async def scenario():
+        akr.spawn_suggested_resolution(app_state, "T-3", "Cannot log in", "Password expired")
+        # The task is held for as long as it is running, not left to chance.
+        assert len(akr._BACKGROUND_TASKS) == 1
+        await asyncio.gather(*list(akr._BACKGROUND_TASKS))
+        # ...and released once it is done, so the set cannot grow without bound.
+        assert akr._BACKGROUND_TASKS == set()
+
+    _run(scenario())
+    row = _run(fake_pg.fetchrow("SELECT metadata FROM hrsd_tickets WHERE ticket_id = $1", "T-3"))
+    assert row is not None, "the spawned task did not attach its suggestion"
+
+
 def test_still_need_help_escalates_without_closing(monkeypatch):
     fake_pg = FakePg([CHUNK])
     monkeypatch.setattr(retrieval, "pg_client", fake_pg)

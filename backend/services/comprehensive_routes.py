@@ -58,7 +58,7 @@ from services.cognitive_remediation_agent import CognitiveRemediationAgent
 from routes.streaming_routes import manager as websocket_manager
 from services.enforcement_engine import runtime_enforcer
 # AI knowledge layer (Task 5): background ticket suggestions + command-bar memory.
-from routes.ai_knowledge_routes import attach_suggested_resolution
+from routes.ai_knowledge_routes import spawn_suggested_resolution
 from services import agent_memory
 
 
@@ -402,11 +402,45 @@ async def list_tickets(req: Request, employee_id: Optional[str] = Query(None), l
     # panel on the same screen reported 605 open.
     return await hrsd_system.list_tickets(employee_id, limit=limit, offset=offset)
 
+@hrsd_router.get("/my-tickets")
+async def list_my_tickets(req: Request, limit: Optional[int] = Query(None), offset: Optional[int] = Query(None),
+                          payload: Dict = Depends(employee_role_required)):
+    """The caller's own cases.
+
+    GET /hrsd/tickets is manager-gated and takes employee_id as a free query
+    parameter, so it can never be opened to employees. Employees had no way to
+    see a case they had raised at all, which also meant the AI first-line
+    suggestion had no one to confirm it: the loop is closed by the person who
+    raised the case, and they could not reach it.
+    """
+    hrsd_system: MultiAgentHRSDSystem = getattr(req.app.state, "hrsd_system", None)
+    if not hrsd_system:
+        raise HTTPException(status_code=503, detail="HRSD system unavailable.")
+    employee_uuid = payload.get("employee_uuid")
+    if not employee_uuid:
+        raise HTTPException(status_code=404, detail="No employee record is linked to this account.")
+    return await hrsd_system.list_tickets(employee_uuid, limit=limit, offset=offset)
+
+
 @hrsd_router.post("/tickets")
-async def create_ticket(req: Request, subject: str = Body(...), description: str = Body(...), employee_id: str = Body(...), payload: Dict=Depends(employee_role_required)):
+async def create_ticket(req: Request, subject: str = Body(...), description: str = Body(...),
+                        employee_id: Optional[str] = Body(None), payload: Dict=Depends(employee_role_required)):
     hrsd_system: MultiAgentHRSDSystem = getattr(req.app.state, "hrsd_system", None)
     if not hrsd_system: raise HTTPException(status_code=503, detail="HRSD System unavailable.")
-    
+
+    # employee_id used to be taken from the body and trusted, so any employee
+    # could raise a case in a colleague's name. Only roles that legitimately act
+    # on behalf of others may name someone else; an employee always gets their
+    # own record regardless of what the body says.
+    self_uuid = payload.get("employee_uuid")
+    acts_for_others = str(payload.get("role", "")).lower() in ("manager", "hrbp", "hrit_admin")
+    if acts_for_others:
+        employee_id = employee_id or self_uuid
+    else:
+        employee_id = self_uuid
+    if not employee_id:
+        raise HTTPException(status_code=404, detail="No employee record is linked to this account.")
+
     ticket = await hrsd_system.create_ticket(employee_id, subject, description)
 
     # Actually triage it. This route reported "Triage Initiated" while calling
@@ -423,7 +457,7 @@ async def create_ticket(req: Request, subject: str = Body(...), description: str
     # CPU-only Ollama, so ticket creation returns immediately rather than
     # blocking on it. Attaches to metadata.suggested_resolution once ready;
     # never auto-closes anything (see routes/ai_knowledge_routes.py).
-    asyncio.create_task(attach_suggested_resolution(req.app.state, ticket.ticket_id, subject, description))
+    spawn_suggested_resolution(req.app.state, ticket.ticket_id, subject, description)
 
     return {
         "ticket_id": ticket.ticket_id,

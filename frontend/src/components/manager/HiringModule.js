@@ -11,6 +11,7 @@ import DataCard from '../DataCard';
 import { CountUp } from '../live/LivePrimitives';
 import { ui, Btn, Loading, EmptyState, ErrorNote, StatusPill, fmtDate, EmployeeStyles } from '../employee/shared';
 import { Briefcase, Building2, Users, Send, Sparkles, FileText } from 'lucide-react';
+import HiringPipeline from './HiringPipeline';
 
 const SENIORITIES = ['', 'Junior', 'Mid-Level', 'Senior', 'Lead', 'Principal'];
 const BLANK = { title: '', department: '', headcount: '1', seniority: '', justification: '' };
@@ -40,6 +41,12 @@ const HiringModule = memo(() => {
     const [jdDraft, setJdDraft] = useState('');
     const [isDrafting, setIsDrafting] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    // Which requisition the pipeline below is working on.
+    const [selectedId, setSelectedId] = useState(null);
+    const selected = useMemo(
+        () => requisitions.find((r) => r.requisition_id === selectedId) || null,
+        [requisitions, selectedId],
+    );
 
     const set = (key) => (e) => setForm((prev) => ({ ...prev, [key]: e.target.value }));
 
@@ -194,30 +201,45 @@ const HiringModule = memo(() => {
                 )}
 
                 {requisitions.length > 0 && (
-                    <div className="emp-scroll" style={{ ...ui.scroller('420px'), marginTop: tokens.spacing?.sm }}>
-                        {requisitions.map((r) => (
-                            <div key={r.requisition_id} style={{ ...ui.listRow, alignItems: 'flex-start' }}>
-                                <div style={ui.rowMain}>
-                                    <span style={ui.rowTitle}>
-                                        {r.title}{r.seniority ? `, ${r.seniority}` : ''}
-                                    </span>
-                                    <span style={ui.rowMeta}>
-                                        {r.department || 'No department given'}, {Number(r.headcount) || 1} position{Number(r.headcount) === 1 ? '' : 's'},
-                                        opened {fmtDate(r.created_at)}, reference {r.requisition_id}
-                                    </span>
-                                    {r.justification && (
-                                        <span style={{ ...ui.rowMeta, display: 'flex', gap: 5, alignItems: 'flex-start' }}>
-                                            <FileText size={12} style={{ flexShrink: 0, marginTop: 2 }} />
-                                            <span>{r.justification}</span>
-                                        </span>
-                                    )}
-                                </div>
-                                <StatusPill status={r.status} />
-                            </div>
-                        ))}
-                    </div>
+                    <>
+                        <p style={ui.hint}>Choose one to see who internally could do the job, and to work its candidate pipeline.</p>
+                        <div className="emp-scroll" style={{ ...ui.scroller('420px'), marginTop: tokens.spacing?.sm }}>
+                            {requisitions.map((r) => {
+                                const chosen = r.requisition_id === selectedId;
+                                return (
+                                    <button key={r.requisition_id} type="button"
+                                        onClick={() => setSelectedId(chosen ? null : r.requisition_id)}
+                                        style={{
+                                            ...ui.listRow, alignItems: 'flex-start', width: '100%', textAlign: 'left',
+                                            cursor: 'pointer', border: 'none', borderRadius: 7,
+                                            borderBottom: `1px solid ${tokens.color?.['border-600']}`,
+                                            background: chosen ? `${tokens.color?.['accent-primary']}12` : 'transparent',
+                                        }}>
+                                        <div style={ui.rowMain}>
+                                            <span style={{ ...ui.rowTitle, color: chosen ? tokens.color?.['accent-primary'] : undefined }}>
+                                                {r.title}{r.seniority ? `, ${r.seniority}` : ''}
+                                            </span>
+                                            <span style={ui.rowMeta}>
+                                                {r.department || 'No department given'}, {Number(r.headcount) || 1} position{Number(r.headcount) === 1 ? '' : 's'},
+                                                opened {fmtDate(r.created_at)}
+                                            </span>
+                                            {r.justification && (
+                                                <span style={{ ...ui.rowMeta, display: 'flex', gap: 5, alignItems: 'flex-start' }}>
+                                                    <FileText size={12} style={{ flexShrink: 0, marginTop: 2 }} />
+                                                    <span>{r.justification}</span>
+                                                </span>
+                                            )}
+                                        </div>
+                                        <StatusPill status={r.status} />
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </>
                 )}
             </div>
+
+            <HiringPipeline requisition={selected} />
         </div>
     );
 });

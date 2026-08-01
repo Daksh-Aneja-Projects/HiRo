@@ -92,6 +92,7 @@ export const SIDEBAR_NAV = [
             { label: 'Pay & Benefits', path: '/employee-portal?module=pay' },
             { label: 'Goals', path: '/employee-portal?module=goals' },
             { label: 'Ask HiRo', path: '/employee-portal?module=ask' },
+            { label: 'Help & Cases', path: '/employee-portal?module=cases' },
             { label: 'Growth', path: '/employee-portal?module=growth' },
             { label: 'Documents', path: '/employee-portal?module=documents' },
             { label: 'Expenses', path: '/employee-portal?module=expenses' },

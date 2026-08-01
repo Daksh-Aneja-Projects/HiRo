@@ -409,11 +409,17 @@ export const actionApproval = (payload) => api.post('/mss/approvals/action', pay
 /* -------------------------------------------------------------------------- */
 /* --- HRSD (HR Service Delivery) (Live) --- */
 /* -------------------------------------------------------------------------- */
+// employeeId is only honoured for roles that legitimately raise a case on
+// someone else's behalf; for an employee the backend always uses their own
+// record, whatever is sent here.
 export const createHRSDTicket = (subject, description, employeeId) => api.post('/hrsd/tickets', { subject, description, employee_id: employeeId });
 export const resolveHRSDTicket = (ticketId, resolutionSummary) => api.put(`/hrsd/tickets/${encodeURIComponent(ticketId)}/resolve`, { resolution_summary: resolutionSummary });
 export const getHRSDMonitoringOverview = () => api.get('/hrsd/monitoring/overview');
 export const syncServiceNow = () => api.post('/hrsd/integrations/snow/sync');
-export const getHRSDTickets = (params = {}) => api.get('/hrsd/tickets', { params }); 
+export const getHRSDTickets = (params = {}) => api.get('/hrsd/tickets', { params });
+// The caller's own cases. /hrsd/tickets is manager-gated and takes employee_id
+// as a free parameter, so it can never be opened up to employees.
+export const getMyHRSDTickets = (params = {}) => api.get('/hrsd/my-tickets', { params });
 
 /* -------------------------------------------------------------------------- */
 /* --- ADMIN (Live) --- */
