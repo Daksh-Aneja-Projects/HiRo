@@ -47,6 +47,11 @@ class EventPublisherService:
         self.agent_id = agent_id
         self.telemetry_subscribers: Set[str] = set()
         self.mock_mode = False
+        # The outcome of the most recent publish attempt, so a status endpoint can
+        # say whether events are actually reaching the bus. Publish failures used
+        # to be logged and nothing else, leaving every caller unable to tell a
+        # delivered event from a dropped one.
+        self.last_publish: Optional[Dict[str, Any]] = None
 
     async def connect(self, nats_url: str):
         """
@@ -125,13 +130,28 @@ class EventPublisherService:
             except Exception as e:
                 logger.error(f"Failed to init stream '{config['name']}': {e}")
 
-    async def publish_event(self, topic: str, payload: Dict[str, Any], key: str = ""):
+    def _record_publish(self, topic: str, delivered: bool, detail: str) -> bool:
+        self.last_publish = {
+            "topic": topic,
+            "delivered": delivered,
+            "detail": detail,
+            "at": datetime.now(timezone.utc).isoformat(),
+        }
+        return delivered
+
+    async def publish_event(self, topic: str, payload: Dict[str, Any], key: str = "") -> bool:
         """
         Publishes an event to NATS JetStream.
+
+        Returns True only when the broker acknowledged the message. Callers that
+        care about delivery can now check; callers that must not be blocked by a
+        dead bus (every DB write path in this app) can keep ignoring it, which is
+        the correct behaviour -- a persisted record is not conditional on an
+        event reaching a message bus.
         """
         # 1. Sign the payload
         signed_payload = self._sign_payload(payload)
-        
+
         # 2. Add timestamp if missing
         if "timestamp" not in signed_payload:
             signed_payload["timestamp"] = datetime.now(timezone.utc).isoformat()
@@ -142,26 +162,33 @@ class EventPublisherService:
         # 4. Publish (Mock or Real)
         if self.mock_mode or not self.js:
             logger.debug(f"[MOCK PUBLISH] Topic: {topic}, Data: {signed_payload.keys()}")
-            return
+            return self._record_publish(
+                topic, False,
+                "No message bus is connected, so this event was not delivered anywhere.")
 
         try:
             ack = await self.js.publish(topic, data_bytes, timeout=5.0)
             logger.debug(f"📤 Published to {topic} (Seq: {ack.seq})")
+            return self._record_publish(topic, True, f"Acknowledged by the message bus (seq {ack.seq}).")
         except NatsAPIError as e:
-            if e.err_code == 10059: 
+            if e.err_code == 10059:
                 logger.error(f"❌ Stream not found for topic {topic}. Check stream config.")
-            else:
-                logger.error(f"❌ NATS API Error publishing to {topic}: {e}")
+                return self._record_publish(
+                    topic, False, f"No stream is configured to receive '{topic}'.")
+            logger.error(f"❌ NATS API Error publishing to {topic}: {e}")
+            return self._record_publish(topic, False, f"The message bus rejected the event: {e}")
         except Exception as e:
             logger.error(f"❌ General Error publishing to {topic}: {e}")
+            return self._record_publish(
+                topic, False, f"The event could not be sent: {type(e).__name__}: {e}")
 
-    async def publish_agent_task(self, task_data: Dict[str, Any], topic: str, key: str = ""):
+    async def publish_agent_task(self, task_data: Dict[str, Any], topic: str, key: str = "") -> bool:
         """Wrapper for publishing agent tasks"""
-        await self.publish_event(topic, task_data, key)
+        return await self.publish_event(topic, task_data, key)
 
-    async def publish_telemetry_metrics(self, metrics: Dict[str, Any]):
+    async def publish_telemetry_metrics(self, metrics: Dict[str, Any]) -> bool:
         """Specialized publisher for high-frequency telemetry"""
-        await self.publish_event(self.TOPIC_TELEMETRY, metrics)
+        return await self.publish_event(self.TOPIC_TELEMETRY, metrics)
 
     def _sign_payload(self, event_data: Dict[str, Any]) -> Dict[str, Any]:
         """

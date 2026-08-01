@@ -6,7 +6,6 @@ from datetime import datetime, timezone
 import asyncio
 from services.schemas.models import ConfigurationUpdate
 from services.event_publisher_service import EventPublisherService 
-from services.test_automation_agent import TestAutomationAgent 
 
 logger = logging.getLogger(__name__)
 
@@ -16,13 +15,12 @@ class ConfigurationAgent:
     This acts as the bridge between the self-correction AI (BPCL generation) and the 
     Policy Versioning/Deployment system (BPEL/Orchestrator).
     """
-    def __init__(self, ai_service=None, publisher: Optional[EventPublisherService]=None, policy_versioning_service=None, vv_compiler=None, test_automation_agent: Optional[TestAutomationAgent]=None):
+    def __init__(self, ai_service=None, publisher: Optional[EventPublisherService]=None, policy_versioning_service=None, vv_compiler=None):
         self.name = "ConfigurationAgent"
         self.ai_service = ai_service
         self.publisher = publisher
         self.policy_versioning_service = policy_versioning_service
         self.vv_compiler = vv_compiler
-        self.test_automation_agent = test_automation_agent 
         logger.info(f"{self.name} Initialized with dependencies.")
 
     async def apply_update(self, update: ConfigurationUpdate) -> bool:

@@ -396,59 +396,6 @@ class PolicyVersioningService:
         except Exception as e:
             raise RuntimeError(f"Autonomous Policy Embedding Failed: {e}")
 
-    async def rollback_on_audit_failure(self, policy_id: str, rule_id_to_find: str, performed_by: str = "AUTO_ROLLBACK_AGENT") -> Dict[str, Any]:
-        """
-        [FIX 3: REMEDIATION GAP] Executes policy rollback based on a critical audit log failure.
-        Finds the parent (previous) version of the currently active policy and activates it transactionally.
-        """
-        # Find the active version (synchronous method, must run in a thread if in an async context)
-        active_version = await asyncio.to_thread(self.get_active_version, policy_id)
-                
-        if not active_version:
-            raise ValueError(f"No active policy found for ID: {policy_id}")
-                    
-        parent_version_id = active_version.parent_version
-                
-        if not parent_version_id or parent_version_id not in self.versions:
-            return {"status": "SKIPPED", "message": "No previous version available for automated rollback."}
-                    
-        target_version = self.versions[parent_version_id]
-        
-        # CRITICAL FIX: We perform the status changes within a transaction 
-        try:
-            # 1. Prepare target version for activation
-            target_version.status = PolicyStatus.APPROVED
-            
-            # 2. Execute the activation (which implicitly deprecates the old version)
-            # The rollback is an operation that *must* succeed in the face of failure.
-            async with local_pg_client.transaction("AutoRollbackAgent", f"Rollback_{policy_id}") as conn:
-                # We trust the synchronous activate_version call handles the local object changes.
-                rolled_back_version = await asyncio.to_thread(self.activate_version, target_version.version_id, performed_by)
-
-                # Simulate DB update to status table (critical for transactional proof)
-                # NOTE: This assumes a table exists for policy status/version pointers
-                await conn.execute(
-                    "UPDATE policy_status_table SET active_version_id=$1, deprecated_version_id=$2 WHERE policy_id=$3",
-                    rolled_back_version.version_id, active_version.version_id, policy_id
-                )
-                        
-                self._add_audit_entry(
-                    version_id=target_version.version_id,
-                    action="auto_rolled_back",
-                    performed_by=performed_by,
-                    details={"reason": f"Critical failure detected by rule {rule_id_to_find}.\nActive policy {active_version.version_number} was deprecated."}
-                )
-                        
-                return {
-                    "status": "SUCCESS", 
-                    "policy_id": policy_id,
-                    "old_version": active_version.version_number,
-                    "new_version": rolled_back_version.version_number
-                }
-        except Exception as e:
-            logger.critical(f"TRANSACTIONAL Rollback Failed for {policy_id}: {e}")
-            raise RuntimeError(f"Automated Rollback Failed: {e}")
-
     def activate_version(self, version_id: str, activated_by: str) -> PolicyVersion:
         """
         Activate an approved policy version

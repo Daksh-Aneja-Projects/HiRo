@@ -15,7 +15,7 @@ except ImportError:
 from config.settings import settings
 
 logger = logging.getLogger(__name__)
-PQC_LAYER_ID = "PQCEncryptionWrapper"
+PQC_LAYER_ID = "PQCEncryptionWrapper"  # class name kept: it is an import contract across the app
 
 class PQCEncryptionWrapper:
     _instance = None
@@ -35,7 +35,7 @@ class PQCEncryptionWrapper:
         if PQCEncryptionWrapper._instance and PQCEncryptionWrapper._instance.master_key_bytes is not None:
             return
         if self.master_key_bytes is None:
-            logger.info("✓ PII Encryption Wrapper (PQC) Initialized (Awaiting Key Generation).")
+            logger.info("✓ PII encryption wrapper initialised (AES-256, awaiting key generation).")
 
     @staticmethod
     def get_instance() -> "PQCEncryptionWrapper":
@@ -57,7 +57,7 @@ class PQCEncryptionWrapper:
                 # 2. Initialize Fernet cipher safely in a thread
                 self.fernet = await asyncio.to_thread(Fernet, self.master_key_bytes)
                 
-                logger.info("✅ PQC/AES Master Key initialized.")
+                logger.info("✅ AES-256 master key initialised.")
                 return True
             return False
 
@@ -69,10 +69,10 @@ class PQCEncryptionWrapper:
                 key_b64 = base64.urlsafe_b64encode(hashlib.sha256(pii_salt_value).digest()[:32])
                 self.master_key_bytes = key_b64
                 self.fernet = Fernet(self.master_key_bytes)
-                logger.critical("❌ PQC keys synchronously initialized in fallback. FIX ASYNC STARTUP.")
+                logger.critical("❌ Encryption key synchronously initialised in fallback. FIX ASYNC STARTUP.")
             except Exception as e:
-                logger.critical(f"❌ FATAL: Cannot initialize PQC keys for sync context: {e}")
-                raise RuntimeError("PQC Keys uninitialized and cannot be generated.")
+                logger.critical(f"❌ FATAL: Cannot initialise the encryption key for sync context: {e}")
+                raise RuntimeError("Encryption key uninitialised and cannot be generated.")
 
     def encrypt(self, plaintext: str, quantum_risk_flag: bool = False, data_context: str = "default") -> Tuple[str, Dict[str, Any]]:
         self._ensure_sync_key()
@@ -83,6 +83,10 @@ class PQCEncryptionWrapper:
 
         metadata = {
             "algorithm": "AES-256-Fernet",
+            # Stated outright so nothing downstream can present this as
+            # post-quantum cryptography. Fernet is AES-128-CBC + HMAC-SHA256
+            # over a 256-bit key; it is classical, not quantum-resistant.
+            "post_quantum": False,
             "key_hash": hashlib.sha256(self.master_key_bytes).hexdigest()[:8],
             "quantum_risk_flag": quantum_risk_flag,
             "context": data_context,
@@ -103,13 +107,47 @@ class PQCEncryptionWrapper:
             logger.error(f"Decryption failed for context '{data_context}': {e}")
             raise ValueError("Invalid Ciphertext or Key.")
 
-    async def rotate_keys(self) -> bool:
-        async with self._lock:
-            # CRITICAL FIX: Key generation should be a thread-safe call
-            self.master_key_bytes = await asyncio.to_thread(Fernet.generate_key)
-            self.fernet = await asyncio.to_thread(Fernet, self.master_key_bytes)
-            logger.warning("🔑 PQC Master Key Rotated.\nData re-encryption is now required!")
-            return True
+    async def rotate_keys(self) -> Dict[str, Any]:
+        """Refuse to rotate, and say exactly why. NEVER destroys key material.
+
+        This used to replace the in-memory Fernet key with a fresh random key
+        that was persisted nowhere and re-encrypted nothing. Every encrypted
+        column in employee_pii became permanently undecryptable the moment an
+        admin clicked the button, and the endpoint returned "Keys Rotated".
+
+        The master key here is DERIVED from the PII_SALT environment variable
+        (sha256(PII_SALT) -> Fernet key). There is no second key slot and no key
+        table, so there is nowhere to durably record a new key without either
+        losing it on the next restart or writing usable key material next to the
+        data it protects. Rotation is therefore refused rather than faked.
+
+        A real rotation needs, in this order:
+          1. a configured next key (e.g. a PII_SALT_NEXT setting), so the new key
+             survives a restart before any ciphertext depends on it;
+          2. a MultiFernet(new, old) decrypt path so both generations are
+             readable while the migration runs;
+          3. a batched re-encryption pass over every encrypted column of
+             employee_pii inside transactions, resumable and idempotent;
+          4. retirement of the old key only once the pass has verified.
+        """
+        return {
+            "rotated": False,
+            "status": "ROTATION_NOT_CONFIGURED",
+            "message": (
+                "Key rotation is not available. The encryption key is derived from the "
+                "PII_SALT setting, and rotating it without first re-encrypting stored "
+                "employee data would make that data permanently unreadable. Rotation "
+                "requires a configured next key and a re-encryption pipeline; no key "
+                "was changed and all encrypted data remains readable."
+            ),
+            "current_key_fingerprint": self.key_fingerprint(),
+        }
+
+    def key_fingerprint(self) -> Optional[str]:
+        """Short non-reversible identifier for the key in use (never the key)."""
+        if not self.master_key_bytes:
+            return None
+        return hashlib.sha256(self.master_key_bytes).hexdigest()[:8]
 
 
 def decrypt_pii(ciphertext: str) -> str:

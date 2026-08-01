@@ -471,16 +471,22 @@ class WorkforcePlanningService:
             return "Conduct stay interview immediately to understand friction points."
         return "Maintain regular check-ins and review next-level opportunities."
 
-    async def simulate_workforce_scenario(self, scenario: Dict[str, Any], state: Dict[str, Any]) -> float:
-        """Simulates the impact of a scenario on the overall workforce risk."""
+    async def simulate_workforce_scenario(self, scenario: Dict[str, Any], state: Dict[str, Any]) -> Optional[float]:
+        """Simulates the impact of a scenario on the overall workforce risk.
+
+        Returns None when the workforce has no measured baseline risk. This used
+        to silently substitute 0.4 -- an invented starting point that every
+        downstream figure was then computed from, presented to the caller as a
+        measurement. A scenario with no baseline is unanswerable, and saying so
+        is the only honest result.
+        """
         drivers = [d.lower() for d in scenario.get('drivers', [])]
-        
-        # CRITICAL FIX: Robustly derive base_risk if 'overall_risk_score' is missing
+
         base_risk = state.get('current_state', {}).get('overall_risk_score')
         if base_risk is None:
-            # Fallback heuristic: Use average risk (0.4) if data is missing
-            base_risk = 0.4
-        
+            logger.warning("Workforce scenario has no measured baseline risk; returning None.")
+            return None
+
         impact = 0.0
         
         # Complex simulation logic based on scenario drivers

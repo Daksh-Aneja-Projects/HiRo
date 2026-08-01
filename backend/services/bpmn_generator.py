@@ -57,9 +57,9 @@ class BpmnGeneratorService:
                 {"id": "t1", "type": "service_task", "name": "VV Compiler Check (Syntax/Security)", "next": "t2",
                  "properties": {"service": "VVCompiler"}},
                  
-                # T2: Automated Testing (TestAutomationAgent) - Uses task_id for DB lookup
-                {"id": "t2", "type": "service_task", "name": "Run Continuous Test Suite", "next": "g1",
-                 "properties": {"service": "TestAutomationAgent", "task_id": task_id, "project_id": project_id}}, 
+                # T2: Test verification is a human step today; no automated test agent exists.
+                {"id": "t2", "type": "user_task", "name": "Verify Test Results", "next": "g1",
+                 "properties": {"assignee": ADMIN_ASSIGNEE, "task_id": task_id, "project_id": project_id}},
                 
                 # G1: Decision Gateway (Test Passed?)
                 {"id": "g1", "type": "exclusive_gateway", "name": "Tests Passed?", "next": [
@@ -71,9 +71,9 @@ class BpmnGeneratorService:
                 {"id": "t3", "type": "user_task", "name": "HRIT Manager Final Approval", "next": "t5",
                  "properties": {"assignee": ADMIN_ASSIGNEE, "condition": "tests_passed == true"}},
                  
-                # T5: Deployment (AutonomousUpgradeAgent)
-                {"id": "t5", "type": "service_task", "name": "Deploy Agent to Production", "next": "end",
-                 "properties": {"service": "AutonomousUpgradeAgent", "agent_id": agent_id, "config": agent_config, "task_id": task_id}}, 
+                # T5: Deployment is a human step today; no autonomous deployment agent exists.
+                {"id": "t5", "type": "user_task", "name": "Deploy Agent to Production", "next": "end",
+                 "properties": {"assignee": ADMIN_ASSIGNEE, "agent_id": agent_id, "config": agent_config, "task_id": task_id}},
                  
                 # T4: Failure End State
                 {"id": "t4", "type": "end", "name": "Tests Failed - STOP",

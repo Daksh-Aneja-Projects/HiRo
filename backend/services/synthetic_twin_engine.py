@@ -11,10 +11,6 @@ class DigitalTwinAgent:
         # CRITICAL FIX: Simulate a more realistic response structure
         return {"risk_score": 0.5, "recommendation": "Mocked DTLA result.", "attrition_probability": 0.25}
 
-class AdvancedAIServices:
-    async def estimate_simulation_confidence(self, *args):
-        return 0.9
-
 logger = logging.getLogger(__name__)
 
 def _num(value, default: float) -> float:
@@ -30,7 +26,12 @@ def _num(value, default: float) -> float:
 
 
 class SyntheticTwinEngine:
-    def __init__(self, dt_agent: DigitalTwinAgent, ai_service: AdvancedAIServices):
+    # The employee signals the confidence heuristic scores. Each is a real column
+    # the baseline lookup either found or did not; nothing here is inferred.
+    CONFIDENCE_SIGNALS = ("tenure_months", "performance_rating", "risk_score",
+                          "compensation", "department")
+
+    def __init__(self, dt_agent: DigitalTwinAgent, ai_service: Any = None):
         self.dt_agent = dt_agent
         self.ai_service = ai_service
         self.simulation_cache: Dict[str, Any] = {}
@@ -108,7 +109,10 @@ class SyntheticTwinEngine:
             "cost_implication": round(impact_analysis.get("cost_implication", 0), 2),
             "recommendations": recommendations,
             "simulation_timestamp": datetime.now(timezone.utc).isoformat(),
-            "confidence_score": round(impact_analysis.get("confidence", 0.85), 3),
+            "confidence_score": impact_analysis["confidence"],
+            # Says in plain English what the confidence number is measuring, so
+            # nothing has to guess that it is a data-completeness heuristic.
+            "confidence_basis": impact_analysis["confidence_basis"],
         }
 
     async def _get_employee_state(self, employee_id: str) -> Dict[str, Any]:
@@ -129,6 +133,9 @@ class SyntheticTwinEngine:
             "tenure_months": 0,
             "engagement_score": 0.5,
             "source": "no record found; neutral baseline",
+            # Which real signals backed this baseline. Drives the confidence
+            # heuristic, so a scenario run on a thin record says so.
+            "data_signals_present": [],
         }
         try:
             row = await pg_client.fetchrow(
@@ -174,6 +181,15 @@ class SyntheticTwinEngine:
             "department": row.get("department"),
             "job_title": row.get("job_title"),
             "source": "employee record",
+            "data_signals_present": [
+                name for name, found in (
+                    ("tenure_months", row.get("tenure_months") is not None),
+                    ("performance_rating", rating is not None),
+                    ("risk_score", row.get("dtla_risk_score") is not None),
+                    ("compensation", compensation > 0),
+                    ("department", bool(row.get("department"))),
+                ) if found
+            ],
         })
         return state
 
@@ -204,6 +220,7 @@ class SyntheticTwinEngine:
         engagement = _num(state.get("engagement_score"), 0.5)
         engagement_before = engagement
         applied: Dict[str, Any] = {}
+        clipped: List[str] = []
 
         for key, value in adjustments.items():
             if not isinstance(value, (int, float)):
@@ -214,6 +231,10 @@ class SyntheticTwinEngine:
             if spec:
                 risk_per_unit, eng_per_unit, cap = spec
                 effective = max(-cap, min(float(value), cap))  # diminishing returns
+                if effective != float(value):
+                    # The request pushed past the range the lever was calibrated
+                    # on, so the modelled effect is an extrapolation.
+                    clipped.append(key)
                 risk += risk_per_unit * effective
                 engagement += eng_per_unit * effective
                 applied[key] = effective
@@ -240,6 +261,7 @@ class SyntheticTwinEngine:
         state["compensation"] = round(base_salary * (1 + (pay_rise_pct + promotion_pct) / 100.0) + extra_cash, 2)
 
         state["levers_applied"] = applied
+        state["levers_clipped"] = clipped
         return state
 
     async def _generate_synthetic_scenario(
@@ -270,16 +292,7 @@ class SyntheticTwinEngine:
         productivity_impact = synthetic_state.get("productivity_score", 0) - base_state.get("productivity_score", 0)
         cost_implication = synthetic_state.get("compensation", 0) - base_state.get("compensation", 0)
 
-        confidence = 0.85
-        if self.ai_service:
-            try:
-                # Use the AI service for confidence estimation (complex analysis)
-                confidence = await self.ai_service.estimate_simulation_confidence(
-                    base_state, synthetic_state, simulation_result
-                )
-            except Exception as e:
-                logger.warning(f"AI confidence estimation failed: {e}")
-                confidence = 0.5 # Low confidence on failure
+        confidence, basis = self._estimate_confidence(base_state, synthetic_state)
 
         return {
             "risk_score_delta": risk_delta,
@@ -287,7 +300,53 @@ class SyntheticTwinEngine:
             "productivity_impact": productivity_impact,
             "cost_implication": cost_implication,
             "confidence": confidence,
+            "confidence_basis": basis,
         }
+
+    def _estimate_confidence(
+        self,
+        base_state: Dict[str, Any],
+        synthetic_state: Dict[str, Any],
+    ) -> tuple:
+        """A deterministic heuristic confidence, and a plain-English basis for it.
+
+        This is NOT a model-derived probability. It answers one question: how
+        much of this employee's real record did the simulation actually have,
+        and did the requested levers stay inside the range they were calibrated
+        on. It replaces a call to an AIService method that never existed, whose
+        AttributeError was swallowed so every simulation reported exactly 0.5.
+
+        Formula:
+            completeness = (real signals found) / (signals scored)
+                           over tenure, performance rating, risk score,
+                           compensation and department
+            confidence   = 0.30 + 0.55 * completeness
+                           -> 0.30 with no record at all, 0.85 with a full one
+            extrapolation = (levers clipped to their calibrated cap) / (levers used)
+            confidence   = confidence * (1 - 0.40 * extrapolation)
+
+        So a thin record always scores below a complete one, and pushing a lever
+        far outside observed ranges lowers confidence rather than hiding it.
+        """
+        signals = base_state.get("data_signals_present") or []
+        completeness = len(signals) / len(self.CONFIDENCE_SIGNALS)
+        confidence = 0.30 + 0.55 * completeness
+
+        applied = synthetic_state.get("levers_applied") or {}
+        clipped = synthetic_state.get("levers_clipped") or []
+        extrapolation = (len(clipped) / len(applied)) if applied else 0.0
+        confidence *= (1 - 0.40 * extrapolation)
+
+        missing = [s for s in self.CONFIDENCE_SIGNALS if s not in signals]
+        parts = [f"{len(signals)} of {len(self.CONFIDENCE_SIGNALS)} employee data points were available"]
+        if missing:
+            parts.append("missing " + ", ".join(m.replace("_", " ") for m in missing))
+        if clipped:
+            parts.append("and " + ", ".join(c.replace("_", " ") for c in clipped)
+                         + " was pushed beyond the range this model was calibrated on")
+        basis = "Heuristic confidence: " + "; ".join(parts) + "."
+
+        return round(max(0.0, min(1.0, confidence)), 3), basis
 
     async def _generate_recommendations(
         self,
@@ -332,7 +391,8 @@ class SyntheticTwinEngine:
         recommendations.append(
             {
                 "type": "next_step",
-                "message": f"Confidence score is {impact_analysis['confidence']:.3f}. Schedule a 1:1 to validate the impact of the simulated changes.",
+                "message": (f"{impact_analysis['confidence_basis']} "
+                            f"Schedule a 1:1 to validate the impact of the simulated changes."),
             }
         )
 

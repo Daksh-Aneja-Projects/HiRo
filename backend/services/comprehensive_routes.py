@@ -1,6 +1,6 @@
 # /backend/services/comprehensive_routes.py - REPLACEMENT (Final Stable Version)
 """Comprehensive Router: Aggregates all high-level API endpoints for management,
-policy governance, XAI, PQC, and agent administration."""
+policy governance, XAI, PII encryption, and agent administration."""
 import logging
 from typing import Dict, Any, List, Optional, Union
 from fastapi import APIRouter, Request, HTTPException, Depends, UploadFile, File, WebSocket, WebSocketDisconnect, Body, Form, Query 
@@ -41,7 +41,6 @@ from services.multi_agent_hrsd import MultiAgentHRSDSystem
 from services.digital_twin_agent import DigitalTwinAgent
 from services.xai_wrapper import XAIWrapper
 from services.pqc_pii_layer import PQCEncryptionWrapper
-from services.autonomous_upgrade_agent import AutonomousUpgradeAgent
 from services.agent_creation_service import AgentCreationService
 from services.bpel_agent import BPELAgent
 from services.hr_modules import HRModulesService
@@ -57,7 +56,6 @@ from services.self_correcting_agent import SelfCorrectingAgent
 from services.synthetic_twin_engine import SyntheticTwinEngine
 from services.cognitive_remediation_agent import CognitiveRemediationAgent
 from routes.streaming_routes import manager as websocket_manager
-from services.configuration_agent import ConfigurationAgent
 from services.enforcement_engine import runtime_enforcer
 
 
@@ -117,7 +115,7 @@ policy_router = APIRouter(prefix="/policy", tags=["Policy Governance"])
 hrsd_router = APIRouter(prefix="/hrsd", tags=["HRSD & Tickets"])
 admin_router = APIRouter(prefix="/admin", tags=["System Admin & Agents"])
 data_router = APIRouter(prefix="/data", tags=["Data & XAI"])
-dev_router = APIRouter(prefix="/dev", tags=["DevOps & PQC Tools"])
+dev_router = APIRouter(prefix="/dev", tags=["DevOps & Encryption Tools"])
 hr_router = APIRouter(prefix="/hr", tags=["HR Modules"])
 ess_router = APIRouter(prefix="/ess", tags=["ESS"])
 mss_router = APIRouter(prefix="/mss", tags=["MSS"])
@@ -608,6 +606,9 @@ async def get_admin_dashboard(req: Request, payload: Dict=Depends(hrit_admin_rol
     except Exception as e:
         logger.warning(f"Admin dashboard: compliance aggregate failed: {e}")
 
+    # Field name kept (frontend contract). It counts AES-256 data-encryption keys
+    # in use; nothing in HiRo is post-quantum, and the label beside it should say
+    # "encryption keys", not "PQC keys".
     pqc = getattr(req.app.state, "pqc_wrapper", None)
     active_pqc_keys = 1 if pqc and getattr(pqc, "master_key_bytes", None) else 0
 
@@ -619,9 +620,17 @@ async def get_admin_dashboard(req: Request, payload: Dict=Depends(hrit_admin_rol
         memory_util_pct = None
 
     return {
-        "integrity_score": round(compliance["score"] * 100, 1) if compliance else None,
-        "integrity_available": compliance is not None,
+        # Null when the aggregate failed OR when no policy decision has ever been
+        # recorded. Both are "we do not know", and neither is 100.
+        "integrity_score": (round(compliance["score"] * 100, 1)
+                            if compliance and compliance.get("score") is not None else None),
+        "integrity_available": bool(compliance and compliance.get("score") is not None),
+        "integrity_note": (compliance.get("score_note") if compliance
+                           else "The compliance aggregate could not be read."),
         "active_pqc_keys": active_pqc_keys,
+        # Says plainly what that key actually is, so no dashboard has to guess.
+        "encryption_algorithm": "AES-256 (Fernet)",
+        "post_quantum": False,
         # This is host memory, and it used to be served under the alias
         # cache_util_pct as well, which the admin console rendered as "Cache in
         # use ... percent full". The alias is gone so it cannot be mislabelled
@@ -717,16 +726,40 @@ async def clear_cache(req: Request, payload: Dict=Depends(hrit_admin_role_requir
 
 @admin_router.get("/system/message-bus/status")
 async def bus_status(req: Request, payload: Dict=Depends(hrit_admin_role_required)):
+    """Message-bus liveness, plus the outcome of the last publish attempt.
+
+    pending_messages used to be hardcoded to 0, which read as "nothing is stuck"
+    on a box where NATS was not even running. Nothing here measures a queue
+    depth, so the field is null with a note saying so.
+    """
     publisher = getattr(req.app.state, "event_publisher", None)
-    connected = getattr(getattr(publisher, "nc", None), "is_connected", False) if publisher else False
-    return {"status": "Connected" if connected else "Disconnected", "pending_messages": 0}
+    connected = bool(getattr(getattr(publisher, "nc", None), "is_connected", False)) if publisher else False
+    last = getattr(publisher, "last_publish", None) if publisher else None
+    return {
+        "status": "Connected" if connected else "Disconnected",
+        # No queue-depth reading is available from this client, so no number is
+        # invented. Null means "not measured", which is not the same as zero.
+        "pending_messages": None,
+        "pending_messages_note": ("Queue depth is not reported by the publisher client, "
+                                  "so it is not measured here."),
+        "last_publish": last,
+    }
 
 @admin_router.post("/security/rotate-keys")
 async def rotate_keys(req: Request, payload: Dict=Depends(hrit_admin_role_required)):
+    """Key rotation is refused, not faked.
+
+    This used to call a routine that swapped the in-memory encryption key for an
+    unpersisted random one without re-encrypting a single stored row, and then
+    reported "Keys Rotated". Every encrypted employee record became unreadable.
+    """
     pqc_wrapper: PQCEncryptionWrapper = getattr(req.app.state, "pqc_wrapper", None)
-    if not pqc_wrapper: raise HTTPException(status_code=503, detail="PQC Wrapper unavailable.")
-    await pqc_wrapper.rotate_keys()
-    return {"status": "Keys Rotated", "next_rotation": "30 days"}
+    if not pqc_wrapper:
+        raise HTTPException(status_code=503, detail="Encryption service unavailable.")
+    result = await pqc_wrapper.rotate_keys()
+    if not result.get("rotated"):
+        raise HTTPException(status_code=409, detail=result["message"])
+    return result
 
 @admin_router.post("/system/reset-all-data")
 async def reset_all_data(req: Request, payload: Dict=Depends(hrit_admin_role_required)):
@@ -769,7 +802,7 @@ async def trigger_legacy_data_migration(req: Request, instructions: Dict[str, An
 # ======================================
 @data_router.post("/xai/explain")
 async def explain_prediction(req: Request, model_name: str = Body(...), prediction_input: Dict = Body(...), payload: Dict=Depends(manager_role_required)):
-    wfm_service: WFMService = getattr(req.app.state, "wfm_service", None)
+    wfm_service = getattr(req.app.state, "wfm_service", None)
     xai: XAIWrapper = getattr(req.app.state, "xai_wrapper", None) 
     if not wfm_service or not xai: raise HTTPException(status_code=503, detail="WFM or XAI Service unavailable.")
     
@@ -884,12 +917,12 @@ async def dtla_command(req: Request, command_type: str = Body(...), data: Dict =
     return await dtla.execute_dtla_command(data)
 
 # ======================================
-# 5. DEV & PQC ROUTER (Fixed/Complete)
+# 5. DEV & ENCRYPTION ROUTER (AES-256-Fernet; classical, not post-quantum)
 # ======================================
 @dev_router.post("/pqc/encrypt")
 async def test_pqc_encrypt(req: Request, plaintext: str = Body(..., embed=True), payload: Dict=Depends(hrit_admin_role_required)):
     pqc_wrapper: PQCEncryptionWrapper = getattr(req.app.state, "pqc_wrapper", None)
-    if not pqc_wrapper: raise HTTPException(status_code=503, detail="PQC Wrapper unavailable.")
+    if not pqc_wrapper: raise HTTPException(status_code=503, detail="Encryption service unavailable.")
     # encrypt() returns (ciphertext_str, metadata_dict)
     ciphertext, metadata = pqc_wrapper.encrypt(plaintext)
     return {"ciphertext": ciphertext, "metadata": metadata}
@@ -897,7 +930,7 @@ async def test_pqc_encrypt(req: Request, plaintext: str = Body(..., embed=True),
 @dev_router.post("/pqc/decrypt")
 async def test_pqc_decrypt(req: Request, ciphertext: str = Body(..., embed=True), payload: Dict=Depends(hrit_admin_role_required)):
     pqc_wrapper: PQCEncryptionWrapper = getattr(req.app.state, "pqc_wrapper", None)
-    if not pqc_wrapper: raise HTTPException(status_code=503, detail="PQC Wrapper unavailable.")
+    if not pqc_wrapper: raise HTTPException(status_code=503, detail="Encryption service unavailable.")
     try:
         return {"plaintext": pqc_wrapper.decrypt(ciphertext)}
     except ValueError as e:
@@ -1779,7 +1812,7 @@ async def action_approval(req: Request, payload_data: Dict, payload: Dict=Depend
 @wfp_router.get("/dashboard{path:path}") 
 async def get_wfp_dashboard_data(req: Request, path: str, payload: Dict = Depends(manager_role_required)):
     """FIX: Added robust endpoint to handle frontend's dashboard data request that currently 404s."""
-    wfm_service: WFMService = getattr(req.app.state, "wfm_service", None)
+    wfm_service = getattr(req.app.state, "wfm_service", None)
     if not wfm_service: raise HTTPException(status_code=503, detail="WFM Service unavailable.")
     
     data = await wfm_service.get_current_projections()
@@ -1789,13 +1822,13 @@ async def get_wfp_dashboard_data(req: Request, path: str, payload: Dict = Depend
 @wfp_router.get("/projections")
 async def get_wfp_projections(req: Request, payload: Dict = Depends(manager_role_required)):
     """FIX: Added missing endpoint for WFP projections."""
-    wfm_service: WorkforcePlanningService = getattr(req.app.state, "wfm_service", None)
+    wfm_service = getattr(req.app.state, "wfm_service", None)
     if not wfm_service: raise HTTPException(status_code=503, detail="WFM Service unavailable.")
     return await wfm_service.get_current_projections()
 
 @wfp_router.post("/predict_attrition")
 async def predict_attrition(req: Request, employee_data: Dict = Body(...), payload: Dict = Depends(manager_role_required)):
-    wfm_service: WFMService = getattr(req.app.state, "wfm_service", None)
+    wfm_service = getattr(req.app.state, "wfm_service", None)
     if not wfm_service: raise HTTPException(status_code=503, detail="WFM Service unavailable.")
     
     if not employee_data:
@@ -1824,7 +1857,14 @@ async def predict_ta_pipeline_risk(req: Request, scenario_data: Dict = Body(...,
     snapshot = await ta_service.get_talent_pool_snapshot()
     risk = await ta_service.simulate_talent_scenario(scenario_data, snapshot)
     level = "HIGH" if risk >= 0.66 else "MEDIUM" if risk >= 0.33 else "LOW"
-    return {"risk_score": round(risk, 3), "risk_level": level, "scenario": scenario_data}
+    return {
+        "risk_score": round(risk, 3),
+        "risk_level": level,
+        "scenario": scenario_data,
+        # Time-to-close and acceptance rate are not tracked here, so the score
+        # partly rests on industry defaults. The response says which ones.
+        **ta_service.assumed_inputs(snapshot),
+    }
 
 # ======================================
 # 10. TALENT CONTENT ROUTER
@@ -1867,7 +1907,7 @@ async def get_digital_twin_xai(req: Request, payload: Dict = Depends(employee_ro
     Previously this explained workforce-wide averages, so every employee saw the
     same explanation about the whole organisation rather than about themselves.
     """
-    wfm_service: WFMService = getattr(req.app.state, "wfm_service", None)
+    wfm_service = getattr(req.app.state, "wfm_service", None)
     xai: XAIWrapper = getattr(req.app.state, "xai_wrapper", None)
     employee_uuid = payload.get("employee_uuid")
     if not (wfm_service and xai and employee_uuid):
@@ -2052,7 +2092,7 @@ async def get_digital_twin_history(req: Request, user_id: str, payload: Dict = D
 def _pqc(req: Request) -> PQCEncryptionWrapper:
     pqc = getattr(req.app.state, "pqc_wrapper", None)
     if not pqc:
-        raise HTTPException(status_code=503, detail="PQC Wrapper unavailable.")
+        raise HTTPException(status_code=503, detail="Encryption service unavailable.")
     return pqc
 
 def _consents(req: Request):
@@ -2063,7 +2103,7 @@ def _consents(req: Request):
 
 @pii_router.post("/tokenize")
 async def tokenize_pii(req: Request, value: str = Body(..., embed=True), payload: Dict=Depends(employee_role_required)):
-    """Real reversible token via the PQC/Fernet wrapper (ciphertext is the token)."""
+    """Real reversible token via the AES-256-Fernet wrapper (ciphertext is the token)."""
     ciphertext, metadata = _pqc(req).encrypt(value, data_context="pii_tokenize")
     return {
         "token": ciphertext,
@@ -2099,7 +2139,7 @@ async def update_user_consent(req: Request, consent_data: Dict, payload: Dict=De
 
 @pii_router.post("/unmask")
 async def get_unmasked_pii(req: Request, token: str = Body(..., embed=True), reason: str = Body(..., embed=True), payload: Dict=Depends(employee_role_required)):
-    """Decrypt a PII token via the PQC wrapper. Every access is logged to Mongo
+    """Decrypt a PII token via the AES-256 encryption wrapper. Every access is logged to Mongo
     pii_access_log with the caller-supplied reason. Denies on invalid/empty input."""
     reason = (reason or "").strip()
     if not reason:
@@ -2567,14 +2607,31 @@ async def get_orchestrator_dashboard(req: Request, payload: Dict = Depends(manag
     else:
         health, health_reason = "GREEN", "Everything is running normally."
 
+    # Both of these used to read the same in-memory `active_twins` dict, which
+    # nothing on any live code path ever populates -- so the dashboard showed two
+    # separate metrics that were structurally always 0. active_tasks now counts
+    # real in-flight orchestrator commands from Mongo; active_twins reports the
+    # in-memory registry it actually names, and null when there is no agent.
+    dt_agent = getattr(state, "digital_twin_agent", None)
+    active_twins = len(getattr(dt_agent, "active_twins", {}) or {}) if dt_agent else None
+
+    active_tasks = None
+    mongo_client = getattr(state, "mongo_client", None)
+    if mongo_client is not None:
+        try:
+            active_tasks = await mongo_client[settings.MONGO_DB_NAME]["orchestrator_commands"] \
+                .count_documents({"status": {"$nin": ["COMPLETED", "FAILED", "REJECTED"]}})
+        except Exception as e:
+            logger.warning(f"Orchestrator dashboard: could not count in-flight commands: {e}")
+
     return {
         "agents": agents,
         "agent_names": dispatchable,
-        # This counts digital-twin objects the agent is holding in memory. It
-        # was surfaced as "Work in progress: tasks running right now", which it
-        # has never been a count of.
-        "active_twins": len(getattr(getattr(state, "digital_twin_agent", None), "active_twins", {}) or {}),
-        "active_tasks": len(getattr(getattr(state, "digital_twin_agent", None), "active_twins", {}) or {}),
+        "active_twins": active_twins,
+        "active_tasks": active_tasks,
+        "active_tasks_note": ("Orchestrator commands that have not reached a final state."
+                              if active_tasks is not None
+                              else "The command store could not be read, so in-flight work is unknown."),
         "system_health": health,
         "health_reason": health_reason,
         "message_bus_connected": nats_up,

@@ -132,6 +132,12 @@ class DigitalTwinAgent:
                 scenario, state
             )
 
+            if wfm_risk_score is None or ta_risk_score is None:
+                # One of the engines had no measured baseline to work from.
+                # Aggregating around the gap would manufacture a risk figure.
+                return None, ("This could not be simulated: the workforce has no measured "
+                              "baseline risk yet, so there is no starting point to model from.")
+
             aggregated_risk = (wfm_risk_score * 0.6) + (ta_risk_score * 0.4)
             mitigation_recommendation = self._generate_mitigation_recommendation(
                 aggregated_risk,

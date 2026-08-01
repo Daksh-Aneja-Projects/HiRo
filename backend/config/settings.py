@@ -207,7 +207,10 @@ class Settings:
     PLR_HIGH_RISK_THRESHOLD: float = float(get_env_variable("PLR_HIGH_RISK_THRESHOLD", "0.8"))
     PLR_VULNERABILITIES: List[str] = get_env_variable("PLR_VULNERABILITIES", "Documentation Gap,Jurisdictional Conflict,Termination Audit Failure").split(',')
     SDFA_BIAS_SCORE: float = float(get_env_variable("SDFA_BIAS_SCORE", "0.01"))
-    SDFA_PQC_STATUS: str = get_env_variable("SDFA_PQC_STATUS", "ML-KEM Certified")
+    # HiRo encrypts PII with AES-256 (Fernet). Nothing here is ML-KEM or any
+    # other post-quantum scheme, and claiming otherwise on a security card is a
+    # compliance statement the product cannot back.
+    SDFA_PQC_STATUS: str = get_env_variable("SDFA_PQC_STATUS", "AES-256 encryption (not post-quantum)")
     SDFA_TIME_PER_RECORD_MS: float = float(get_env_variable("SDFA_TIME_PER_RECORD_MS", "0.05"))
     ESA_FAIRNESS_SCORE: float = float(get_env_variable("ESA_FAIRNESS_SCORE", "0.98"))
     ESA_IMPACT_RATIO: float = float(get_env_variable("ESA_IMPACTC_RATIO", "1.02"))

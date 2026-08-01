@@ -341,33 +341,28 @@ class HRModulesService:
         query = "SELECT overall_rating, review_period_end FROM performance_reviews WHERE employee_uuid = $1 ORDER BY review_period_end DESC LIMIT 1"
         data = await pg_client.fetchrow(query, employee_id)
 
-        if not data:
-            return {"employee_id": employee_id, "score": 3.0, "status": "No recent review found."}
-        
+        # An employee with no review has no score. This used to return 3.0 --
+        # a real-looking "meets expectations" rating for somebody who has never
+        # been reviewed -- which fed managers a number nobody ever gave.
+        # The key stays present as null so the UI contract does not change.
+        if not data or data.get("overall_rating") is None:
+            return {
+                "employee_id": employee_id,
+                "score": None,
+                "score_available": False,
+                "last_review_date": None,
+                "status": "No review on record yet.",
+                "retrieved_by_role": requesting_role,
+            }
+
         return {
             "employee_id": employee_id,
-            "score": float(data.get("overall_rating", 3.0)),
+            "score": float(data["overall_rating"]),
+            "score_available": True,
             "last_review_date": data.get("review_period_end"),
+            "status": "Last recorded review.",
             "retrieved_by_role": requesting_role
         }
-    
-    # CRITICAL: Added placeholder for autonomous HRSD resolution
-    async def adjust_compensation(self, employee_id: str, amount: float, reason: str) -> Dict[str, Any]:
-        """Mock method for autonomous HRSD agent to adjust comp."""
-        logger.warning(f"ACTION: Compensation adjustment triggered by agent for {employee_id}. Amount: {amount}")
-        
-        # Mock DB transaction to avoid calling a real update method without full data context
-        async with pg_client.transaction("HRSD_Autonomous", "CompAdjust"):
-            # Mock the actual update (e.g., in comp_history table)
-            # await pg_client.execute(...)
-            pass
-            
-        await self.pub.publish_event(
-            "Compensation_Change_Applied",
-            {"employee_id": employee_id, "amount": amount, "reason": reason},
-            key=employee_id
-        )
-        return {"status": "SUCCESS", "message": f"Compensation change of {amount} processed."}
 
     async def get_employee_leave_balance(self, employee_id: str) -> Dict[str, Any]:
         """Fetches current leave balance from Postgres UDM."""

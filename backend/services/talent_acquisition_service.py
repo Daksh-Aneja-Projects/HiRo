@@ -70,6 +70,33 @@ class TalentAcquisitionService:
             "note": "Time to close and offer acceptance are tracked in the ATS, not in HiRo.",
         }
 
+    # HiRo does not track time-to-close or offer acceptance -- those live in the
+    # ATS. These are industry defaults, not measurements, and any response that
+    # depends on them has to say so (see assumed_inputs()).
+    INDUSTRY_BASELINE_TTC_DAYS = 60
+    INDUSTRY_BASELINE_ACCEPTANCE_RATE = 0.8
+
+    @classmethod
+    def assumed_inputs(cls, state: Dict[str, Any]) -> Dict[str, Any]:
+        """Which simulation inputs were industry defaults rather than measured.
+
+        The snapshot already reports what it could not measure; this turns that
+        into the plain-English wording a response carries alongside a risk score,
+        so nobody reads an assumption as a reading off their own pipeline.
+        """
+        unavailable = list(state.get("unavailable") or [])
+        labels = {"ttc_days": f"time to close ({cls.INDUSTRY_BASELINE_TTC_DAYS} days)",
+                  "acceptance_rate": f"offer acceptance rate ({cls.INDUSTRY_BASELINE_ACCEPTANCE_RATE:.0%})"}
+        assumed = [labels[u] for u in unavailable if u in labels]
+        return {
+            "baselines_are_industry_defaults": bool(assumed),
+            "assumed_inputs": unavailable,
+            "assumptions_note": (
+                "Industry defaults were used for " + " and ".join(assumed) +
+                " because HiRo does not track them; these are not measured from your pipeline."
+            ) if assumed else "All simulation inputs were measured from your own pipeline.",
+        }
+
     async def simulate_talent_scenario(self, scenario: Dict[str, Any], state: Dict[str, Any]) -> float:
         """ 
         Calculates TA Risk based on Time-to-Commit (TTC), Offer Acceptance Rate (OAR), and Open Requisitions.
@@ -83,9 +110,9 @@ class TalentAcquisitionService:
 
         # Time-to-close and acceptance rate are not tracked by HiRo; the industry
         # baselines below are used only when the pool has no figure, and the
-        # caller is told which inputs were assumed.
-        base_ttc = pool.get('ttc_days') or 60
-        base_oar = pool.get('acceptance_rate') or 0.8
+        # caller is told which inputs were assumed via `assumed_inputs()`.
+        base_ttc = pool.get('ttc_days') or self.INDUSTRY_BASELINE_TTC_DAYS
+        base_oar = pool.get('acceptance_rate') or self.INDUSTRY_BASELINE_ACCEPTANCE_RATE
         base_open_reqs = pool.get('open_reqs', 0)
 
         # 2. Apply Scenario Modifiers

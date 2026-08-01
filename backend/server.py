@@ -95,7 +95,7 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler(log_dir / 'server.log') 
+        logging.FileHandler(log_dir / 'server.log', encoding='utf-8')
     ])
 logger = logging.getLogger("hiro.server")
 
@@ -124,8 +124,6 @@ try:
     from services.external_api_connector import ExternalAPIConnector 
     
     # Deployment Cycle Dependencies
-    from services.autonomous_upgrade_agent import AutonomousUpgradeAgent
-    from services.test_automation_agent import TestAutomationAgent
     from services.policy_scraping_agent import PolicyScrapingAgent, AHCMGovernanceChaincode 
     from services.internal_mock_api import InternalMockAPI 
     from services.configuration_agent import ConfigurationAgent 
@@ -216,18 +214,39 @@ async def lifespan(app: FastAPI):
     # STARTUP
     logger.info(" 🚀  Starting HiRo backend server with SI Integration...")
 
-    # 0. Refuse to boot in production with shipped default secrets.
-    _DEFAULT_SECRETS = {
+    # 0. Refuse to boot in production with a known or weak secret.
+    #
+    # This used to check two hardcoded literals against two settings. It let
+    # through every value committed to the repo's own .env -- which is the
+    # single most likely thing to be running in production by accident -- and it
+    # never looked at PII_SALT at all, the value the entire PII encryption key is
+    # derived from.
+    _KNOWN_SECRETS = {
+        # settings.py defaults
         "hiro_production_signing_key_secure_48char",
         "hiro_zero_trust_production_key_1001001",
+        "default_pii_salt_4096_secure",
+        # values committed to .env in this repository
+        "hiro_pii_salt_dev_2026_min32chars_xK9mP2qR",
+        "hiro_jwt_dev_2026_minimum_64_chars_secure_random_wX7nQ4vB8mK1pL3jH6dF9sA2cE5tR0yU",
+        "hiro_agent_dev_2026_zero_trust_secret_mN4kW7xP",
     }
+    _MIN_SECRET_LEN = 32
     if settings.ENV in ("production", "prod"):
-        in_use = {settings.JWT_SECRET_KEY.get_secret_value(),
-                  settings.AGENT_SIGNING_SECRET.get_secret_value()}
-        if in_use & _DEFAULT_SECRETS:
+        problems = []
+        for name in ("JWT_SECRET_KEY", "AGENT_SIGNING_SECRET", "PII_SALT"):
+            value = getattr(settings, name).get_secret_value()
+            if value in _KNOWN_SECRETS:
+                problems.append(f"{name} is a value published in this repository")
+            elif len(value) < _MIN_SECRET_LEN:
+                problems.append(f"{name} is only {len(value)} characters "
+                                f"(minimum {_MIN_SECRET_LEN})")
+        if problems:
             raise RuntimeError(
-                "Refusing to start in production with a default signing secret. "
-                "Set JWT_SECRET_KEY and AGENT_SIGNING_SECRET to strong unique values."
+                "Refusing to start in production: " + "; ".join(problems) + ". "
+                "Set JWT_SECRET_KEY, AGENT_SIGNING_SECRET and PII_SALT to strong unique "
+                "values of at least 32 characters. Note that changing PII_SALT changes "
+                "the PII encryption key, so existing encrypted data must be migrated first."
             )
 
     try:
@@ -245,10 +264,10 @@ async def lifespan(app: FastAPI):
         except Exception as e:        
             logger.error(f" ❌  PostgreSQL connection failed: {e}")
             
-        # 3. PQC Key Initialization
+        # 3. PII encryption key initialisation (AES-256, derived from PII_SALT)
         app.state.pqc_wrapper = PQCEncryptionWrapper.get_instance()    
         await app.state.pqc_wrapper.initialize_keys()
-        logger.info(" ✅  PQC Encryption Wrapper Initialized")
+        logger.info(" ✅  PII encryption wrapper initialised (AES-256)")
         
         # 4. Core AI Services
         app.state.ai_service = AIService()
@@ -316,15 +335,13 @@ async def lifespan(app: FastAPI):
         
         app.state.self_correcting_agent = SelfCorrectingAgent(app.state.ai_service)
         
-        app.state.autonomous_upgrade_agent = AutonomousUpgradeAgent(services={'publisher': app.state.event_publisher, 'pg_client': app.state.pg_client})
-        app.state.test_automation_agent = TestAutomationAgent(publisher=app.state.event_publisher, vv=app.state.vv_compiler, pg_client_instance=app.state.pg_client)
-        
+        # AutonomousUpgradeAgent and TestAutomationAgent are gone: both were
+        # coin-flip-and-sleep stubs that wrote fabricated DEPLOYED/PASSED rows.
         app.state.configuration_agent = ConfigurationAgent(
             ai_service=app.state.ai_service, 
             publisher=app.state.event_publisher,
             policy_versioning_service=app.state.policy_versioning_service,
             vv_compiler=app.state.vv_compiler,
-            test_automation_agent=app.state.test_automation_agent
         )
         app.state.agent_creation_service = AgentCreationService(
             ai_service=app.state.ai_service,
@@ -332,7 +349,9 @@ async def lifespan(app: FastAPI):
             pg_client_instance=app.state.pg_client
         )
         
-        app.state.governance_chaincode = AHCMGovernanceChaincode()
+        # Mongo backs the user directory, which is the electorate DAO quorum is
+        # measured against.
+        app.state.governance_chaincode = AHCMGovernanceChaincode(mongo_client=app.state.mongo_client)
         app.state.policy_scraping_agent = PolicyScrapingAgent(
             governance_chaincode=app.state.governance_chaincode,
             ai_service=app.state.ai_service,

@@ -164,6 +164,15 @@ ALTER TABLE public.leave_requests ADD COLUMN IF NOT EXISTS approved_by VARCHAR(5
 ALTER TABLE public.leave_requests ADD COLUMN IF NOT EXISTS decided_at TEXT;
 ALTER TABLE public.leave_requests ADD COLUMN IF NOT EXISTS denial_reason TEXT;
 
+-- Indexes for the three filters the live app runs constantly and had no index for:
+-- the department rollups behind every workforce chart, the manager_id lookup behind
+-- every MSS "my team" view, and the (employee, status) predicate behind leave
+-- history and the manager approval queue.
+CREATE INDEX IF NOT EXISTS idx_employee_pii_department ON public.employee_pii (department);
+CREATE INDEX IF NOT EXISTS idx_employee_pii_manager_id ON public.employee_pii (manager_id);
+CREATE INDEX IF NOT EXISTS idx_leave_requests_employee_status
+    ON public.leave_requests (employee_uuid, status);
+
 -- CRITICAL FIX: TRUNCATE ALL TABLES TO ENSURE IDEMPOTENCY AND CLEAR DUPLICATE KEYS
 TRUNCATE public.performance_reviews, public.leave_balance, public.hrsd_tickets, public.employee_pii RESTART IDENTITY CASCADE;
 TRUNCATE public.dao_proposals, public.policy_audit_log, public.comp_history, public.leave_requests;
@@ -343,37 +352,49 @@ async def seed_governance_and_audit():
     import json as _json
 
     now = datetime.now(timezone.utc)
+    # The electorate is the real account directory (Mongo `users`): quorum is
+    # heads-voted over heads-eligible, so seeded voters MUST be actual account
+    # usernames and weights must be head-scale. Token-weight-in-the-thousands
+    # seed data read as 766000% turnout once the quorum math became honest.
+    voter_pool = []
+    try:
+        from motor.motor_asyncio import AsyncIOMotorClient
+        _mc = AsyncIOMotorClient(settings.mongo_url())
+        voter_pool = [u.get("username") async for u in
+                      _mc[settings.MONGO_DB_NAME]["users"].find({}, {"username": 1}) if u.get("username")]
+        _mc.close()
+    except Exception as e:
+        logger.warning(f"Could not read the user directory for DAO seed voters: {e}")
+    electorate = len(voter_pool) or None
+
+    # (title, status, for-heads, against-heads) — voters are slices of the real
+    # account pool, so participation can never exceed 100%.
     proposals = [
-        ("Flexible Remote-Work Policy", "VOTING", 6200.0, 1400.0, 41),
-        ("Q3 Parental-Leave Expansion", "VOTING", 3100.0, 900.0, 18),
-        ("Pay-Transparency Framework", "VOTING", 5400.0, 5100.0, 63),
-        ("AI-Assisted Performance Reviews", "APPROVED", 8200.0, 1200.0, 77),
-        ("Four-Day Work-Week Pilot", "EXPIRED", 2100.0, 4400.0, 55),
+        ("Flexible Remote-Work Policy", "VOTING", 2, 1),
+        ("Q3 Parental-Leave Expansion", "VOTING", 1, 0),
+        ("Pay-Transparency Framework", "VOTING", 2, 2),
+        ("AI-Assisted Performance Reviews", "APPROVED", 4, 1),
+        ("Four-Day Work-Week Pilot", "EXPIRED", 1, 3),
     ]
-    # Voters are real employees. They used to be generated ids counting up from
-    # V0000 on every proposal, so the dashboard reported 78 distinct "people" on
-    # a platform with five accounts, and the same placeholder appeared as a
-    # voter on proposals it had nothing to do with.
-    voter_pool = [r["employee_uuid"] for r in await pg_client.fetch(
-        "SELECT employee_uuid FROM public.employee_pii ORDER BY employee_uuid LIMIT 500")]
 
     prop_rows = []
-    for i, (title, status, vfor, vagainst, n_voters) in enumerate(proposals):
+    for i, (title, status, heads_for, heads_against) in enumerate(proposals):
         pid = f"PROP_SEED{i:03d}"
         deadline = (now + timedelta(hours=48 if status == "VOTING" else -24)).isoformat()
-        # A different slice per proposal, so distinct voters across proposals is
-        # a real count rather than the size of the largest single list.
-        if voter_pool:
-            start = (i * 37) % max(1, len(voter_pool))
-            voters = [voter_pool[(start + j) % len(voter_pool)] for j in range(min(n_voters, len(voter_pool)))]
-        else:
-            voters = []
+        n_voters = min(heads_for + heads_against, len(voter_pool))
+        voters = voter_pool[:n_voters]
+        vfor, vagainst = float(min(heads_for, n_voters)), float(max(0, n_voters - heads_for))
+        participation = round(n_voters / electorate * 100, 2) if electorate else None
         data = {
             "proposal_id": pid, "proposer": "HRBP_LEAD",
             "rule_content": {"title": title},
             "status": status, "votes_for": vfor, "votes_against": vagainst,
             "total_votes": vfor + vagainst,
             "voters": voters,
+            "eligible_voters": electorate,
+            "participation_pct": participation,
+            "quorum_note": (f"{n_voters} of {electorate} eligible voters have voted"
+                            if electorate else "The eligible voter count could not be read."),
             "deadline": deadline, "executed": status == "APPROVED",
         }
         prop_rows.append((pid, status, _json.dumps(data)))

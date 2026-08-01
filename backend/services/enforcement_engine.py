@@ -139,7 +139,13 @@ async def get_compliance_overview(policy_versioning=None) -> Dict[str, Any]:
     total = int(row.get("total_decisions") or 0)
     denials = int(row.get("denials") or 0)
     decisions_24h = int(row.get("decisions_24h") or 0)
-    score = round(1.0 - (denials / total), 4) if total else 1.0
+    # No decisions means no compliance rate. This used to default to 1.0, so a
+    # brand-new deployment that had never enforced anything showed "100%
+    # compliant" -- a perfect score awarded for the absence of evidence.
+    score = round(1.0 - (denials / total), 4) if total else None
+    score_note = ("Allow-rate across all recorded policy decisions."
+                  if total else "No policy decisions have been recorded yet, so there is "
+                                "no compliance rate to report.")
 
     last = row.get("last_decision_at")
 
@@ -152,6 +158,8 @@ async def get_compliance_overview(policy_versioning=None) -> Dict[str, Any]:
 
     return {
         "score": score,
+        "score_available": score is not None,
+        "score_note": score_note,
         # DENY decisions in the last day. There is no severity column on the
         # decision log and no open/closed state, so calling these "open high
         # severity breaches" claimed two things the data does not hold.

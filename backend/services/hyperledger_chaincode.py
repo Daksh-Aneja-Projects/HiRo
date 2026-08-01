@@ -23,8 +23,28 @@ class AHCMGovernanceChaincode:
     """
     Async Governance Engine backed by Postgres (acting as the World State).
     """
-    def __init__(self):
+    def __init__(self, mongo_client=None):
+        # The user directory is the electorate. Quorum used to be measured
+        # against a hardcoded "10000.0 # Mock Total Supply", so on a platform
+        # with a handful of accounts participation could never exceed 0.1% and
+        # no proposal could ever reach quorum, whatever anybody voted.
+        self.mongo_client = mongo_client
         logger.info("✓ Governance Chaincode Initialized (Postgres Backend).")
+
+    async def get_eligible_voters(self) -> Optional[int]:
+        """How many accounts exist to vote. None when the directory is unreadable.
+
+        Returning None rather than a number is deliberate: a quorum decision made
+        against a guessed electorate is worse than no quorum decision at all.
+        """
+        if self.mongo_client is None:
+            return None
+        try:
+            count = await self.mongo_client[settings.MONGO_DB_NAME]["users"].count_documents({})
+            return int(count) if count > 0 else None
+        except Exception as e:
+            logger.warning(f"Could not count eligible voters: {e}")
+            return None
 
     async def _get_proposal(self, proposal_id: str) -> Optional[Dict]:
         query = "SELECT data FROM dao_proposals WHERE proposal_id = $1"
@@ -61,7 +81,11 @@ class AHCMGovernanceChaincode:
             'total_votes': 0.0,
             'voters': [],
             'deadline': deadline.isoformat(),
-            'executed': False
+            'executed': False,
+            # Filled in on the first vote, from the real user directory.
+            'eligible_voters': await self.get_eligible_voters(),
+            'participation_pct': 0.0,
+            'quorum_note': f"No votes cast yet; {QUORUM_PCT}% participation is needed for quorum.",
         }
         
         await self._save_proposal(proposal)
@@ -111,29 +135,48 @@ class AHCMGovernanceChaincode:
         return True
 
     async def _check_execution(self, proposal: Dict):
-        """Evaluates Quorum and Threshold."""
-        total_possible = 10000.0 # Mock Total Supply (use float)
-        
-        # CRITICAL FIX: Prevent Division by Zero
-        if total_possible <= 0: return 
-        
-        participation = (proposal['total_votes'] / total_possible) * 100
-        
-        if proposal['status'] == 'VOTING':
-            # CRITICAL FIX: Properly compare timezone-aware datetimes
-            deadline_dt = datetime.fromisoformat(proposal['deadline']).replace(tzinfo=timezone.utc)
-            if deadline_dt < datetime.now(timezone.utc):
-                proposal['status'] = 'EXPIRED'
-                return
+        """Evaluates Quorum and Threshold against the real eligible electorate."""
+        if proposal['status'] != 'VOTING':
+            return
 
-            # Check Approval
-            if participation > QUORUM_PCT:
-                if proposal['total_votes'] > 0:
-                    approval_rate = (proposal['votes_for'] / proposal['total_votes']) * 100
-                    if approval_rate > 66:
-                        proposal['status'] = 'APPROVED'
-                        proposal['executed'] = True
-                        logger.info(f"Proposal {proposal['proposal_id']} PASSED.")
+        # CRITICAL FIX: Properly compare timezone-aware datetimes
+        deadline_dt = datetime.fromisoformat(proposal['deadline']).replace(tzinfo=timezone.utc)
+        if deadline_dt < datetime.now(timezone.utc):
+            proposal['status'] = 'EXPIRED'
+            return
+
+        eligible_voters = await self.get_eligible_voters()
+        proposal['eligible_voters'] = eligible_voters
+
+        if not eligible_voters:
+            # No honest electorate size, so no honest participation figure and no
+            # quorum decision. The proposal stays open and says why.
+            proposal['participation_pct'] = None
+            proposal['quorum_note'] = ("The eligible voter count could not be read, "
+                                       "so quorum cannot be evaluated yet.")
+            return
+
+        # Quorum is turnout: HEADS who voted over heads eligible to vote. It must
+        # not use total_votes, which is the token-WEIGHTED sum -- dividing voting
+        # power by a headcount produces a ratio of two different units that only
+        # looks like a percentage (the seeded proposals, with weights in the
+        # thousands, would read as 766000% turnout).
+        # Vote weight belongs to the approval threshold below, and is used there.
+        heads_voted = len(proposal.get('voters') or [])
+        participation = (heads_voted / float(eligible_voters)) * 100
+        proposal['participation_pct'] = round(participation, 2)
+        proposal['quorum_note'] = (f"{heads_voted} of {eligible_voters} eligible voters have voted "
+                                   f"({proposal['participation_pct']}%); {QUORUM_PCT}% is needed "
+                                   f"for quorum.")
+
+        if participation > QUORUM_PCT and proposal['total_votes'] > 0:
+            approval_rate = (proposal['votes_for'] / proposal['total_votes']) * 100
+            if approval_rate > 66:
+                proposal['status'] = 'APPROVED'
+                proposal['executed'] = True
+                logger.info(f"Proposal {proposal['proposal_id']} PASSED "
+                            f"({proposal['participation_pct']}% participation, "
+                            f"{approval_rate:.1f}% in favour).")
 
     async def list_active_proposals(self, limit: int = 20) -> List[Dict[str, Any]]:
         """Real active (VOTING) proposals from Postgres for the governance feed."""
@@ -151,6 +194,11 @@ class AHCMGovernanceChaincode:
                 'votes_for': d.get('votes_for', 0.0),
                 'votes_against': d.get('votes_against', 0.0),
                 'deadline': d.get('deadline'),
+                # Real electorate size and turnout; None when the directory
+                # could not be read, never a stand-in number.
+                'eligible_voters': d.get('eligible_voters'),
+                'participation_pct': d.get('participation_pct'),
+                'quorum_note': d.get('quorum_note'),
             })
         return out
 
@@ -178,6 +226,7 @@ class AHCMGovernanceChaincode:
         ) or {}
 
         # The ledger is the Mongo policy_ledger collection, so count it there.
+        mongo_client = mongo_client if mongo_client is not None else self.mongo_client
         ledger_blocks_24h = 0
         if mongo_client is not None:
             try:
@@ -191,4 +240,6 @@ class AHCMGovernanceChaincode:
             'total_voting_power': float(row.get('total_voting_power') or 0.0),
             'members_voting': int(row.get('members_voting') or 0),
             'ledger_commits_24h': int(ledger_blocks_24h),
+            # The electorate quorum is measured against. None when unreadable.
+            'eligible_voters': await self.get_eligible_voters(),
         }

@@ -98,7 +98,13 @@ class DigitalTwinAgent:
         # Get individual risk scores
         wfp_risk = await self.wfp_service.simulate_workforce_scenario(scenario, state)
         ta_risk = await self.ta_service.simulate_talent_scenario(scenario, state)
-        
+
+        if wfp_risk is None or ta_risk is None:
+            # No measured baseline means no risk figure. Returning a number here
+            # would be inventing the one input the whole simulation rests on.
+            return None, ("This could not be simulated: the workforce has no measured "
+                          "baseline risk yet, so there is no starting point to model from.")
+
         # Weighted aggregation (giving more weight to WFP as it reflects current employees)
         total_risk = (wfp_risk * 0.6) + (ta_risk * 0.4)
         total_risk = max(0.0, min(1.0, total_risk)) # Cap between 0 and 1
@@ -115,8 +121,9 @@ class DigitalTwinAgent:
         state = await self._fetch_digital_twin_state() 
         risk, rec = await self._simulate_scenario_impact(scenario_data, state)
 
-        # CRITICAL FIX: Publish the risk event only if it is CRITICAL
-        if risk >= self.risk_threshold:
+        # CRITICAL FIX: Publish the risk event only if it is CRITICAL.
+        # `risk is None` means the scenario was unanswerable, not that it was safe.
+        if risk is not None and risk >= self.risk_threshold:
              await self.publisher.publish_event(
                 topic=DTLA_CRITICAL_RISK_TOPIC,
                 payload={
@@ -148,7 +155,12 @@ class DigitalTwinAgent:
                 state = await self._fetch_digital_twin_state()
                 scenario = await self.generate_autonomous_scenario(state)
                 risk, recommendation = await self._simulate_scenario_impact(scenario, state)
-                
+
+                if risk is None:
+                    logger.info(f"DTLA Monitor: Scenario '{scenario['scenario_description'][:30]}' "
+                                f"could not be scored: {recommendation}")
+                    continue
+
                 logger.info(f"DTLA Monitor: Scenario '{scenario['scenario_description'][:30]}' -> Risk: {risk:.2f}")
 
                 if risk >= self.risk_threshold:

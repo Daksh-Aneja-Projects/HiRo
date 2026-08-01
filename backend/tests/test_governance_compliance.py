@@ -57,8 +57,14 @@ def test_governance_stats(monkeypatch):
     monkeypatch.setattr(gov_mod, "pg_client", fake)
     cc = AHCMGovernanceChaincode()
     stats = asyncio.run(cc.get_governance_stats())
-    assert stats == {"active_proposals": 3, "total_voting_power": 15200.0,
-                     "members_voting": 210, "ledger_commits_24h": 4}
+    assert stats["active_proposals"] == 3
+    assert stats["total_voting_power"] == 15200.0
+    assert stats["members_voting"] == 210
+    # ledger_commits_24h counts the Mongo policy_ledger; with no Mongo client
+    # there is nothing to count, so it is 0 rather than the Postgres row value.
+    assert stats["ledger_commits_24h"] == 0
+    # No user directory wired in -> no honest electorate size.
+    assert stats["eligible_voters"] is None
 
 
 def test_governance_stats_null_row(monkeypatch):
@@ -78,28 +84,37 @@ def test_compliance_overview(monkeypatch):
     monkeypatch.setattr(enf_mod, "pg_client", fake)
     ov = asyncio.run(enf_mod.get_compliance_overview())
     assert ov["score"] == 0.82                     # 1 - 18/100
+    assert ov["score_available"] is True
     assert ov["high_severity_violations"] == 4
-    assert ov["regulatory_feed_status"] == "ONLINE"   # decisions_24h > 0
-    assert ov["latest_version_applied"] is True
-    assert ov["days_to_next_audit"] == 25          # 30 - 5
+    # There is no external regulatory feed attached, and the endpoint says so
+    # instead of inferring "ONLINE" from internal policy decisions.
+    assert ov["regulatory_feed_status"] == "NOT_CONNECTED"
+    # No policy store passed in, so this genuinely could not be checked.
+    assert ov["latest_version_applied"] is None
 
 
-def test_compliance_overview_empty(monkeypatch):
+def test_compliance_overview_empty_has_no_score(monkeypatch):
+    """Zero decisions must not render as a perfect compliance score.
+
+    This used to default to 1.0, so a deployment that had never enforced a
+    single policy reported 100% compliant -- a top score awarded purely for the
+    absence of evidence.
+    """
     fake = FakePgClient(row={"total_decisions": 0, "denials": 0,
                              "high_severity_violations": 0, "decisions_24h": 0,
                              "last_decision_at": None})
     monkeypatch.setattr(enf_mod, "pg_client", fake)
     ov = asyncio.run(enf_mod.get_compliance_overview())
-    assert ov["score"] == 1.0                      # no decisions -> perfect, no div-by-zero
-    assert ov["regulatory_feed_status"] == "DEGRADED"
-    assert ov["latest_version_applied"] is False
-    assert ov["days_to_next_audit"] == 30
+    assert ov["score"] is None                     # unknown, not perfect
+    assert ov["score_available"] is False
+    assert "no compliance rate" in ov["score_note"]
+    assert ov["total_decisions"] == 0
 
 
 _TESTS = [
     test_list_active_proposals_shape, test_list_active_proposals_handles_json_string,
     test_governance_stats, test_governance_stats_null_row,
-    test_compliance_overview, test_compliance_overview_empty,
+    test_compliance_overview, test_compliance_overview_empty_has_no_score,
 ]
 
 if __name__ == "__main__":
