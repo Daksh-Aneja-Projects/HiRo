@@ -732,6 +732,20 @@ try:
         api.include_router(router)
 except ImportError:
     pass
+
+# --- People lifecycle routers ---
+from routes.people_lifecycle_routes import PEOPLE_LIFECYCLE_ROUTERS
+for router in PEOPLE_LIFECYCLE_ROUTERS:
+    api.include_router(router)
+
+# --- Talent intelligence routers ---
+try:
+    from routes.talent_routes import TALENT_ROUTERS
+    for router in TALENT_ROUTERS:
+        api.include_router(router)
+except ImportError as e:
+    logger.warning(f"Talent intelligence routers unavailable: {e}")
+
 app.include_router(api, prefix="/api")
 
 # =========================================================================
@@ -812,6 +826,11 @@ async def websocket_si_integration(websocket: WebSocket, client_id: str = "anony
         logger.info(f"Client {client_id} disconnected from SI WebSocket")
 
 # The duplicate /stream/agent-thoughts endpoint is removed as it's included via ALL_ROUTERS -> streaming_routes.py
+
+# --- AI knowledge routers ---
+from routes.ai_knowledge_routes import ALL_AI_KNOWLEDGE_ROUTERS
+for _ai_knowledge_router in ALL_AI_KNOWLEDGE_ROUTERS:
+    app.include_router(_ai_knowledge_router, prefix="/api")
 
 # CRITICAL FIX: Include the standard Python execution block for local development
 if __name__ == "__main__":

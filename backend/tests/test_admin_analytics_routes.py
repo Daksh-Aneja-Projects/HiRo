@@ -17,7 +17,7 @@ class FakeWFM:
     def __init__(self, risk, perf, headcount):
         self._risk, self._perf, self._headcount = risk, perf, headcount
 
-    async def get_current_projections(self):
+    async def get_current_projections(self, department=None):
         return {"current_state": {
             "overall_risk_score": self._risk,
             "average_performance_score": self._perf,
@@ -48,7 +48,7 @@ def test_financial_impact_estimate():
         if hasattr(routes.aggregate_metrics, "__wrapped__") else \
         asyncio.run(routes.aggregate_metrics(req, {"metric_type": "financial_impact"}, {}))
     assert out["value"] == 850000.0        # 100 * 8500
-    assert "estimate" in out["note"]
+    assert "estimate" in out["note"].lower()
 
 
 def test_admin_dashboard_maps_real_signals(monkeypatch):

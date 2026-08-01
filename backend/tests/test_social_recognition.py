@@ -94,6 +94,7 @@ def test_empty_post_rejected():
 def test_give_star_resolves_name_and_leaderboard_ranks():
     db = FakeDB()
     db.users.docs.append({"username": "employee", "full_name": "Dana Employee"})
+    db.users.docs.append({"username": "manager", "full_name": "Charlie Manager"})
 
     asyncio.run(sr.give_star(db, from_user="manager", to_user="employee", reason="great work"))
     asyncio.run(sr.give_star(db, from_user="admin", to_user="employee", reason="again"))
@@ -102,8 +103,15 @@ def test_give_star_resolves_name_and_leaderboard_ranks():
     board = asyncio.run(sr.leaderboard(db))
     assert board[0] == {"user_id": "employee", "user_name": "Dana Employee", "stars": 2}
     assert board[1]["user_id"] == "manager" and board[1]["stars"] == 1
-    # name falls back to user_id when the user isn't in the users store
-    assert board[1]["user_name"] == "manager"
+    assert board[1]["user_name"] == "Charlie Manager"
+
+
+def test_give_star_rejects_someone_not_on_record():
+    # Recognition must land on a real person: a recipient in neither the account
+    # directory nor the employee directory is an error, not a silent fallback row.
+    db = FakeDB()
+    with pytest.raises(ValueError):
+        asyncio.run(sr.give_star(db, from_user="admin", to_user="ghost-9999", reason="hi"))
 
 
 def test_self_star_rejected():

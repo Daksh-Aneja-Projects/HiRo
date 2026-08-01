@@ -28,6 +28,48 @@ KIND_EXPENSE = "EXPENSE_DECISION"
 KIND_APPROVAL_WAITING = "APPROVAL_WAITING"
 KIND_CASE = "CASE_UPDATE"
 KIND_POLICY = "POLICY_UPDATE"
+KIND_ONBOARDING = "ONBOARDING_UPDATE"
+KIND_PERFORMANCE = "PERFORMANCE_UPDATE"
+
+# Maps a notification kind to the opt-out key in notification_prefs.kinds
+# (services/people_lifecycle.py owns reading/writing that document; this module
+# only ever reads it, so a lost notification preference can't block a decision
+# from being recorded).
+_KIND_TO_PREF = {
+    KIND_LEAVE: "leave", KIND_TIMESHEET: "timesheet", KIND_EXPENSE: "expense",
+    KIND_APPROVAL_WAITING: "approval", KIND_CASE: "case", KIND_POLICY: "policy",
+    KIND_ONBOARDING: "onboarding", KIND_PERFORMANCE: "performance",
+}
+
+_mongo_client = None
+
+
+def _prefs_db():
+    """Lazy Mongo handle, independent of the app's motor client so this module
+    has no import-time dependency on FastAPI startup order."""
+    global _mongo_client
+    if _mongo_client is None:
+        from motor.motor_asyncio import AsyncIOMotorClient
+        from config.settings import settings
+        _mongo_client = AsyncIOMotorClient(settings.mongo_url())
+    from config.settings import settings
+    return _mongo_client[settings.MONGO_DB_NAME]
+
+
+async def _prefs_allow(employee_uuid: str, kind: str) -> bool:
+    """False only when the person explicitly opted out of this kind. Defaults to
+    allowed, including when the prefs store can't be reached."""
+    pref_key = _KIND_TO_PREF.get(kind)
+    if not pref_key:
+        return True
+    try:
+        doc = await _prefs_db().notification_prefs.find_one({"employee_uuid": employee_uuid}, {"_id": 0})
+    except Exception as e:
+        logger.warning(f"Could not read notification preferences for {employee_uuid}: {e}")
+        return True
+    if not doc:
+        return True
+    return bool((doc.get("kinds") or {}).get(pref_key, True))
 
 
 async def ensure_table() -> None:
@@ -63,6 +105,8 @@ async def notify(employee_uuid: str, kind: str, title: str, body: str,
     that caused it. A lost notification is a nuisance; a lost approval is not.
     """
     if not employee_uuid:
+        return None
+    if not await _prefs_allow(employee_uuid, kind):
         return None
     notification_id = f"NTF-{uuid.uuid4().hex[:12].upper()}"
     try:

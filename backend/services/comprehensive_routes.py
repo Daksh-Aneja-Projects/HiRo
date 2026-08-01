@@ -57,6 +57,9 @@ from services.synthetic_twin_engine import SyntheticTwinEngine
 from services.cognitive_remediation_agent import CognitiveRemediationAgent
 from routes.streaming_routes import manager as websocket_manager
 from services.enforcement_engine import runtime_enforcer
+# AI knowledge layer (Task 5): background ticket suggestions + command-bar memory.
+from routes.ai_knowledge_routes import attach_suggested_resolution
+from services import agent_memory
 
 
 # --- Data Models (from schemas/models.py) ---
@@ -227,6 +230,29 @@ async def process_policy_approval(req: Request, request_id: str, action: Approva
 @policy_router.post("/versions/{version_id}/activate")
 async def activate_policy(req: Request, version_id: str, payload: Dict=Depends(policy_admin_role_required)):
     await _policy_call(_pvs(req).activate_version, version_id, payload['sub'])
+
+    # KIND_POLICY was declared and never wired: HRBP users had no way to learn a
+    # policy went live short of stumbling onto the policy list.
+    pvs = _pvs(req)
+    version_obj = (getattr(pvs, "versions", {}) or {}).get(version_id)
+    policy_id = getattr(version_obj, "policy_id", None) or version_id
+    mongo_client = getattr(req.app.state, "mongo_client", None)
+    if mongo_client:
+        try:
+            hrbp_users = await mongo_client[settings.MONGO_DB_NAME]["users"].find(
+                {"role": "hrbp"}, {"employee_uuid": 1}
+            ).to_list(length=500)
+            for u in hrbp_users:
+                if u.get("employee_uuid"):
+                    await notification_service.notify(
+                        u["employee_uuid"], notification_service.KIND_POLICY,
+                        "A policy went live",
+                        f'Policy "{policy_id}" was activated.',
+                        link="/hr-portal?module=policy", related_id=policy_id,
+                    )
+        except Exception as e:
+            logger.warning(f"could not notify HRBP users of policy activation: {e}")
+
     return {"status": "Activated"}
 
 @policy_router.post("/{policy_id}/rollback")
@@ -393,6 +419,12 @@ async def create_ticket(req: Request, subject: str = Body(...), description: str
         logger.warning(f"Could not triage {ticket.ticket_id}: {e}")
         routed = None
 
+    # AI first-line suggestion runs in the background: LLM calls take 20-40s on
+    # CPU-only Ollama, so ticket creation returns immediately rather than
+    # blocking on it. Attaches to metadata.suggested_resolution once ready;
+    # never auto-closes anything (see routes/ai_knowledge_routes.py).
+    asyncio.create_task(attach_suggested_resolution(req.app.state, ticket.ticket_id, subject, description))
+
     return {
         "ticket_id": ticket.ticket_id,
         "status": ticket.status.value if hasattr(ticket.status, "value") else str(ticket.status),
@@ -419,8 +451,16 @@ def _readable_agent(agent: Optional[str]) -> str:
 async def resolve_ticket(req: Request, ticket_id: str, resolution_summary: str = Body(..., embed=True), payload: Dict=Depends(manager_role_required)):
     hrsd_system: MultiAgentHRSDSystem = getattr(req.app.state, "hrsd_system", None)
     if not hrsd_system: raise HTTPException(status_code=503, detail="HRSD System unavailable.")
-    await hrsd_system.resolve_ticket_by_agent(ticket_id,
+    ticket = await hrsd_system.resolve_ticket_by_agent(ticket_id,
                                             resolution_summary, payload['sub'])
+    # KIND_CASE was declared and never wired: the person who raised the case had
+    # no way to learn it was resolved short of reopening the case list.
+    await notification_service.notify(
+        ticket.employee_id, notification_service.KIND_CASE,
+        "Your case was resolved",
+        f'Your case "{ticket.title}" was resolved: {resolution_summary}',
+        link="/employee-portal?module=cases", related_id=ticket_id,
+    )
     return {"status": "Resolved"}
 
 @hrsd_router.put("/tickets/{ticket_id}/assign")
@@ -1536,7 +1576,11 @@ async def get_employee_documents(req: Request, employee_id: Optional[str] = Quer
     return await _hr(req).get_employee_documents(employee_id)
 
 @hr_router.post("/offboarding/upload")
-async def upload_offboarding_file(req: Request, file: UploadFile = File(...), payload: Dict=Depends(hrit_admin_role_required)):
+async def upload_offboarding_file(req: Request, file: UploadFile = File(...), payload: Dict=Depends(employee_role_required)):
+    # Employees hand over their own knowledge/files on the way out; the caller's own
+    # employee_uuid identifies the upload, so widening this role gate does not let
+    # anyone touch someone else's offboarding record. It used to require hrit_admin,
+    # which meant an employee submitting their own handover file always got a 403.
     contents = await file.read()
     return await _hr(req).upload_document(payload.get("employee_uuid", "SYSTEM"), "offboarding", file.filename, size=len(contents))
 
@@ -2239,9 +2283,32 @@ async def upload_ingestion_file(req: Request, file: UploadFile = File(...), payl
     previous = await mongo_client[settings.MONGO_DB_NAME]["ingestion_jobs"].count_documents(
         {"content_sha256": digest})
     await mongo_client[settings.MONGO_DB_NAME]["ingestion_jobs"].insert_one(dict(doc))
+
+    # Parse + index text-extractable uploads into the RAG corpus so newly
+    # uploaded documents become answerable through /api/knowledge/ask.
+    # Anything not text-extractable is reported as unsupported, not silently
+    # dropped (see routes/ai_knowledge_routes.py / services/retrieval.py).
+    ext = ("." + file.filename.rsplit(".", 1)[-1].lower()) if file.filename and "." in file.filename else ""
+    ai_service = getattr(req.app.state, "ai_service", None)
+    if ext not in (".txt", ".md", ".csv"):
+        indexing = {"status": "unsupported",
+                    "reason": f"'{ext or 'unknown'}' files are not text-extractable yet; only .txt, .md, .csv are indexed."}
+    elif not ai_service:
+        indexing = {"status": "skipped", "reason": "AI service unavailable."}
+    else:
+        try:
+            from services.retrieval import index_text
+            chunks = await index_text(ai_service, "document", doc["job_id"], file.filename,
+                                       contents.decode("utf-8", errors="replace"))
+            indexing = {"status": "indexed", "chunks": chunks}
+        except Exception as e:
+            logger.warning(f"Indexing upload {file.filename} failed: {e}")
+            indexing = {"status": "error", "reason": "Indexing failed; the file was stored but is not searchable yet."}
+
     return {
         "status": "Ingested",
         **doc,
+        "indexing": indexing,
         "message": (f"{file.filename} was stored." if not previous else
                     f"{file.filename} was stored. The same file has been uploaded "
                     f"{previous} time{'s' if previous != 1 else ''} before."),
@@ -2706,8 +2773,20 @@ async def execute_orchestrator_command(req: Request, prompt: str = Body(..., emb
     ai_service: AIService = getattr(req.app.state, "ai_service", None)
     if not ai_service: raise HTTPException(status_code=503, detail="AI Service unavailable.")
 
+    # Command-bar memory: prior turns for this user are injected as context so
+    # a follow-up command can reference what was asked before (surgical edit;
+    # full logic lives in services/agent_memory.py).
+    mongo_client = getattr(req.app.state, "mongo_client", None)
+    memory_context = ""
+    if mongo_client is not None:
+        try:
+            memory_context = agent_memory.context_block(await agent_memory.get_memory(mongo_client, user_id))
+        except Exception as e:
+            logger.warning(f"Command memory lookup failed: {e}")
+
     # Real intent routing: ask the LLM to pick the responsible agent, then produce a plan.
     routing_prompt = (
+        (f"Conversation memory:\n{memory_context}\n\n" if memory_context else "") +
         f"Classify this HR operations command and choose exactly one agent from "
         f"[{', '.join(ROUTABLE_AGENTS)}]. "
         f"Command: '{prompt}'. Return strict JSON: {{\"agent\": <name>, \"summary\": <one sentence plan>}}."
@@ -2721,12 +2800,17 @@ async def execute_orchestrator_command(req: Request, prompt: str = Body(..., emb
         agent, summary = "AIService", raw.strip()[:400]
 
     result_id = f"ORCH-{random.getrandbits(32):08x}"
-    mongo_client = getattr(req.app.state, "mongo_client", None)
     if mongo_client:
         await mongo_client[settings.MONGO_DB_NAME]["orchestrator_commands"].insert_one({
             "result_id": result_id, "prompt": prompt, "agent": agent, "summary": summary,
-            "user_id": user_id, "status": "COMPLETED", "created_at": datetime.now(timezone.utc).isoformat(),
+            "user_id": user_id, "status": "COMPLETED", "outcome": "not_executed",
+            "created_at": datetime.now(timezone.utc).isoformat(),
         })
+        try:
+            await agent_memory.record_turn(mongo_client, ai_service, user_id, payload.get("role"), "user", prompt)
+            await agent_memory.record_turn(mongo_client, ai_service, user_id, payload.get("role"), "assistant", summary)
+        except Exception as e:
+            logger.warning(f"Command memory write failed: {e}")
     # This reported "COMPLETED" while only classifying the command: no agent was
     # ever invoked, so an operator was told their instruction had been carried out
     # when nothing had run.

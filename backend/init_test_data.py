@@ -578,6 +578,33 @@ async def seed_uci_incident_tickets(limit: int = 800):
     logger.info(f" ✅ Seeded {len(rows):,} HRSD tickets from the UCI incident-log dataset (CC BY 4.0).")
 
 
+# --- AI KNOWLEDGE LAYER (Task 5): rag_chunks DDL -----------------------------
+# Deliberately NOT part of EMPLOYEE_PII_DDL / initialize_data_and_users: that
+# flow TRUNCATEs core tables on every run, which is unsafe to replay against a
+# live server. This is CREATE TABLE IF NOT EXISTS only (never destructive) and
+# is applied on its own, once, via create_rag_chunks_table() below.
+RAG_CHUNKS_DDL = """
+CREATE TABLE IF NOT EXISTS public.rag_chunks (
+    id UUID PRIMARY KEY,
+    source_type TEXT NOT NULL,
+    source_id TEXT,
+    title TEXT,
+    chunk_text TEXT,
+    embedding FLOAT8[],
+    meta JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_rag_chunks_source_type ON public.rag_chunks (source_type);
+"""
+
+
+async def create_rag_chunks_table():
+    """Idempotent, standalone DDL apply -- safe to run against a live database."""
+    await pg_client.connect(settings.postgres_url())
+    await pg_client.execute(RAG_CHUNKS_DDL)
+    logger.info(" ✅ Ensured public.rag_chunks exists.")
+
+
 # --- MAIN EXECUTION LOGIC ---
 async def initialize_data_and_users():
     logger.info("Initializing Postgres schema and extensive test data.")
@@ -665,14 +692,116 @@ async def initialize_data_and_users():
         logger.warning(f" ⚠️ Social/recognition seeding failed (non-critical): {e}")
 
 
+# --- Talent Intelligence schema (new tables only; does not touch EMPLOYEE_PII_DDL
+# or initialize_data_and_users -- see COLLISION RULES). Idempotent, additive only:
+# safe to run against the live database without a server restart.
+TALENT_INTELLIGENCE_DDL = """
+CREATE TABLE IF NOT EXISTS public.succession_nominations (
+    id SERIAL PRIMARY KEY,
+    role_or_person_uuid VARCHAR(100) NOT NULL,
+    nominee_uuid VARCHAR(50) NOT NULL,
+    nominated_by VARCHAR(50),
+    readiness VARCHAR(20) NOT NULL CHECK (readiness IN ('ready_now','ready_soon','develop')),
+    rationale TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_succession_nominations_role
+    ON public.succession_nominations (role_or_person_uuid);
+
+CREATE TABLE IF NOT EXISTS public.comp_cycles (
+    cycle_id VARCHAR(50) PRIMARY KEY,
+    name VARCHAR(200) NOT NULL,
+    department VARCHAR(50),
+    status VARCHAR(20) NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','review','finalized')),
+    budget_pct NUMERIC(5,2) NOT NULL,
+    created_by VARCHAR(50),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS public.comp_cycle_lines (
+    id SERIAL PRIMARY KEY,
+    cycle_id VARCHAR(50) REFERENCES public.comp_cycles(cycle_id),
+    employee_uuid VARCHAR(50) NOT NULL,
+    current_comp_cents BIGINT NOT NULL,
+    proposed_pct NUMERIC(5,2) NOT NULL DEFAULT 0,
+    proposed_by VARCHAR(50),
+    status VARCHAR(20) NOT NULL DEFAULT 'proposed' CHECK (status IN ('proposed','adjusted','applied')),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_comp_cycle_lines_cycle ON public.comp_cycle_lines (cycle_id);
+
+CREATE TABLE IF NOT EXISTS public.headcount_plans (
+    plan_id VARCHAR(50) PRIMARY KEY,
+    department VARCHAR(50) NOT NULL,
+    fiscal_label VARCHAR(50) NOT NULL,
+    planned_headcount INTEGER NOT NULL,
+    created_by VARCHAR(50),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_headcount_plans_department ON public.headcount_plans (department);
+"""
+
+
+async def create_talent_intelligence_schema():
+    """Apply TALENT_INTELLIGENCE_DDL against the live database. Standalone --
+    does not call initialize_data_and_users, does not truncate anything."""
+    await pg_client.connect(settings.postgres_url())
+    async with pg_client.transaction("TalentIntelligenceInit", "schema_creation") as conn:
+        logger.info("Ensuring Talent Intelligence schema exists (succession_nominations, "
+                    "comp_cycles, comp_cycle_lines, headcount_plans)...")
+        await conn.execute(TALENT_INTELLIGENCE_DDL)
+    logger.info(" ✅ Talent Intelligence schema ready.")
+
+
+# --- People lifecycle schema (new tables only; does not touch EMPLOYEE_PII_DDL or
+# initialize_data_and_users -- see COLLISION RULES). Idempotent, additive only:
+# safe to run against the live database without a server restart.
+# perf_cycles / perf_cycle_entries back the staged performance-review workflow in
+# services/performance_cycles.py. (one_on_ones is created lazily by
+# services/people_lifecycle.py itself, so it isn't duplicated here.)
+PEOPLE_LIFECYCLE_DDL = """
+CREATE TABLE IF NOT EXISTS public.perf_cycles (
+    cycle_id VARCHAR(50) PRIMARY KEY,
+    name VARCHAR(200) NOT NULL,
+    stage VARCHAR(20) NOT NULL DEFAULT 'self_assessment',
+    opens_at DATE,
+    closes_at DATE,
+    created_by VARCHAR(50),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS public.perf_cycle_entries (
+    id SERIAL PRIMARY KEY,
+    cycle_id VARCHAR(50) NOT NULL REFERENCES public.perf_cycles(cycle_id),
+    employee_uuid VARCHAR(50) NOT NULL REFERENCES public.employee_pii(employee_uuid),
+    self_assessment TEXT,
+    self_rating NUMERIC(2,1),
+    manager_rating NUMERIC(2,1),
+    manager_comments TEXT,
+    calibrated_rating NUMERIC(2,1),
+    signed_off_by_employee BOOLEAN NOT NULL DEFAULT FALSE,
+    signed_off_at TIMESTAMPTZ,
+    UNIQUE (cycle_id, employee_uuid)
+);
+CREATE INDEX IF NOT EXISTS idx_perf_cycle_entries_employee ON public.perf_cycle_entries (employee_uuid);
+"""
+
+
+async def ensure_people_lifecycle_schema():
+    """Apply PEOPLE_LIFECYCLE_DDL against the live database. Standalone -- does not
+    call initialize_data_and_users, does not truncate anything. services/performance_cycles.py
+    also calls this defensively (lazily, once per process) before its first query."""
+    await pg_client.connect(settings.postgres_url())
+    await pg_client.execute(PEOPLE_LIFECYCLE_DDL)
+    logger.info(" ✅ People-lifecycle schema (perf_cycles, perf_cycle_entries) ready.")
+
+
 if __name__ == "__main__":
     from dotenv import load_dotenv
     from pathlib import Path
-    
+
     load_dotenv(Path(__file__).parent.parent.parent / ".env")
-    
+
     try:
-        random.seed(42) 
+        random.seed(42)
         asyncio.run(initialize_data_and_users())
     except Exception as e:
         logger.critical(f"FATAL INITIALIZATION ERROR: {e}")

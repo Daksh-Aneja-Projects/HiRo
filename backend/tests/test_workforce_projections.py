@@ -14,12 +14,17 @@ class FakePgClient:
         return self.perf_row if "performance_reviews" in query else self.emp_row
 
     async def fetch(self, query, *args):
+        # The succession-readiness aggregate selects job_title; this unit test
+        # covers the headcount/skill-gap path, so that query gets a no-data state.
+        if "job_title" in query:
+            return []
         return self.dept_rows
 
 
 def _svc():
     s = WorkforcePlanningService.__new__(WorkforcePlanningService)
     s.publisher = None
+    s.mongo_client = None
     return s
 
 
@@ -39,9 +44,51 @@ def test_projections_map_real_aggregates(monkeypatch):
     assert cs["total_employees"] == 20000
     assert cs["overall_risk_score"] == 0.512      # real base for the digital-twin sim
     assert cs["average_performance_score"] == 3.74
-    # fair share = 20000/3 ≈ 6667; Legal(400) is far below -> HIGH, Engineering(8000) above -> LOW
-    assert proj["skill_gaps"]["Legal"] == "HIGH"
-    assert proj["skill_gaps"]["Engineering"] == "LOW"
+    # Skill gaps come from real skill profiles now. With no skills store attached
+    # the honest answer is "no gaps derivable", never a headcount guess.
+    assert proj["skill_gaps"] == {}
+
+
+class FakeSkillsMongo:
+    """Minimal stand-in for the motor client: one aggregate over employee_skills."""
+    def __init__(self, rows):
+        self._rows = rows
+
+    def __getitem__(self, _db):
+        rows = self._rows
+
+        class _Coll:
+            def aggregate(self, _pipeline):
+                async def gen():
+                    for r in rows:
+                        yield r
+                return gen()
+
+        return {"employee_skills": _Coll()}
+
+
+def test_skill_gaps_derive_from_real_skill_coverage(monkeypatch):
+    # Engineering, headcount 100 -> a skill is covered when >= 25 people hold it.
+    # 6 of its 8 required skills are covered (share 0.75 -> LOW). Sales, headcount
+    # 100 -> only 2 of 7 covered (share ~0.29 -> HIGH).
+    from services.skill_requirements import REQUIRED_SKILLS
+    eng_skills = REQUIRED_SKILLS["Engineering"][:6]
+    sales_skills = REQUIRED_SKILLS["Sales"][:2]
+    rows = ([{"_id": {"d": "Engineering", "s": s}, "n": 30} for s in eng_skills]
+            + [{"_id": {"d": "Sales", "s": s}, "n": 40} for s in sales_skills])
+
+    fake_pg = FakePgClient(
+        emp_row=None, perf_row=None,
+        dept_rows=[{"department": "Engineering", "c": 100},
+                   {"department": "Sales", "c": 100}],
+    )
+    monkeypatch.setattr(wfp_mod, "pg_client", fake_pg)
+    svc = _svc()
+    svc.mongo_client = FakeSkillsMongo(rows)
+
+    gaps = asyncio.run(svc._derive_skill_gaps(200))
+    assert gaps["Engineering"] == "LOW"
+    assert gaps["Sales"] == "HIGH"
 
 
 def test_projections_empty_db(monkeypatch):
@@ -74,7 +121,8 @@ def test_analytics_charts_shapes(monkeypatch):
     assert all({"tenure", "rating", "department"} == set(p) for p in pts)
 
 
-_TESTS = [test_projections_map_real_aggregates, test_projections_empty_db, test_analytics_charts_shapes]
+_TESTS = [test_projections_map_real_aggregates, test_projections_empty_db,
+          test_skill_gaps_derive_from_real_skill_coverage, test_analytics_charts_shapes]
 
 if __name__ == "__main__":
     import sys as _sys
