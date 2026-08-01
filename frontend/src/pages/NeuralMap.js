@@ -6,10 +6,12 @@
 import React, { memo, useCallback, useMemo, useState } from 'react';
 import ForceGraph, { VB } from '../components/neural/ForceGraph';
 import useNeuralData from '../components/neural/useNeuralData';
+import useCountUp from '../components/neural/useCountUp';
 import DossierDrawer from '../components/neural/DossierDrawer';
 import BrainView from '../components/neural/BrainView';
 import HierarchyView from '../components/neural/HierarchyView';
 import IngestBar from '../components/neural/IngestBar';
+import { useAgentWebsocket } from '../hooks/useAgentWebsocket';
 import '../components/neural/neural.css';
 
 const MODES = [
@@ -18,12 +20,19 @@ const MODES = [
     { key: 'hierarchy', label: 'Hierarchy' },
 ];
 
+// Live-strip numbers ease toward their targets instead of hard-swapping.
+const Count = ({ v }) => <>{useCountUp(v)}</>;
+
 const NeuralMap = memo(() => {
     const { world, raw, error, loading, refresh } = useNeuralData();
+    const { telemetryMetrics } = useAgentWebsocket();
     const [mode, setMode] = useState('map');
     const [selected, setSelected] = useState(null);
     const [focus, setFocus] = useState(null);
     const [camIndex, setCamIndex] = useState(-1); // -1 = full map
+
+    // Each telemetry frame from the live WebSocket pulses the agent nodes.
+    const pulseTs = useMemo(() => (telemetryMetrics ? Date.now() : 0), [telemetryMetrics]);
 
     const hubs = useMemo(() => (world?.hubs || []), [world]);
 
@@ -43,7 +52,8 @@ const NeuralMap = memo(() => {
             const i = hubs.findIndex((h) => `dept:${h.name}` === node.id);
             if (i >= 0) {
                 setCamIndex(i);
-                setFocus({ x: hubs[i].x, y: VB.H * 0.44, zoom: 1.4, ts: Date.now() });
+                // shock: the cluster pops outward as the camera flies in.
+                setFocus({ x: hubs[i].x, y: VB.H * 0.44, zoom: 1.4, ts: Date.now(), shock: hubs[i].name });
             }
         }
     }, [hubs]);
@@ -97,6 +107,7 @@ const NeuralMap = memo(() => {
                                 links={world.links}
                                 onNodeClick={onNodeClick}
                                 focus={focus}
+                                pulseTs={pulseTs}
                             />
                         )}
                         {mode === 'brain' && <BrainView world={world} raw={raw} onRefresh={refresh} />}
@@ -144,8 +155,8 @@ const NeuralMap = memo(() => {
                                     }}
                                 />
                                 <span>
-                                    {`LIVE · ${counts.departments} DEPARTMENTS · ${counts.agents} AGENTS · ${counts.commands} COMMANDS · ${counts.docs} DOCS`}
-                                    {counts.openCases != null ? ` · ${counts.openCases} OPEN CASES` : ''}
+                                    LIVE · <Count v={counts.departments} /> DEPARTMENTS · <Count v={counts.agents} /> AGENTS · <Count v={counts.commands} /> COMMANDS · <Count v={counts.docs} /> CHUNKS
+                                    {counts.openCases != null && <> · <Count v={counts.openCases} /> OPEN CASES</>}
                                 </span>
                             </div>
                         )}

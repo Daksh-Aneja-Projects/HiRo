@@ -2,18 +2,30 @@
 // containment ring, departments on a rotating dashed orbit in their brand
 // colors, and a stats/search panel that opens when the sphere is clicked.
 //
-// Honesty rule: the knowledge endpoints (/api/knowledge/*) are still being
-// built and may 404. When they do, the sphere is sized by what IS known (the
-// live ingestion job count) and the panel says the core is being indexed -
-// no fabricated numbers, ever.
+// The knowledge endpoints (/api/knowledge/*) are LIVE: stats return the real
+// corpus (chunks by source) and the closed-loop numbers, and search is a
+// grounded POST that answers with citations or refuses honestly. The "being
+// indexed" copy survives only as the genuine 404/error fallback.
 import React, { memo, useState } from 'react';
 import BrainParticles from './BrainParticles';
 import IngestBar from './IngestBar';
-import { askKnowledge, syncKnowledge } from '../../config/api';
+import useCountUp from './useCountUp';
+import { askKnowledgeCore, syncKnowledge } from '../../config/api';
 import './neural.css';
 
 const ORBIT_RX = 0.40; // fraction of stage width
 const ORBIT_RY = 0.35; // fraction of stage height
+
+// Human names for the corpus source types the backend indexes.
+const SOURCE_LABELS = { policy: 'Policies', knowledge: 'Offboarding notes', document: 'Documents' };
+// Cluster labels sit INSIDE the sphere edge, per the recipe.
+const CLUSTER_POS = [
+    { left: '14%', top: '24%' },
+    { right: '10%', top: '38%' },
+    { left: '22%', bottom: '20%' },
+];
+
+const Count = ({ v }) => <>{useCountUp(v)}</>;
 
 const BrainView = memo(({ world, raw, onRefresh }) => {
     const [panelOpen, setPanelOpen] = useState(false);
@@ -25,9 +37,11 @@ const BrainView = memo(({ world, raw, onRefresh }) => {
 
     const knowledge = raw?.knowledge;
     const ingestion = raw?.ingestion;
-    const indexed = Boolean(knowledge);
-    const docs = Number(knowledge?.documents ?? knowledge?.notes ?? ingestion?.total ?? 0);
-    const pending = Number(ingestion?.pending ?? 0);
+    const corpus = knowledge?.corpus || null;
+    const loop = knowledge?.loop || null;
+    const indexed = Boolean(corpus);
+    const docs = Number(corpus?.total ?? ingestion?.total ?? 0);
+    const bySource = corpus?.by_source || {};
     const jobs = Array.isArray(ingestion?.jobs) ? ingestion.jobs : [];
     const depts = (world?.hubs || []).filter((h) => h.name !== 'Platform');
 
@@ -37,8 +51,13 @@ const BrainView = memo(({ world, raw, onRefresh }) => {
         setSearching(true);
         setAnswer(null);
         try {
-            const res = await askKnowledge(q);
-            setAnswer({ ok: true, data: res.data });
+            const res = await askKnowledgeCore(q);
+            const d = res.data || {};
+            if (d.status === 'answered') {
+                setAnswer({ ok: true, text: d.answer, confidence: d.confidence, citations: d.citations || [] });
+            } else {
+                setAnswer({ ok: false, note: d.reason || 'The knowledge core declined to answer that from what it has been taught.' });
+            }
         } catch (e) {
             setAnswer({
                 ok: false,
@@ -88,7 +107,7 @@ const BrainView = memo(({ world, raw, onRefresh }) => {
                         const ey = 320 + Math.sin(ang) * (sphereSize * 0.5);
                         return (
                             <g key={d.name}>
-                                <line x1={ex} y1={ey} x2={x} y2={y} stroke={d.color} strokeWidth="1" strokeOpacity="0.35" strokeDasharray="2 6" />
+                                <line x1={ex} y1={ey} x2={x} y2={y} stroke={d.color} strokeWidth="1" strokeOpacity="0.35" strokeDasharray="2 6" className="neural-link-animated" />
                                 <circle cx={x} cy={y} r="14" fill={`${d.color}1f`} stroke={d.color} strokeWidth="2" />
                                 <text
                                     x={x} y={y + (Math.sin(ang) >= 0 ? 30 : -24)} textAnchor="middle"
@@ -109,8 +128,15 @@ const BrainView = memo(({ world, raw, onRefresh }) => {
                 >
                     <span style={ui.ring} aria-hidden="true" />
                     <BrainParticles size={sphereSize} density={Math.min(1.4, 0.4 + docs * 0.06)} />
+                    {indexed && Object.entries(bySource).slice(0, 3).map(([k, n], i) => (
+                        <span key={k} className="mono" style={{ ...ui.clusterLabel, ...CLUSTER_POS[i] }}>
+                            {`${(SOURCE_LABELS[k] || k).toUpperCase()} · ${n}`}
+                        </span>
+                    ))}
                     <span className="mono" style={ui.sphereCaption}>
-                        {indexed ? `${docs} ITEMS INDEXED` : `${docs} DOCUMENTS RECEIVED`}
+                        {indexed
+                            ? <><Count v={docs} /> CHUNKS INDEXED · CLICK FOR STATS</>
+                            : <><Count v={docs} /> DOCUMENTS RECEIVED</>}
                     </span>
                 </button>
 
@@ -134,18 +160,28 @@ const BrainView = memo(({ world, raw, onRefresh }) => {
                     <div style={ui.panelScroll}>
                         <div style={ui.tileRow}>
                             <div style={ui.tile}>
-                                <div className="mono" style={ui.tileValue}>{docs}</div>
-                                <div style={ui.tileLabel}>{indexed ? 'Items' : 'Documents'}</div>
+                                <div className="mono" style={ui.tileValue}><Count v={docs} /></div>
+                                <div style={ui.tileLabel}>{indexed ? 'Chunks' : 'Documents'}</div>
                             </div>
                             <div style={ui.tile}>
-                                <div className="mono" style={ui.tileValue}>{pending}</div>
-                                <div style={ui.tileLabel}>Waiting</div>
+                                <div className="mono" style={ui.tileValue}><Count v={loop?.suggestions_made ?? 0} /></div>
+                                <div style={ui.tileLabel}>Suggestions</div>
                             </div>
                             <div style={ui.tile}>
-                                <div className="mono" style={ui.tileValue}>{indexed ? 'Live' : 'Indexing'}</div>
-                                <div style={ui.tileLabel}>State</div>
+                                <div className="mono" style={ui.tileValue}><Count v={loop?.solved_by_ai ?? 0} /></div>
+                                <div style={ui.tileLabel}>Solved by AI</div>
                             </div>
                         </div>
+
+                        {indexed && Object.entries(bySource).map(([k, n]) => (
+                            <div key={k} style={ui.sourceRow}>
+                                <span style={ui.sourceLabel}>{SOURCE_LABELS[k] || k}</span>
+                                <span style={ui.sourceBarTrack}>
+                                    <span style={{ ...ui.sourceBarFill, width: `${Math.max(4, Math.round((n / Math.max(1, docs)) * 100))}%` }} />
+                                </span>
+                                <span className="mono" style={ui.sourceCount}>{n}</span>
+                            </div>
+                        ))}
 
                         <div style={ui.searchRow}>
                             <input
@@ -162,9 +198,14 @@ const BrainView = memo(({ world, raw, onRefresh }) => {
                         </div>
                         {answer && (
                             <div style={ui.answerCard}>
-                                {answer.ok
-                                    ? (answer.data?.answer || answer.data?.result || 'The knowledge core returned no text for that.')
-                                    : answer.note}
+                                {answer.ok ? (
+                                    <>
+                                        <div>{answer.text}</div>
+                                        <div className="mono" style={ui.answerMeta}>
+                                            {`${Math.round((answer.confidence || 0) * 100)}% CONFIDENCE · ${answer.citations.length} SOURCE${answer.citations.length === 1 ? '' : 'S'}`}
+                                        </div>
+                                    </>
+                                ) : answer.note}
                             </div>
                         )}
 
@@ -206,6 +247,18 @@ const ui = {
         pointerEvents: 'none',
     },
     sphereCaption: { fontSize: 10.5, letterSpacing: '0.14em', color: '#fb923c' },
+    clusterLabel: {
+        position: 'absolute', zIndex: 2, pointerEvents: 'none',
+        fontSize: 9, letterSpacing: '0.1em', color: 'rgba(251,146,60,0.95)',
+        background: 'color-mix(in srgb, var(--bg-main) 55%, transparent)',
+        padding: '2px 6px', borderRadius: 6,
+    },
+    sourceRow: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 },
+    sourceLabel: { fontSize: 11, color: 'var(--text-secondary)', width: 108, flexShrink: 0 },
+    sourceBarTrack: { flexGrow: 1, height: 5, borderRadius: 999, background: 'var(--border-subtle)', overflow: 'hidden' },
+    sourceBarFill: { display: 'block', height: '100%', borderRadius: 999, background: '#fb923c', transition: 'width 0.8s cubic-bezier(0.2, 0.8, 0.2, 1)' },
+    sourceCount: { fontSize: 10.5, color: 'var(--text-tertiary)', width: 26, textAlign: 'right', flexShrink: 0 },
+    answerMeta: { marginTop: 8, fontSize: 9.5, letterSpacing: '0.1em', color: '#fb923c' },
     indexingNote: {
         margin: '14px 24px 0', maxWidth: 440, textAlign: 'center',
         fontSize: 12.5, lineHeight: 1.5, color: 'var(--text-tertiary)',

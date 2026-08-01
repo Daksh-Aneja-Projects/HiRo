@@ -537,3 +537,139 @@ export const markAllNotificationsRead = () => api.post('/notifications/read-all'
 export const getKnowledgeStats = () => api.get('/knowledge/stats');
 export const askKnowledge = (q) => api.get('/knowledge/ask', { params: { q } });
 export const syncKnowledge = () => api.post('/knowledge/sync');
+
+// =========================================================================================================
+// EMPLOYEE / MANAGER PORTAL EXTENSIONS (goals, onboarding plan, pulse, performance cycles,
+// offboarding read-back, notification preferences, knowledge Q&A, HRSD suggested resolution,
+// nudges, one-on-ones, cycle review, team goals, hiring pipeline, milestones, onboarding team)
+// =========================================================================================================
+
+// --- ESS: Goals / OKRs ---
+export const getGoals = () => api.get('/ess/goals');
+export const createGoal = (data) => api.post('/ess/goals', data);
+export const updateGoal = (goalId, data) => api.put(`/ess/goals/${encodeURIComponent(goalId)}`, data);
+export const deleteGoalRecord = (goalId) => api.delete(`/ess/goals/${encodeURIComponent(goalId)}`);
+// LLM-backed draft: runs the local model, needs the long timeout.
+export const draftGoal = (intent) => api.post('/ess/goals/draft', { intent }, { timeout: LLM_TIMEOUT_MS });
+
+// --- ESS: Onboarding my-plan ---
+export const getMyOnboardingPlan = () => api.get('/ess/onboarding/my-plan');
+export const completeOnboardingItem = (itemId) => api.post(`/ess/onboarding/items/${encodeURIComponent(itemId)}/complete`);
+
+// --- ESS: Pulse survey ---
+export const submitPulseSurvey = (data) => api.post('/ess/pulse', data);
+
+// --- ESS: Performance cycles ---
+export const getMyPerformanceCycles = () => api.get('/ess/performance/my-cycles');
+export const submitSelfAssessment = (data) => api.post('/ess/performance/self-assessment', data);
+export const submitPerformanceSignOff = (data) => api.post('/ess/performance/sign-off', data);
+
+// --- ESS: Offboarding read-back + exit interview ---
+export const getMyOffboardingKnowledge = () => api.get('/ess/offboarding/knowledge/mine');
+export const submitExitInterview = (data) => api.post('/ess/offboarding/exit-interview', data);
+
+// --- Notification preferences ---
+export const getNotificationPreferences = () => api.get('/me/notification-preferences');
+export const updateNotificationPreferences = (kinds) => api.put('/me/notification-preferences', { kinds });
+
+// --- Knowledge Q&A + HRSD suggested resolution ---
+// LLM-backed grounded answer: runs the local model, needs the long timeout.
+export const askKnowledgeQuestion = (question) => api.post('/knowledge/ask', { question }, { timeout: LLM_TIMEOUT_MS });
+export const getTicketSuggestion = (ticketId) => api.get(`/knowledge/tickets/${encodeURIComponent(ticketId)}`);
+export const submitResolutionFeedback = (ticketId, helpful) =>
+    api.post(`/hrsd/tickets/${encodeURIComponent(ticketId)}/resolution-feedback`, { helpful });
+
+// --- MSS: Nudges digest ---
+export const getNudges = () => api.get('/mss/nudges');
+
+// --- MSS: One-on-ones ---
+export const getOneOnOnes = (employeeUuid) => api.get('/mss/one-on-ones', { params: employeeUuid ? { employee_uuid: employeeUuid } : {} });
+export const createOneOnOne = (data) => api.post('/mss/one-on-ones', data);
+export const updateOneOnOne = (id, data) => api.put(`/mss/one-on-ones/${encodeURIComponent(id)}`, data);
+export const deleteOneOnOne = (id) => api.delete(`/mss/one-on-ones/${encodeURIComponent(id)}`);
+export const getOneOnOneStatus = () => api.get('/mss/one-on-ones/status');
+
+// --- MSS: Performance cycle review ---
+export const getCycleEntries = (cycleId) => api.get('/mss/performance/cycle-entries', { params: { cycle_id: cycleId } });
+export const reviewCycleEntry = (data) => api.post('/mss/performance/review-entry', data);
+
+// --- MSS: Team goals ---
+export const getTeamGoals = () => api.get('/mss/goals/team');
+export const commentOnGoal = (goalId, text) => api.post(`/mss/goals/${encodeURIComponent(goalId)}/comment`, { text });
+
+// --- MSS: Hiring, internal mobility + candidate pipeline ---
+export const getInternalMatches = (requisitionId) => api.get(`/mss/hiring/requisitions/${encodeURIComponent(requisitionId)}/internal-matches`);
+export const getCandidates = (requisitionId) => api.get(`/mss/hiring/requisitions/${encodeURIComponent(requisitionId)}/candidates`);
+export const createCandidate = (requisitionId, data) => api.post(`/mss/hiring/requisitions/${encodeURIComponent(requisitionId)}/candidates`, data);
+export const advanceCandidate = (candidateId, stage, note = '') =>
+    api.post(`/mss/hiring/candidates/${encodeURIComponent(candidateId)}/advance`, { stage, note });
+
+// --- MSS: Milestones + team onboarding progress ---
+export const getMilestones = () => api.get('/mss/milestones');
+export const getTeamOnboarding = () => api.get('/mss/onboarding/team');
+
+// =========================================================================================================
+// TALENT INTELLIGENCE + PEOPLE LIFECYCLE (milestone-1 additions). Owned by the
+// HR/HRIT/Admin portal build; appended here per file-ownership convention rather
+// than interleaved with the sections above.
+// =========================================================================================================
+
+// --- Engagement / eNPS pulse (HR) ---
+export const getEngagementSummary = (surveyId) =>
+    api.get('/hr/engagement/summary', { params: surveyId ? { survey_id: surveyId } : {} });
+
+// --- Succession planning ---
+export const getSuccessionPlan = () => api.get('/hr/succession/plan');
+export const getNineBox = () => api.get('/hr/succession/nine-box');
+export const createSuccessionNomination = (data) => api.post('/hr/succession/nominations', data);
+
+// --- Compensation review cycles ---
+// GET /hr/comp/cycles (list) is shadowed by the older GET /hr/comp/{employee_id}
+// route on the backend and currently 500s; only create/get-by-id/patch/finalize
+// are used until that route collision is fixed server-side.
+export const createCompCycle = (department, budgetPct, name) =>
+    api.post('/hr/comp/cycles', { department, budget_pct: budgetPct, name });
+export const getCompCycle = (cycleId) => api.get(`/hr/comp/cycles/${encodeURIComponent(cycleId)}`);
+export const adjustCompCycleLine = (cycleId, lineId, proposedPct) =>
+    api.patch(`/hr/comp/cycles/${encodeURIComponent(cycleId)}/lines/${encodeURIComponent(lineId)}`, { proposed_pct: proposedPct });
+export const finalizeCompCycle = (cycleId) => api.post(`/hr/comp/cycles/${encodeURIComponent(cycleId)}/finalize`);
+
+// --- Headcount planning ---
+export const createHeadcountPlan = (department, fiscalLabel, plannedHeadcount) =>
+    api.post('/hr/headcount/plans', { department, fiscal_label: fiscalLabel, planned_headcount: plannedHeadcount });
+export const getHeadcountPlans = (department) =>
+    api.get('/hr/headcount/plans', { params: department ? { department } : {} });
+export const updateHeadcountPlan = (planId, data) => api.patch(`/hr/headcount/plans/${encodeURIComponent(planId)}`, data);
+export const deleteHeadcountPlan = (planId) => api.delete(`/hr/headcount/plans/${encodeURIComponent(planId)}`);
+export const getHeadcountVariance = () => api.get('/hr/headcount/variance');
+
+// --- Performance cycle admin ---
+// GET /hr/performance/cycles (list) is shadowed by the older
+// GET /hr/performance/{employee_id} route on the backend; same workaround as
+// the comp cycles above (create/get-by-id/advance/calibrate only).
+export const createPerformanceCycle = (data) => api.post('/hr/performance/cycles', data);
+export const getPerformanceCycle = (cycleId) => api.get(`/hr/performance/cycles/${encodeURIComponent(cycleId)}`);
+export const advancePerformanceCycle = (cycleId) => api.post(`/hr/performance/cycles/${encodeURIComponent(cycleId)}/advance`);
+export const calibratePerformanceEntry = (cycleId, employeeUuid, calibratedRating) =>
+    api.post(`/hr/performance/cycles/${encodeURIComponent(cycleId)}/calibrate-entry`, {
+        employee_uuid: employeeUuid, calibrated_rating: calibratedRating,
+    });
+
+// --- Exit interviews + offboarding knowledge (read side, HR) ---
+export const getExitInterviews = () => api.get('/hr/offboarding/exit-interviews');
+export const getOffboardingKnowledge = (employeeUuid) =>
+    api.get('/hr/offboarding/knowledge', { params: employeeUuid ? { employee_uuid: employeeUuid } : {} });
+
+// --- Profile change request queue ---
+export const getProfileChangeRequests = () => api.get('/hr/profile-change-requests');
+export const decideProfileChangeRequest = (requestId, approve, comments = '') =>
+    api.post(`/hr/profile-change-requests/${encodeURIComponent(requestId)}/decide`, { approve, comments });
+
+// --- Onboarding admin ---
+export const createOnboardingPlan = (employeeUuid, extraItems) =>
+    api.post('/hr/onboarding/plans', { employee_uuid: employeeUuid, extra_items: extraItems });
+
+// --- neural (Neural Map) - append-only section ---
+// The knowledge endpoints are LIVE now. /knowledge/ask is a POST taking
+// {question}; the GET wrapper above predates the endpoint shipping and 405s.
+export const askKnowledgeCore = (question) => api.post('/knowledge/ask', { question });

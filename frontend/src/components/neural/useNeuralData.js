@@ -159,7 +159,8 @@ export default function useNeuralData() {
         }
 
         // --- The brain (pinned) ---
-        const docsKnown = Number(knowledge?.documents ?? knowledge?.notes ?? ingestion?.total ?? 0);
+        // The live /knowledge/stats shape is {corpus: {total, by_source}, loop}.
+        const docsKnown = Number(knowledge?.corpus?.total ?? ingestion?.total ?? 0);
         nodes.push({
             id: 'brain',
             type: 'brain',
@@ -237,7 +238,7 @@ export default function useNeuralData() {
                 if (agentNames.includes(t.agent)) {
                     links.push({ source: id, target: agentId, tier: 'task-agent' });
                 } else {
-                    links.push({ source: id, target: `dept:${dept}`, tier: 'agent-hub' });
+                    links.push({ source: id, target: `dept:${dept}`, tier: 'task-hub' });
                 }
             });
         });
@@ -264,6 +265,13 @@ export default function useNeuralData() {
         // The AI engine feeds the AI Service directly - a real dependency.
         if (checks.ai_primary && agentNames.includes('AIService')) {
             links.push({ source: 'connector:ai_primary', target: 'agent:AIService', tier: 'connector-agent' });
+        }
+        // Real message links: with the bus connected, every registered agent
+        // passes work over NATS - the gold comms tier.
+        if (checks.nats && orch?.message_bus_connected) {
+            agentNames.forEach((name) => {
+                links.push({ source: `agent:${name}`, target: 'connector:nats', tier: 'agent-comms' });
+            });
         }
 
         return {

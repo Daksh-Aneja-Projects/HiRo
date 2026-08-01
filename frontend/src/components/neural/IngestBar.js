@@ -25,9 +25,17 @@ const IngestBar = memo(({ onIngested }) => {
         setBusy(true);
         try {
             const payload = file || new File([note], `note-${Date.now()}.txt`, { type: 'text/plain' });
-            await uploadIngestionFile(payload);
+            const res = await uploadIngestionFile(payload);
             setText('');
-            say(`Learned. "${payload.name}" is stored and queued for indexing.`);
+            // Surface what the pipeline actually did: stored, and (for text
+            // files) how many searchable chunks landed in the corpus.
+            const d = res?.data || {};
+            const idx = d.indexing || {};
+            const stored = d.message || `"${payload.name}" was stored.`;
+            const indexedNote = idx.status === 'indexed'
+                ? ` Indexed into ${idx.chunks} searchable chunk${idx.chunks === 1 ? '' : 's'} - the brain can answer about it now.`
+                : (idx.reason ? ` ${idx.reason}` : '');
+            say(`${stored}${indexedNote}`);
             if (onIngested) onIngested();
         } catch (e) {
             say('That could not be stored. The ingestion pipeline did not accept it.');

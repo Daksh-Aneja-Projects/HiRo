@@ -13,14 +13,16 @@ import './neural.css';
 export const VB = { W: 1560, H: 680 };
 
 const LINK_STYLE = {
-    'hub-hub': { stroke: 'rgba(255,255,255,0.16)', width: 1, opacity: 0.7, dash: '3 7' },
+    'hub-hub': { stroke: 'var(--text-tertiary)', width: 1, opacity: 0.35, dash: '3 7' },
     'hub-brain': { stroke: 'rgba(251,146,60,0.45)', width: 1.2, opacity: 0.8, dash: '2 6', animated: true },
     'agent-hub': { stroke: 'rgba(139,147,248,0.4)', width: 1.2, opacity: 0.85 },
     'task-agent': { stroke: 'rgba(242,201,76,0.42)', width: 1, opacity: 0.8, dash: '2 5', animated: true },
-    'connector-hub': { stroke: 'rgba(63,185,229,0.42)', width: 1.1, opacity: 0.8 },
-    'connector-agent': { stroke: 'rgba(63,185,229,0.38)', width: 1, opacity: 0.7, dash: '2 4' },
+    'task-hub': { stroke: 'rgba(242,201,76,0.35)', width: 1, opacity: 0.75, dash: '2 5', animated: true },
+    'agent-comms': { stroke: 'rgba(234,179,8,0.5)', width: 1, opacity: 0.8, dash: '1 7', animated: true },
+    'connector-hub': { stroke: 'rgba(63,185,229,0.42)', width: 1.1, opacity: 0.8, dash: '4 4', animated: true },
+    'connector-agent': { stroke: 'rgba(63,185,229,0.38)', width: 1, opacity: 0.7, dash: '2 4', animated: true },
 };
-const DEFAULT_LINK = { stroke: 'rgba(255,255,255,0.12)', width: 1, opacity: 0.6 };
+const DEFAULT_LINK = { stroke: 'var(--text-tertiary)', width: 1, opacity: 0.3 };
 
 const SPRING_K = 0.018;
 const REPULSE = 950;
@@ -32,9 +34,10 @@ const REST_MAX = 420;
 
 const truncate = (s, n = 18) => (s && s.length > n ? `${s.slice(0, n - 1)}…` : s || '');
 
-const ForceGraph = memo(({ nodes, links, onNodeClick, focus }) => {
+const ForceGraph = memo(({ nodes, links, onNodeClick, focus, pulseTs }) => {
     const svgRef = useRef(null);
     const nodeEls = useRef(new Map());
+    const pulseEls = useRef(new Map()); // agent silhouettes, flashed on telemetry
     const linkEls = useRef(new Map());
     const labelEls = useRef(new Map());
     const simRef = useRef({ nodes: [], links: [], byId: new Map(), alpha: 1 });
@@ -99,12 +102,17 @@ const ForceGraph = memo(({ nodes, links, onNodeClick, focus }) => {
 
             sim.nodes.forEach((n) => {
                 if (n.fixed || n.dragging) return;
-                // Ambient drift: tiny per-node phase-offset sinusoids.
-                n.vx += Math.sin(time * 0.7 + n.phase) * 0.045 * a;
-                n.vy += Math.cos(time * 0.6 + n.phase * 1.3) * 0.045 * a;
-                // Home anchoring.
-                n.vx += (n.homeX - n.x) * ANCHOR_K * a;
-                n.vy += (n.homeY - n.y) * ANCHOR_K * a;
+                // Ambient drift: per-node phase-offset sinusoids at CONSTANT
+                // amplitude. Scaling this by alpha was the "static map" bug:
+                // at the 0.05 floor the drift was sub-pixel, so the loop ran
+                // forever while nothing visibly moved.
+                n.vx += Math.sin(time * 0.7 + n.phase) * 0.06;
+                n.vy += Math.cos(time * 0.6 + n.phase * 1.3) * 0.06;
+                // Home anchoring - never weaker than 30% strength, or the
+                // constant drift walks nodes ~80px off their band.
+                const aa = Math.max(a, 0.3);
+                n.vx += (n.homeX - n.x) * ANCHOR_K * aa;
+                n.vy += (n.homeY - n.y) * ANCHOR_K * aa;
             });
 
             // Short-range pairwise repulsion (~40 nodes, O(n^2) is nothing).
@@ -175,6 +183,17 @@ const ForceGraph = memo(({ nodes, links, onNodeClick, focus }) => {
     useEffect(() => {
         if (!focus || !focus.ts) return undefined;
         simRef.current.alpha = Math.max(simRef.current.alpha, 0.5);
+        // Clicking a hub pulses its cluster: a radial shock through every
+        // floating node of that department, decaying under normal damping.
+        if (focus.shock && !reduced) {
+            const hubY = VB.H * 0.74;
+            simRef.current.nodes.forEach((n) => {
+                if (n.dept !== focus.shock || n.fixed || n.dragging) return;
+                n.vx += (n.x - focus.x) * 0.03;
+                n.vy += (n.y - hubY) * 0.018;
+            });
+            simRef.current.alpha = Math.max(simRef.current.alpha, 0.9);
+        }
         const from = { ...vbRef.current };
         const w = VB.W / (focus.zoom || 1);
         const h = VB.H / (focus.zoom || 1);
@@ -197,6 +216,19 @@ const ForceGraph = memo(({ nodes, links, onNodeClick, focus }) => {
         return () => cancelAnimationFrame(focusRafRef.current);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [focus]);
+
+    // Telemetry tick: flash every agent silhouette. The class lives on an
+    // inner group so the CSS transform never fights the rAF-positioned outer
+    // group's translate.
+    useEffect(() => {
+        if (!pulseTs || reduced) return;
+        pulseEls.current.forEach((el) => {
+            el.classList.remove('neural-node-pulse');
+            // Force a reflow so the animation retriggers on every tick.
+            void el.getBoundingClientRect();
+            el.classList.add('neural-node-pulse');
+        });
+    }, [pulseTs, reduced]);
 
     // ---- Interaction: node drag, pan, zoom ----
     const clientToVb = (cx, cy) => {
@@ -353,8 +385,10 @@ const ForceGraph = memo(({ nodes, links, onNodeClick, focus }) => {
                         )}
                         {n.type === 'agent' && (
                             <>
-                                <circle r={n.r + 3.5} fill="none" stroke={n.color} strokeWidth="1.5" opacity="0.9" />
-                                <circle r={n.r} fill={n.color} />
+                                <g ref={(el) => (el ? pulseEls.current.set(n.id, el) : pulseEls.current.delete(n.id))}>
+                                    <circle r={n.r + 3.5} fill="none" stroke={n.color} strokeWidth="1.5" opacity="0.9" />
+                                    <circle r={n.r} fill={n.color} />
+                                </g>
                                 <text
                                     ref={(el) => (el ? labelEls.current.set(n.id, el) : labelEls.current.delete(n.id))}
                                     data-tier="agent"

@@ -6,11 +6,14 @@
 import React, { memo, useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import useCountUp from './useCountUp';
 import './neural.css';
 
 const RISK_COLOR = { LOW: 'var(--accent-success)', MEDIUM: 'var(--accent-warning)', HIGH: 'var(--accent-danger)' };
 
+// The ring fills via count-up on mount, so health visibly "charges".
 const HealthRing = ({ pct, color }) => {
+    const shown = useCountUp(pct, 1100);
     const r = 17;
     const c = 2 * Math.PI * r;
     return (
@@ -18,14 +21,19 @@ const HealthRing = ({ pct, color }) => {
             <circle cx="22" cy="22" r={r} fill="none" stroke="var(--border-subtle)" strokeWidth="3.5" />
             <circle
                 cx="22" cy="22" r={r} fill="none" stroke={color} strokeWidth="3.5"
-                strokeDasharray={`${(pct / 100) * c} ${c}`} strokeLinecap="round"
+                strokeDasharray={`${(shown / 100) * c} ${c}`} strokeLinecap="round"
                 transform="rotate(-90 22 22)"
             />
             <text x="22" y="26" textAnchor="middle" style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10.5, fill: 'var(--text-primary)' }}>
-                {pct}
+                {shown}
             </text>
         </svg>
     );
+};
+
+const Headcount = ({ value }) => {
+    const shown = useCountUp(value, 1100);
+    return <>{shown.toLocaleString()}</>;
 };
 
 const HierarchyView = memo(({ world, raw }) => {
@@ -130,7 +138,7 @@ const HierarchyView = memo(({ world, raw }) => {
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                                     <div style={{ minWidth: 0 }}>
                                         <div style={{ ...ui.deptName, color: d.color }}>{d.name}</div>
-                                        <div className="mono" style={ui.deptCount}>{det ? det.headcount.toLocaleString() : '-'}</div>
+                                        <div className="mono" style={ui.deptCount}>{det ? <Headcount value={det.headcount} /> : '-'}</div>
                                         <div style={ui.cardSub}>people</div>
                                     </div>
                                     <HealthRing pct={covered} color={d.color} />
@@ -154,8 +162,11 @@ const HierarchyView = memo(({ world, raw }) => {
 const ui = {
     scroller: { position: 'absolute', inset: 0, overflowY: 'auto', overflowX: 'hidden' },
     container: {
+        // space-evenly + a growing dept grid: the chart uses the whole
+        // vertical space instead of stacking at the top with dead air below.
         position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center',
-        gap: 34, padding: '26px 22px 30px', minHeight: '100%', boxSizing: 'border-box',
+        justifyContent: 'space-evenly', gap: 22, padding: '22px 22px 46px',
+        minHeight: '100%', boxSizing: 'border-box',
     },
     linesSvg: { position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' },
     card: {
@@ -181,9 +192,9 @@ const ui = {
     },
     deptGrid: {
         display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
-        gap: 12, width: '100%', maxWidth: 1180,
+        gap: 12, width: '100%', maxWidth: 1180, flexGrow: 1, alignContent: 'space-evenly',
     },
-    deptCard: { padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 },
+    deptCard: { padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 12, justifyContent: 'space-between' },
     deptName: {
         fontFamily: "'JetBrains Mono', monospace", fontSize: 10, letterSpacing: '0.1em',
         textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',

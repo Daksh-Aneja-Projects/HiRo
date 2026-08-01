@@ -24,7 +24,14 @@
   50% { opacity: 0.35; }
 }
 
+@keyframes neural-node-pulse {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.5); }
+  100% { transform: scale(1); }
+}
+
 .neural-link-animated { animation: neural-dash 1.6s linear infinite; }
+.neural-node-pulse { animation: neural-node-pulse 0.7s cubic-bezier(0.2, 0.8, 0.2, 1); transform-origin: center; transform-box: fill-box; }
 .neural-hub-pulse { animation: neural-pulse 3.4s ease-in-out infinite; transform-origin: center; transform-box: fill-box; }
 .neural-halo-spin { animation: neural-spin 90s linear infinite; transform-origin: center; transform-box: fill-box; }
 .neural-rise { animation: neural-rise 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
@@ -36,6 +43,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .neural-link-animated,
+  .neural-node-pulse,
   .neural-hub-pulse,
   .neural-halo-spin,
   .neural-rise,
