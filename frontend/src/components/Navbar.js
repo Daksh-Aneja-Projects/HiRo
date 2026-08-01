@@ -47,7 +47,9 @@ const Navbar = () => {
 const styles = {
     bar: {
         height: 56, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '0 28px', borderBottom: '1px solid var(--border-subtle)', background: 'color-mix(in srgb, var(--bg-main) 80%, transparent)',
+        // Matches the 32px content gutter so the navbar title and the page
+        // titles below it start on the same vertical line.
+        padding: '0 32px', borderBottom: '1px solid var(--border-subtle)', background: 'color-mix(in srgb, var(--bg-main) 80%, transparent)',
         backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', position: 'sticky', top: 0, zIndex: 100, boxSizing: 'border-box',
     },
     title: { fontSize: 15, fontWeight: 600, letterSpacing: '-0.01em', color: 'var(--text-primary)' },

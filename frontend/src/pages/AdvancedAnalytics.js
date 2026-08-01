@@ -13,10 +13,9 @@ import { ScatterChart as RScatterChart, Scatter, XAxis as RXAxis, YAxis as RYAxi
 
 // --- Static Style Definitions ---
 const getStyles = (tokens) => ({
+    // Gutter, width and centering come from the shared .portal-container class
+    // so this page lines up with every other portal.
     portalContainer: {
-        padding: tokens.spacing?.xl,
-        maxWidth: tokens.breakpoints?.desktop,
-        margin: '0 auto',
         color: tokens.color?.['text-100'],
         fontFamily: tokens.typography?.fontFamily,
     },
@@ -337,7 +336,7 @@ AnalyticsDashboard.displayName = 'AnalyticsDashboard';
 const AdvancedAnalytics = memo(() => {
     const styles = useMemo(() => getStyles(tokens), []);
     return (
-        <div style={styles.portalContainer} role="main" aria-label="Advanced Analytics Portal">
+        <div style={styles.portalContainer} className="portal-container" role="main" aria-label="Advanced Analytics Portal">
             <header style={styles.header}>
                 <h1 style={styles.title}>
                     <BarChart3 size={24} style={{ color: tokens.color?.['success'] }} />

@@ -626,7 +626,7 @@ export const AdminPortalComponent = memo(() => {
     }[module] || <UnknownModule name={module} />;
 
     return (
-        <div style={portalShell.page}>
+        <div style={portalShell.page} className="portal-shell-page">
             <PortalHeader
                 icon={ShieldCheck}
                 accent={tokens.color?.danger}

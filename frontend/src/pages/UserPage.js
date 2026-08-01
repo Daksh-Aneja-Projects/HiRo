@@ -70,7 +70,11 @@ const UserPage = memo(() => {
     }, [nameValid, emailValid, form, toast, refetch]);
 
     const styles = useMemo(() => ({
-        page: { display: 'flex', flexDirection: 'column', gap: tokens.spacing?.lg, maxWidth: 980, minWidth: 0 },
+        // Gutter comes from the shared .portal-container class. The page keeps
+        // itself narrow (a profile reads best under 980px) but stays left-aligned
+        // with margin 0, so its content starts on the same vertical line as
+        // every other portal instead of drifting toward the center.
+        page: { display: 'flex', flexDirection: 'column', gap: tokens.spacing?.lg, maxWidth: 980, minWidth: 0, margin: 0 },
         header: { borderBottom: `1px solid ${tokens.color?.['border-600']}`, paddingBottom: tokens.spacing?.md },
         title: {
             margin: 0, display: 'flex', alignItems: 'center', gap: tokens.spacing?.sm,
@@ -85,7 +89,7 @@ const UserPage = memo(() => {
     }
 
     return (
-        <div style={styles.page} className="user-profile-page">
+        <div style={styles.page} className="portal-container user-profile-page">
             <EmployeeStyles />
 
             <div style={styles.header}>

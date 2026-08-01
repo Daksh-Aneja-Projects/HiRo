@@ -511,7 +511,7 @@ export const UltimateOrchestratorPanelComponent = memo(() => {
     }[module] || <UnknownModule name={module} />;
 
     return (
-        <div style={portalShell.page}>
+        <div style={portalShell.page} className="portal-shell-page">
             <PortalHeader
                 icon={Gauge}
                 accent={tokens.color?.warning}

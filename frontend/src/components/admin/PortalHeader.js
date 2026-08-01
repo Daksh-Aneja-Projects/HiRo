@@ -93,10 +93,19 @@ export const UnknownModule = memo(({ name }) => (
 ));
 UnknownModule.displayName = 'UnknownModule';
 
-// Page frame: fixed header, single contained scroller. The page itself never scrolls.
+// Page frame: fixed header, single contained scroller. The page itself never
+// scrolls. The horizontal gutter comes from the shared .portal-shell-page class
+// in App.css (one definition for the whole app), so pair `page` with
+// `className="portal-shell-page"` and never add outer padding here.
 export const portalShell = {
     page: { height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0, boxSizing: 'border-box' },
-    body: { flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', paddingTop: tokens.spacing?.lg, paddingRight: 4 },
+    body: {
+        flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden',
+        paddingTop: tokens.spacing?.lg, paddingRight: 4,
+        // The page cannot scroll, so the breathing room at the end of the
+        // content belongs to this inner scroller.
+        paddingBottom: tokens.spacing?.xl,
+    },
 };
 
 export default PortalHeader;

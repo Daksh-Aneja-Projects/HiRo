@@ -640,7 +640,7 @@ export const HRITPortalComponent = memo(() => {
     }[module] || <UnknownModule name={module} />;
 
     return (
-        <div style={portalShell.page}>
+        <div style={portalShell.page} className="portal-shell-page">
             <PortalHeader
                 icon={Cpu}
                 accent={tokens.color?.['accent-primary']}

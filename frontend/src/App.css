@@ -17,7 +17,18 @@
     animation: fadeIn 0.32s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
 }
 
+/* The ONE content gutter. Every routed page wears one of these two classes:
+   .portal-container for pages that scroll as a whole, .portal-shell-page for
+   the console pages whose header is fixed and whose body scrolls inside
+   (their bottom padding lives on the inner scroller so content can reach it).
+   Pages must not add their own outer padding on top of this. */
 .portal-container { padding: 28px 32px 96px; max-width: 1440px; margin: 0 auto; width: 100%; }
+.portal-shell-page { padding: 28px 32px 0; max-width: 1440px; margin: 0 auto; width: 100%; }
+
+@media (max-width: 768px) {
+    .portal-container { padding: 18px 16px 96px; }
+    .portal-shell-page { padding: 18px 16px 0; }
+}
 
 /* Utility */
 .flex { display: flex; }
