@@ -4,8 +4,8 @@
 
 # --- Core Web/Async Frameworks ---
 fastapi==0.111.0
-pydantic==1.10.17         # CRITICAL FIX: Pinning Pydantic back to the last stable V1 release to guarantee compatibility with nats-py 2.12.0 and eliminate the 'evolve' error.
-email-validator==2.1.1    
+pydantic==2.9.2           # V2. nats-py has no pydantic dependency, so nothing here constrains this to V1.
+email-validator==2.1.1
 starlette==0.37.2
 uvicorn[standard]==0.30.1
 gunicorn==22.0.0
@@ -47,7 +47,7 @@ pytest==7.4.3
 pytest-asyncio==0.21.1
 pytest-mock==3.12.0
 pytest-cov==4.1.0
-nats-py==2.12.0
+nats-py==2.15.0
 
 # --- Web Scraping / Parsing ---
 beautifulsoup4==4.12.3

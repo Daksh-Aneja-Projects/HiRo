@@ -59,7 +59,7 @@ def _role_checker(allowed_roles: List[str], payload: AuthPayload) -> Dict[str, A
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Access denied. Required roles: {', '.join(allowed_roles)}"
         )
-    return payload.model_dump() if hasattr(payload, "model_dump") else payload.dict()
+    return payload.model_dump()
 
 # --- RBAC Dependency Functions (Aligned with Frontend Portals) ---
 

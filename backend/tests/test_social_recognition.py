@@ -10,11 +10,16 @@ from services import social_recognition as sr
 
 
 class FakeCursor:
-    def __init__(self, docs):
+    def __init__(self, docs, projection=None):
         self._docs = docs
+        self._projection = projection or {}
 
-    def sort(self, field, direction):
-        self._docs = sorted(self._docs, key=lambda d: d.get(field), reverse=direction < 0)
+    def sort(self, spec, direction=None):
+        # Accept either sort("field", dir) or sort([("f1", d1), ("f2", d2)]).
+        keys = spec if isinstance(spec, list) else [(spec, direction)]
+        # Stable multi-key sort: apply least-significant key first.
+        for field, dirn in reversed(keys):
+            self._docs = sorted(self._docs, key=lambda d: d.get(field), reverse=dirn < 0)
         return self
 
     def limit(self, n):
@@ -22,7 +27,12 @@ class FakeCursor:
         return self
 
     async def to_list(self, n):
-        return list(self._docs[:n])
+        # Mongo applies the projection last (after sort/limit), so _id is available
+        # for sorting even when the caller projects it out.
+        docs = self._docs[:n]
+        if self._projection.get("_id") == 0:
+            docs = [{k: v for k, v in d.items() if k != "_id"} for d in docs]
+        return list(docs)
 
 
 class FakeCollection:
@@ -30,9 +40,7 @@ class FakeCollection:
         self.docs = []
 
     def find(self, query=None, projection=None):
-        # Only the {} filter with {"_id": 0} projection is used here.
-        out = [{k: v for k, v in d.items() if k != "_id"} for d in self.docs]
-        return FakeCursor(out)
+        return FakeCursor([dict(d) for d in self.docs], projection)
 
     async def find_one(self, query):
         for d in self.docs:
@@ -41,7 +49,7 @@ class FakeCollection:
         return None
 
     async def insert_one(self, doc):
-        doc["_id"] = f"oid{len(self.docs)}"
+        doc["_id"] = f"oid{len(self.docs):06d}"
         self.docs.append(doc)
 
     async def insert_many(self, docs):

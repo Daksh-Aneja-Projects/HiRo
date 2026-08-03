@@ -22,8 +22,15 @@ def get_db(request):
 
 
 async def list_feed(db, limit: int = FEED_LIMIT):
-    """Recent posts, newest first. Shape: id, user_name, timestamp, content, upvotes, downvotes."""
-    return await db.social_posts.find({}, {"_id": 0}).sort("timestamp", -1).limit(limit).to_list(limit)
+    """Recent posts, newest first. Shape: id, user_name, timestamp, content, upvotes, downvotes.
+
+    Sorts by timestamp then _id (descending). The _id tiebreak keeps ordering
+    deterministic when two posts share a timestamp, since ObjectIds are monotonic
+    with insertion.
+    """
+    return await db.social_posts.find({}, {"_id": 0}).sort(
+        [("timestamp", -1), ("_id", -1)]
+    ).limit(limit).to_list(limit)
 
 
 async def create_post(db, *, user_id, user_name, content):
