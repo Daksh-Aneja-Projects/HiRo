@@ -250,11 +250,18 @@ async def lifespan(app: FastAPI):
             )
 
     try:
-        # 1. MongoDB
+        # 1. MongoDB. A failed connection is non-fatal: auth falls back to an
+        # in-memory store for the built-in accounts (see AuthService), and the
+        # rest of the stack already degrades gracefully when a datastore is down.
         logger.info("Connecting to MongoDB...")
-        app.state.mongo_client = AsyncIOMotorClient(settings.mongo_url())
-        await app.state.mongo_client.admin.command('ping')
-        logger.info(" ✅  MongoDB connected")
+        try:
+            app.state.mongo_client = AsyncIOMotorClient(
+                settings.mongo_url(), serverSelectionTimeoutMS=2000)
+            await app.state.mongo_client.admin.command('ping')
+            logger.info(" ✅  MongoDB connected")
+        except Exception as e:
+            logger.warning(f" ⚠️  MongoDB unavailable: {e}")
+            app.state.mongo_client = None
                 
         # 2. PostgreSQL
         try:

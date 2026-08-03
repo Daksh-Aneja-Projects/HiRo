@@ -107,7 +107,7 @@ On first boot the Ollama image pulls `qwen2.5:7b` (a few minutes). Once healthy:
 ```bash
 # Backend
 cd backend
-pip install -r requirements.in
+pip install -r requirements.txt
 uvicorn server:app --reload --port 8001
 
 # Frontend (separate terminal)

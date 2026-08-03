@@ -22,6 +22,37 @@ logger = logging.getLogger(__name__)
 USER_COLLECTION = "users"
 
 
+class _InMemoryUserStore:
+    """Async dict-backed stand-in for the Mongo users collection.
+
+    Used when MongoDB is unavailable so the built-in accounts still
+    authenticate (local-first development, the test suite, and CI without a
+    database container). Implements only the operations AuthService performs.
+    """
+
+    def __init__(self):
+        self._docs: list[Dict[str, Any]] = []
+
+    @staticmethod
+    def _matches(doc: Dict[str, Any], query: Dict[str, Any]) -> bool:
+        return all(doc.get(key) == value for key, value in query.items())
+
+    async def find_one(self, query: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        for doc in self._docs:
+            if self._matches(doc, query):
+                return dict(doc)
+        return None
+
+    async def insert_one(self, doc: Dict[str, Any]) -> None:
+        self._docs.append(dict(doc))
+
+    async def update_one(self, query: Dict[str, Any], update: Dict[str, Any]) -> None:
+        for doc in self._docs:
+            if self._matches(doc, query):
+                doc.update(update.get("$set", {}))
+                return
+
+
 class PasswordHasher:
     """Production-grade password hasher using bcrypt with fallback to PBKDF2."""
 
@@ -61,9 +92,17 @@ class PasswordHasher:
 
 
 class AuthService:
-    def __init__(self, mongo_client: AsyncIOMotorClient):
-        self.db = mongo_client[settings.MONGO_DB_NAME]
-        self.users_collection = self.db[USER_COLLECTION]
+    def __init__(self, mongo_client: Optional[AsyncIOMotorClient]):
+        if mongo_client is not None:
+            self.db = mongo_client[settings.MONGO_DB_NAME]
+            self.users_collection = self.db[USER_COLLECTION]
+        else:
+            # MongoDB is down: keep the built-in accounts usable via an in-process
+            # store. Seeding is ENV-gated to dev/test, so production with a failed
+            # Mongo connection simply has no users rather than a silent auth bypass.
+            self.db = None
+            self.users_collection = _InMemoryUserStore()
+            logger.warning(" ⚠️  MongoDB unavailable — auth using in-memory user store (built-in accounts only).")
         self.jwt_service = JWTService()
         self.hasher = PasswordHasher()
         logger.info(" ✓  HiRo Auth Service initialized (bcrypt=%s)", HAS_BCRYPT)

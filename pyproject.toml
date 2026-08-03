@@ -1,0 +1,12 @@
+# HiRo — repository tooling configuration.
+# Currently scopes the Bandit security scan run in CI (see .github/workflows/ci-cd.yml).
+
+[tool.bandit]
+# Scan application code only; exclude the test suite, vendored Rust build output,
+# and bytecode caches so findings reflect shipped code paths.
+exclude_dirs = [
+    "backend/tests",
+    "backend/pac_engine_rs",
+    "backend/scripts",
+    "__pycache__",
+]

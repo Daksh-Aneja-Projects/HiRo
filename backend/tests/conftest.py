@@ -23,7 +23,7 @@ def test_user_token(client):
     # Depending on auth_service test user seed
     response = client.post(
         "/api/auth/login",
-        data={"username": "admin", "password": "hiro_admin_dev_2026_secure"},
+        data={"username": "admin", "password": "admin"},
         headers={"Content-Type": "application/x-www-form-urlencoded"}
     )
     if response.status_code == 200:

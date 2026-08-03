@@ -1,45 +1,39 @@
-# Dockerfile.backend - Robust Rust toolchain setup and production image
+# Backend image: Rust extension builder + production Python runtime.
 
 # =========================================================================
-# Stage 1: Rust Builder (compiles the Rust pac_engine_rs extension)
+# Stage 1: Rust builder (compiles the pac_engine_rs extension)
 # =========================================================================
 FROM python:3.11-slim as rust-builder
 
 WORKDIR /app
 
-# Install build essentials and certificates
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Rust toolchain (minimal profile)
+# Rust toolchain (minimal profile) for building the native wheel.
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
     sh -s -- -y --profile minimal
 
 ENV PATH="/root/.cargo/bin:${PATH}"
 
-# Install maturin to build wheels
 RUN pip install --no-cache-dir maturin==1.0.0
 
-# Copy crate sources and requirements for wheel build
-# NOTE: Paths are relative to the build context.
-COPY backend/requirements.in /app/requirements.txt
+# Paths are relative to the build context (project root).
 COPY backend/pac_engine_rs /app/pac_engine_rs
 
 WORKDIR /app/pac_engine_rs
 
-# NEW FIX: Ensure the output directory for maturin exists before building
+# maturin writes the wheel here; the directory must exist before the build.
 RUN mkdir -p ../target/wheels
-
-# Build wheel(s)
 RUN maturin build --release --out ../target/wheels
 
 WORKDIR /app
 
 # =========================================================================
-# Stage 2: Final Python Image
+# Stage 2: Final Python image
 # =========================================================================
 FROM python:3.11-slim
 
@@ -48,62 +42,39 @@ LABEL maintainer="hiro"
 WORKDIR /app
 ENV PYTHONPATH /app
 
-# --- CRITICAL FIX START ---
-# Install *all* necessary system dependencies:
+# System dependencies: netcat/curl for healthchecks and DB-readiness waits,
+# dos2unix to normalize shell-script line endings, libpq-dev for psycopg2,
+# gfortran for building scientific wheels that lack manylinux binaries.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     netcat-traditional \
     curl \
     git \
-    nano \
     dos2unix \
     libpq-dev \
     gfortran \
     && rm -rf /var/lib/apt/lists/*
-# 
-# --- CRITICAL FIX END ---
-# 
 
-# Copy the requirements file explicitly into the final stage (REQUIRED FIX for Stage 2)
-COPY backend/requirements.in /app/requirements.txt
+# Pinned dependency manifest, compiled from requirements.in via pip-compile.
+COPY backend/requirements.txt /app/requirements.txt
 
-# Copy everything from the build context into the /app 
-# directory
-# FIX: Only copy the 'backend' folder contents into '/app/' to match the 
-# structure expected by the volume mount (./backend:/app) and the subsequent commands.
+# Application source. The volume mount (./backend:/app) mirrors this layout.
 COPY backend /app/
 
-# Copy compiled wheel from builder stage (if produced)
-# This COPY command should now succeed as the directory is guaranteed to exist in the source stage
+# Copy the compiled wheel from the builder stage.
 COPY --from=rust-builder /app/target/wheels /app/target/wheels
 
-# Convert line endings and mark scripts executable
-# FIX: Paths are now correct (e.g., /app/start_backend.sh) because of the new 'COPY backend /app/'
-RUN dos2unix /app/start_backend.sh || \
-    true \
-    && chmod +x /app/start_backend.sh || \
-    true \
-    && dos2unix /app/gunicorn_conf.py || \
-    true \
-    && dos2unix /app/utils/db_waiter.py || \
-    true \
-    && dos2unix /app/init_test_data.py || true
+# Normalize line endings and mark the entrypoint executable. These files are
+# part of the image; a missing one is a build error, not something to swallow.
+RUN dos2unix /app/start_backend.sh /app/gunicorn_conf.py /app/utils/db_waiter.py /app/init_test_data.py \
+    && chmod +x /app/start_backend.sh
 
-# Install Python dependencies
-# FIX: This path is now correct: /app/requirements.txt
-# FIX 2: Added legacy-resolver flag to bypass hash mismatch error:
-# CRITICAL FIX 600: Added --default-timeout=600 to prevent ReadTimeoutError
-RUN pip install --no-cache-dir -r /app/requirements.txt --use-deprecated=legacy-resolver --default-timeout=600
+# --default-timeout is raised because the scientific wheels (scipy, scikit-learn,
+# shap, spacy) are large and can exceed pip's default socket timeout on slow links.
+RUN pip install --no-cache-dir -r /app/requirements.txt --default-timeout=600
 
-# CRITICAL NATS FIX: Explicitly install the nats-py library to resolve the "NATS library not installed" runtime warning.
-# *** THIS REDUNDANT LINE IS REMOVED TO PREVENT DEPENDENCY CONFLICTS ***
-
-# If Rust wheel(s) were built, install them
-RUN if ls /app/target/wheels/*.whl 1> /dev/null 2>&1; \
-    then \
-      pip install --no-cache-dir /app/target/wheels/*.whl || true; \
-    fi
+# Install the Rust wheel built in stage 1.
+RUN pip install --no-cache-dir /app/target/wheels/*.whl
 
 EXPOSE 8001
 
-# FIX: The CMD points to the script at /app/start_backend.sh
 CMD ["/app/start_backend.sh"]

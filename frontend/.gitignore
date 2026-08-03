@@ -5,7 +5,7 @@
 /.pnp
 .pnp.js
 .pnp.cjs
-package-lock.json
+# package-lock.json is committed: npm ci and CI dependency caching both require it.
 yarn.lock
 
 # Testing
