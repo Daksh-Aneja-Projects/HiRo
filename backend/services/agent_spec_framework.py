@@ -1,5 +1,4 @@
-# /backend/services/agent_spec_framework.py - FIXED
-# services/agentspec_framework.py
+# backend/services/agent_spec_framework.py
 """AgentSpec Framework: Validates the semantic and runtime viability of a generated AgentSpec.
 Crucial for the Agent Creation Service to ensure newly generated agents are deployable."""
 import logging
@@ -7,7 +6,6 @@ from typing import Dict, Any, List, Optional
 import importlib.util
 import asyncio
 
-# CRITICAL FIX: Import DSL for validation schema
 from services.agent_spec_dsl import AgentSpecDSL
 
 logger = logging.getLogger(__name__)
@@ -27,12 +25,9 @@ class AgentSpecValidator:
         logger.info("✓ AgentSpec Validator initialized.")
         
     def _check_dependency_resolution(self, dependencies: List[str]) -> List[str]:
-        """
-        CRITICAL FIX: Checks if all required service dependencies are available in the running environment.
-        """
+        """Check whether all required service dependencies are available in the running environment."""
         missing = []
         for dep in dependencies:
-            # FIX: Check against the mock list (or a real service registry in production)
             if dep not in _AVAILABLE_SERVICES:
                 missing.append(dep)
         return missing
@@ -42,7 +37,6 @@ class AgentSpecValidator:
         Simulates checking if the Python execution module path is syntactically valid and importable.
         """
         try:
-            # FIX: Use importlib.util.find_spec for a robust check without executing the code
             # spec = importlib.util.find_spec(module_path)
             # return spec is not None
             
@@ -70,7 +64,7 @@ class AgentSpecValidator:
             errors.append(f"Missing critical service dependencies: {', '.join(missing_deps)}")
             
         # 3. Execution Module Check (Ensures LLM didn't invent an un-importable path)
-        if 'execution_module' not in agent_spec: # CRITICAL FIX: Ensure key exists before accessing
+        if 'execution_module' not in agent_spec:
              errors.append("Missing required key: 'execution_module'")
         elif not self._check_execution_module_syntax(agent_spec['execution_module']):
             errors.append(f"Execution module path is invalid: {agent_spec['execution_module']}")

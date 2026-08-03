@@ -1,11 +1,9 @@
-# services/resource_prediction_agent.py - REPLACEMENT (Robustness)
+# services/resource_prediction_agent.py
 import asyncio
 import logging
 from typing import Dict, Any
-# FIX: Added required services/placeholders
 from services.event_publisher_service import EventPublisherService 
 
-# FIX: Added placeholder for WorkforcePlanningService
 class WorkforcePlanningService:
     async def get_current_projections(self):
         return {"skill_gaps": {"Engineering": 10, "Sales": 5}, "attrition_risk": 0.3}
@@ -20,7 +18,6 @@ class ResourcePredictionAgent:
     async def execute_prediction_task(self, task_data: Dict) -> Dict:
         """Adjusts forecast based on Risk Score."""
         
-        # CRITICAL FIX: Robust input handling
         try:
             risk = float(task_data.get('risk_score', 0.0))
         except (ValueError, TypeError):
@@ -30,7 +27,6 @@ class ResourcePredictionAgent:
         # 1. Fetch Current
         proj = await self.wfp.get_current_projections()
         
-        # CRITICAL FIX: Safely retrieve and cast the gap, default to a safe value
         try:
              current_gap = int(proj['skill_gaps'].get('Engineering', 10))
         except (ValueError, TypeError):
@@ -39,7 +35,6 @@ class ResourcePredictionAgent:
         
         # 2. Adjust Multiplier (Heuristic)
         multiplier = 1.0
-        # CRITICAL FIX: Use specific thresholds for adjustment
         if risk > 0.8: multiplier = 2.0
         elif risk > 0.6: multiplier = 1.5
         

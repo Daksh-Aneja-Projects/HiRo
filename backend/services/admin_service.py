@@ -1,11 +1,11 @@
-# /backend/services/admin_service.py - REPLACEMENT (DB Transaction Integrity)
+# backend/services/admin_service.py
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone
 import logging
 import secrets
 import asyncio 
 from motor.motor_asyncio import AsyncIOMotorClient
-from contextlib import asynccontextmanager # CRITICAL FIX: Import for Stub
+from contextlib import asynccontextmanager
 
 from config.settings import settings
 from services.auth_service import PasswordHasher
@@ -18,7 +18,6 @@ PUBLIC_USER_FIELDS = {"_id": 0, "hashed_password": 0}
 DEFAULT_DB_NAME = settings.MONGO_DB_NAME if hasattr(settings, 'MONGO_DB_NAME') else "ahcm_db"
 MAX_USER_FETCH_LIMIT = 5000
 
-# CRITICAL FIX: Stub for the imported PostgresClient to satisfy type-checking/injection.
 class PostgresClientStub:
     """Stub for the injected PostgresClient to satisfy type-checking."""
     async def execute(self, query: str, values: Optional[List[Any]] = None) -> Any: ...

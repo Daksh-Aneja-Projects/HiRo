@@ -11,7 +11,6 @@ async def call_agent(func: Callable[..., T], *args: Any, **kwargs: Any) -> T:
     """
     Wraps a synchronous function call in asyncio.to_thread.
     """
-    # CRITICAL FIX: Do not assume func is synchronous.
     if asyncio.iscoroutinefunction(func):
         return await func(*args, **kwargs)
     
@@ -21,10 +20,8 @@ async def call_agent(func: Callable[..., T], *args: Any, **kwargs: Any) -> T:
         
     except Exception as e:
         logger.error(f"Async wrapper failed for {func.__name__}: {e}")
-        # CRITICAL FIX: Reraise the exception so the caller can handle it  
         raise # Reraises the actual exception from the thread
 
-# FIX: Renamed and fixed implementation of maybe_await
 async def maybe_await(obj: Union[T, Awaitable[T]]) -> T:
     """
     Awaits a coroutine or returns the object directly if it is not awaitable.

@@ -1,4 +1,4 @@
-# services/total_talent_digital_twin_agent.py - FINAL PRODUCTION VERSION
+# services/total_talent_digital_twin_agent.py
 """Total Talent Digital Twin Agent (DTLA): Integrated with central AIService and Event Publisher for autonomous remediation."""
 import asyncio
 import logging
@@ -9,7 +9,6 @@ from datetime import datetime, timezone
 from config.settings import settings
 from services.ai_services import AIService 
 from services.event_publisher_service import EventPublisherService
-# CRITICAL FIX: Import concrete classes for type hinting
 from services.workforce_planning_service import WorkforcePlanningService 
 from services.talent_acquisition_service import TalentAcquisitionService 
 
@@ -18,7 +17,7 @@ logger = logging.getLogger(__name__)
 DTLA_AGENT_ID = "DigitalTwinAgent"
 SCENARIO_RUN_INTERVAL_SECONDS = getattr(settings, 'DTLA_SCENARIO_INTERVAL_SECONDS', 3600 * 12) 
 CRITICAL_RISK_THRESHOLD = getattr(settings, 'DTLA_RISK_THRESHOLD', 0.8) 
-DTLA_CRITICAL_RISK_TOPIC = getattr(settings, 'DTLA_CRITICAL_RISK_TOPIC', "dtla.critical_risk") # CRITICAL FIX: Use settings if available
+DTLA_CRITICAL_RISK_TOPIC = getattr(settings, 'DTLA_CRITICAL_RISK_TOPIC', "dtla.critical_risk")
 
 class DigitalTwinAgent:
     def __init__(self,                 
@@ -32,7 +31,6 @@ class DigitalTwinAgent:
         self.ta_service = ta_service
         self.risk_threshold = CRITICAL_RISK_THRESHOLD
         
-        # CRITICAL FIX: Ensure topic constant exists on publisher for external consistency
         if not hasattr(publisher, 'TOPIC_DTLA_SCENARIO'):             
              publisher.TOPIC_DTLA_SCENARIO = DTLA_CRITICAL_RISK_TOPIC 
 
@@ -121,7 +119,6 @@ class DigitalTwinAgent:
         state = await self._fetch_digital_twin_state() 
         risk, rec = await self._simulate_scenario_impact(scenario_data, state)
 
-        # CRITICAL FIX: Publish the risk event only if it is CRITICAL.
         # `risk is None` means the scenario was unanswerable, not that it was safe.
         if risk is not None and risk >= self.risk_threshold:
              await self.publisher.publish_event(
@@ -143,7 +140,6 @@ class DigitalTwinAgent:
             "state_used_for_simulation": state # Return state for XAI analysis
         }
 
-    # CRITICAL FIX: Retaining monitor_and_act loop as a core agent capability
     async def monitor_and_act(self):
         """Background job for continuous monitoring and autonomous action."""
         # ... (Implementation remains the same as original to preserve background loop functionality)

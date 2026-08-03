@@ -1,13 +1,12 @@
-# /backend/health_check.py - FIXED (Credential Consistency)
+# backend/health_check.py
 #!/usr/bin/env python3
 """Health check script for Docker Compose environment.
 Checks all services and credentials."""
 import requests
 import json
 import sys
-import time # CRITICAL FIX: Add missing import
+import time
 from typing import Dict, Any, List
-# CRITICAL FIX: Add missing import for `datetime` which is used in print statement in other files, 
 # although not used here, for consistency if this script were part of the app environment.
 from datetime import datetime, timezone 
 
@@ -36,13 +35,12 @@ def test_login(base_url: str, username: str, password: str) -> Dict[str, Any]:
         response = requests.post(
             f"{base_url}/api/auth/login",
             data={"username": username, "password": password}, 
-            headers={"Content-Type": "application/x-www-form-urlencoded"}, # CRITICAL FIX: Specify header
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
             timeout=5
         )
         response.raise_for_status()
         data = response.json()
         
-        # FIX: Ensure user data is extracted correctly
         user_data = data.get('user', {})
 
         return {
@@ -96,7 +94,6 @@ def main():
 
     # 3. Test credentials
     print("\n🔐 Test Credentials Verification:")
-    # CRITICAL FIX: ADDED HRBP AND HRIT_MANAGER
     credentials = [
         ("admin", "admin"),
         ("hrit_manager", "hrit_manager"), # Added hrit_manager

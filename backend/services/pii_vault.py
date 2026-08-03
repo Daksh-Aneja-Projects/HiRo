@@ -1,11 +1,11 @@
-# /backend/services/pii_vault.py - FIXED
+# backend/services/pii_vault.py
 import logging
-from typing import Dict, Any, List, Optional, Union # CRITICAL FIX: Added Union
+from typing import Dict, Any, List, Optional, Union
 import asyncio
 import uuid
 from services.pqc_pii_layer import PQCEncryptionWrapper 
 from services.postgres_client import pg_client 
-from services.schemas.models import AuthPayload # CRITICAL FIX: Ensure AuthPayload is imported
+from services.schemas.models import AuthPayload
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +15,6 @@ class PIIVault:
     def __init__(self):
         if PIIVault._instance: raise Exception("Singleton")
         self.pqc = PQCEncryptionWrapper.get_instance()
-        # CRITICAL FIX: Define PII fields based on actual encrypted columns in `employee_pii` DDL
         self.pii_fields = {
             "employee_pii": [
                 "full_name_encrypted",
@@ -49,7 +48,6 @@ class PIIVault:
         """Read a single value back out of an encrypted column."""
         return self.pqc.decrypt(ciphertext, data_context=data_context)
 
-    # CRITICAL FIX: Clarify the `auth` argument is optional, as calling functions often only pass agent_id string.
     async def execute_pii_query(self, query: str, table_name: str, agent_id: str, auth: Optional[Union[AuthPayload, Dict[str, Any]]] = None, *args) -> List[Dict]:
         """
         Executes query -> Checks Access -> Decrypts PII.
@@ -69,12 +67,10 @@ class PIIVault:
 
         # 3. Decrypt
         decrypted_rows: List[Dict] = []
-        # CRITICAL FIX: Get the list of encrypted fields for the *current* table
         fields = self.pii_fields.get(table_name, []) 
         
         for row in raw_rows:
             new_row = row.copy()
-            # CRITICAL FIX: Iterate over the list of known encrypted fields
             for field in fields:
                 # Check if the field was actually returned by the SQL query and contains a value
                 encrypted_value = row.get(field)

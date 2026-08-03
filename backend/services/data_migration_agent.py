@@ -1,4 +1,4 @@
-# /backend/services/data_migration_agent.py - REPLACEMENT (Enhanced Failed Record Logging)
+# backend/services/data_migration_agent.py
 """Data Migration Agent: Responsible for large-scale, transformative data migration from legacy systems (via ExternalAPIConnector) to the HiRo UDM (Postgres).
 Handles schema transformation, chunking, and idempotent insertion."""
 import asyncio
@@ -107,7 +107,6 @@ class DataMigrationAgent:
                     await conn.execute(upsert_query, *values)
                     inserted_count += 1
                 except Exception as e:
-                    # CRITICAL FIX: Log the specific ID and the DB error before skipping
                     record_id = record.get('legacy_source_id', 'UNKNOWN_ID')
                     logger.error(f"Postgres upsert FAILED for record ID: {record_id[:8]} in table {target_table}. Error: {type(e).__name__}. Skipping record.")
                     continue 

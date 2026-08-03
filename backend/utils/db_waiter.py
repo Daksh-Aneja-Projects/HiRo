@@ -30,7 +30,6 @@ try:
     import nats
     # Import specific NATS errors for robust connection handling
     from nats.errors import TimeoutError as NatsTimeoutError
-    # CRITICAL FIX: Import StreamConfig for proper JetStream configuration
     from nats.js.api import StreamConfig, RetentionPolicy
     # JetStream API errors
     try:
@@ -47,7 +46,6 @@ except ImportError:
 
 logger = logging.getLogger("db_waiter")
 handler = logging.StreamHandler(sys.stdout)
-# CRITICAL FIX: Ensure formatter includes timestamp and log level
 formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
 handler.setFormatter(formatter)
 logger.addHandler(handler)
@@ -56,7 +54,6 @@ logger.setLevel(logging.INFO)
 TIMEOUT = int(os.environ.get("DB_WAIT_TIMEOUT", "90"))
 INTERVAL = float(os.environ.get("DB_WAIT_INTERVAL", "2.0"))
 
-# CRITICAL FIX: Get NATS connect and publish timeout from environment/settings
 NATS_CONNECT_TIMEOUT = float(os.environ.get("NATS_CONNECT_TIMEOUT_SECONDS", "5.0"))
 NATS_PUBLISH_TIMEOUT = float(os.environ.get("NATS_PUBLISH_TIMEOUT_SECONDS", "5.0"))
 
@@ -204,14 +201,12 @@ def main() -> int:
             # Functional NATS test (ADDED)
             # -------------------------
             if nats is not None and StreamConfig is not None:
-                # CRITICAL FIX: Add a small delay to ensure JetStream subsystem is fully ready
                 time.sleep(1.0) 
                 
                 try:
                     logger.info("🔧 Performing functional NATS test: connect -> ensure stream -> publish -> ack...")
                     
                     async def _nats_test():
-                        # CRITICAL FIX: Use StreamConfig object instead of dict
                         # Create proper StreamConfig object with retention policy
                         stream_config = StreamConfig(
                             name="HIRO_TEST",
@@ -220,7 +215,6 @@ def main() -> int:
                             max_msgs=10000,
                         )
                         
-                        # CRITICAL FIX: Use 'connect_timeout' instead of 'timeout' 
                         # to fix the "unexpected keyword" error caused by nats-py version differences.
                         nc = await nats.connect(
                             nats_dsn, 

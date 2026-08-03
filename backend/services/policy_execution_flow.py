@@ -1,7 +1,7 @@
-# services/policy_execution_flow.py - REPLACEMENT (Test Harness Clarity)
+# services/policy_execution_flow.py
 import asyncio
 import logging
-from services.agent_spec_dsl import LEAVE_CAP_CHECK_RULE, TriggerType # FIX: Added TriggerType for clarity
+from services.agent_spec_dsl import LEAVE_CAP_CHECK_RULE, TriggerType
 from services.enforcement_engine import runtime_enforcer
 from services.xai_wrapper import XAIWrapper
 from typing import Dict, Any, List
@@ -10,7 +10,6 @@ logger = logging.getLogger(__name__)
 
 # NOTE: XAIWrapper needs to be initialized outside of main_simulation for reuse if run by a service
 xai_explainer = XAIWrapper()
-# CRITICAL FIX: Added placeholder for the required synchronous method
 if not hasattr(xai_explainer, 'explain_prediction'):
     xai_explainer.explain_prediction = xai_explainer.get_feature_contributions # Mock the method to point to the async version
 
@@ -30,7 +29,6 @@ async def main_simulation():
     print("\n--- Executing Policy Check ---")
     
     try:
-        # CRITICAL FIX: runtime_enforcer.execute_dsl_check is the public async interface
         # Use the specific trigger type from the imported rule
         result = await runtime_enforcer.execute_dsl_check(LEAVE_CAP_CHECK_RULE.trigger_type.value, context)
         

@@ -1,9 +1,9 @@
-# /backend/services/graph_ingestion_util.py - FIXED
+# backend/services/graph_ingestion_util.py
 # services/graph_ingestion_util.py
 import logging
 import asyncio
 import time
-from typing import Dict, Any, Optional # CRITICAL FIX: Add missing imports
+from typing import Dict, Any, Optional
 import requests
 from urllib.parse import urlparse
 from config.settings import settings
@@ -42,12 +42,10 @@ class GraphIngestionUtil:
     # Agent Usage ---
     async def async_create_employee_node(self, emp_id: str, name: str, role: str) -> Dict:
         mutation = {"set": [{"uid": f"_:emp_{emp_id}", "dgraph.type": "Employee", "name": name, "role": role}]}
-        # CRITICAL FIX: The use of synchronous requests needs to be wrapped in asyncio.to_thread, which it is.
         return await asyncio.to_thread(self._request, mutation)
 
     async def async_create_reports_to_relationship(self, emp_id: str, mgr_id: str) -> Dict:
         mutation = {"set": [{"uid": f"_:emp_{emp_id}", "reports_to": {"uid": f"_:emp_{mgr_id}"}}]}
-        # CRITICAL FIX: The use of synchronous requests needs to be wrapped in asyncio.to_thread, which it is.
         return await asyncio.to_thread(self._request, mutation)
 
 # Singleton

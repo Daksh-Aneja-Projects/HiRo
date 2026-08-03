@@ -91,7 +91,6 @@ def init_logging():
     # 3. Configure Consumer Handlers
     consumer_handlers = _make_consumer_handlers()
     
-    # CRITICAL FIX: Patch consumer handlers to prevent re-entrant errors. 
     # This prevents the handler writing to stderr/file from trying to log its own failure.
     for h in consumer_handlers:
         h.handleError = lambda record: None

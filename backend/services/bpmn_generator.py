@@ -1,4 +1,4 @@
-# /backend/services/bpmn_generator.py - REPLACEMENT (Robustness)
+# backend/services/bpmn_generator.py
 
 import uuid
 from typing import Dict, Any, List

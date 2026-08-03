@@ -1,4 +1,4 @@
-# /backend/services/pac_engine.py - REPLACEMENT (Numerical Robustness & Rust Call Fix)
+# backend/services/pac_engine.py
 """
 Performance Analysis & Correction (PAC) Engine.
 Integrates the high-performance Rust extension (pac_engine_rs) and provides
@@ -6,10 +6,9 @@ Python-native fallback and orchestration logic.
 """
 import logging
 from typing import Dict, Any, List, Optional
-import json # CRITICAL FIX: Import json to serialize metrics for Rust
+import json
 
 try:
-    # CRITICAL FIX: Import the function with the correct name from the Rust implementation
     from pac_engine_rs import calculate_pac_score as rust_calculate_pac_score 
     RUST_ENABLED = True
     logger = logging.getLogger(__name__)
@@ -28,7 +27,6 @@ def python_calculate_pac_score(metrics: Dict[str, Any]) -> Dict[str, Any]:
     Python-native implementation of the PAC score calculation.
     """
     
-    # CRITICAL FIX: Robustly cast and default all inputs
     try:
         total_tasks = max(0, int(metrics.get('total_tasks', 0)))
         completed_tasks = max(0, int(metrics.get('completed_tasks', 0)))
@@ -43,7 +41,6 @@ def python_calculate_pac_score(metrics: Dict[str, Any]) -> Dict[str, Any]:
         }
     
     # 1. Completion Ratio (Weight: 40%)
-    # CRITICAL FIX: Prevent DivisionByZeroError if total_tasks is 0. Ratio is 1.0 if both are 0.
     if total_tasks > 0:
         completion_ratio = min(1.0, completed_tasks / total_tasks) # Cap at 1.0
     else:
@@ -65,7 +62,6 @@ def python_calculate_pac_score(metrics: Dict[str, Any]) -> Dict[str, Any]:
     # Calculate weighted PAC Score (out of 100)
     pac_score = (completion_ratio * 40) + (quality_score * 30) + (client_satisfaction_score * 30)
     
-    # CRITICAL FIX: Clamp final score to 0-100
     final_pac_score = max(0.0, min(100.0, pac_score))
     
     # Determine Performance Tier
@@ -91,7 +87,6 @@ def calculate_pac_score(metrics: Dict[str, Any]) -> Dict[str, Any]:
     """
     if RUST_ENABLED:
         try:
-            # CRITICAL FIX: Serialize metrics to JSON string for the Rust function
             metrics_json = json.dumps(metrics)
             
             # Call the Rust function

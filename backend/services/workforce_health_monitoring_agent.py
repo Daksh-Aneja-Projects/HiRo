@@ -1,4 +1,4 @@
-# services/workforce_health_monitoring_agent.py - REPLACEMENT (Input Validation and Precision)
+# services/workforce_health_monitoring_agent.py
 import logging
 from typing import Dict, Any
 from datetime import datetime, timezone
@@ -18,7 +18,6 @@ class WHMAgent:
     def detect_burnout_risk(self, employee_id: str, telemetry: Dict[str, Any]) -> Dict[str, Any]:
         """Calculates burnout score based on work hours and sleep."""
         
-        # CRITICAL FIX: Robust type casting and defaulting
         try:
             hours = float(telemetry.get('average_weekly_hours', 40.0))
             sleep = float(telemetry.get('average_sleep_hours', 7.5))
@@ -38,7 +37,6 @@ class WHMAgent:
         if sleep < 6.0:
             risk += (6.0 - sleep) * 0.1
         
-        # CRITICAL FIX: Clamp score between 0.0 and 1.0
         final_score = max(0.0, min(1.0, risk))
         
         return {

@@ -1,4 +1,4 @@
-# services/hyperledger_chaincode.py - REPLACEMENT (Transactional Integrity and JSON Handling)
+# services/hyperledger_chaincode.py
 """
 Governance Chaincode: Postgres-backed DAO Logic.
 Replaces in-memory MockStub with persistent AsyncPG operations.
@@ -12,7 +12,7 @@ import uuid
 # CRITICAL: Use Real DB Client
 from services.postgres_client import pg_client
 from config.settings import settings
-import asyncio # CRITICAL FIX: Add missing import
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -49,21 +49,18 @@ class AHCMGovernanceChaincode:
     async def _get_proposal(self, proposal_id: str) -> Optional[Dict]:
         query = "SELECT data FROM dao_proposals WHERE proposal_id = $1"
         row = await pg_client.fetchrow(query, proposal_id)
-        # CRITICAL FIX: If row exists, return the deserialized JSONB content
         if row and 'data' in row:
              # NOTE: pg_client (asyncpg) might return 'data' already as a dict if properly configured
              return row['data'] if isinstance(row['data'], dict) else json.loads(row['data'])
         return None
 
     async def _save_proposal(self, proposal: Dict):
-        # CRITICAL FIX: Ensure proposal_id is used for CONFLICT resolution
         query = """
             INSERT INTO dao_proposals (proposal_id, status, data, updated_at)
             VALUES ($1, $2, $3::jsonb, NOW())
             ON CONFLICT (proposal_id) DO UPDATE 
             SET status = $2, data = $3::jsonb, updated_at = NOW()
         """
-        # CRITICAL FIX: Ensure `proposal` is passed as a JSON string for the JSONB column
         await pg_client.execute(query, proposal['proposal_id'], proposal['status'], json.dumps(proposal))
 
     async def propose_policy_update(self, data: Dict[str, Any]) -> str:
@@ -96,7 +93,6 @@ class AHCMGovernanceChaincode:
         """Processes a vote with transactional integrity."""
         pid = vote_data['proposal_id']
         voter = vote_data['voter_id']
-        # CRITICAL FIX: Robustly cast weight
         try:
             weight = float(vote_data.get('token_weight', 1.0))
         except (ValueError, TypeError):
@@ -106,7 +102,6 @@ class AHCMGovernanceChaincode:
 
         # Transactional Vote Processing
         async with pg_client.transaction("DAO_Chaincode", "Vote") as conn:
-            # CRITICAL FIX: Use the conn object to ensure operations are atomic
             proposal = await self._get_proposal(pid) # NOTE: _get_proposal uses pg_client.fetchrow, which is fine outside tx, but we must save inside.
             
             if not proposal: raise ValueError("Proposal not found")
@@ -122,7 +117,6 @@ class AHCMGovernanceChaincode:
             # Check Logic (Execute logic inside the transaction)
             await self._check_execution(proposal)
             
-            # CRITICAL FIX: Save using conn.execute/update logic
             # Since _save_proposal uses pg_client.execute directly, we rely on the ACID nature of the outer transaction
             # and that _save_proposal implicitly wraps its own execution. For full transactional safety using conn:
             update_query = """
@@ -139,7 +133,6 @@ class AHCMGovernanceChaincode:
         if proposal['status'] != 'VOTING':
             return
 
-        # CRITICAL FIX: Properly compare timezone-aware datetimes
         deadline_dt = datetime.fromisoformat(proposal['deadline']).replace(tzinfo=timezone.utc)
         if deadline_dt < datetime.now(timezone.utc):
             proposal['status'] = 'EXPIRED'

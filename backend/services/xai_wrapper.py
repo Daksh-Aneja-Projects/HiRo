@@ -1,4 +1,4 @@
-# /backend/services/xai_wrapper.py - REPLACEMENT (Precision and Consistency)
+# backend/services/xai_wrapper.py
 # /backend/services/xai_wrapper.py
 """eXplainable AI (XAI) Wrapper: Provides mathematical explanations for the Heuristic Scoring Engine used in Workforce Planning."""
 import logging
@@ -8,7 +8,6 @@ from datetime import datetime, timezone
 logger = logging.getLogger(__name__)
 
 # ===============================================
-# CRITICAL FIX: MockPredictor Definition
 # ===============================================
 class MockPredictor:
     """A minimal mock object to hold feature names for XAI initialization."""
@@ -224,7 +223,6 @@ class XAIWrapper:
     def _fmt_contrib(self, name: str, val: float, reason: str):
         return {
             "feature": name,
-            # CRITICAL FIX: Round impact to 3 decimal places for consistency
             "impact": round(val, 3), 
             "raw_value": round(val, 5), 
             "reason": reason
@@ -235,7 +233,6 @@ class XAIWrapper:
         """Async wrapper for feature calculation."""
         return self._calculate_feature_contributions(employee_data, predicted_score)
         
-    # CRITICAL FIX: Adding synchronous method placeholder as required by Orchestrator
     def explain_prediction(self, data: Dict[str, Any], predicted_score: Optional[float] = None) -> Dict[str, Any]:
         """Explain a prediction. Pass the model's score so the explanation and the
         prediction always agree."""

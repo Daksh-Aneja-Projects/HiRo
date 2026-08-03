@@ -1,4 +1,4 @@
-# /backend/reset_users.py - FIXED (FIVE TEST CREDENTIALS)
+# backend/reset_users.py
 #!/usr/bin/env python3
 """Reset MongoDB users collection for FIVE TEST CREDENTIALS.
 Run this after updating auth_service.py and server.py."""
@@ -6,8 +6,8 @@ import asyncio
 import sys
 import os
 from pathlib import Path
-from typing import Dict, Any # CRITICAL FIX: Add missing Dict, Any import
-from datetime import datetime, timezone # CRITICAL FIX: Add missing datetime, timezone for logging
+from typing import Dict, Any
+from datetime import datetime, timezone
 
 # Add backend directory to path
 backend_dir = Path(__file__).parent.parent / "backend"

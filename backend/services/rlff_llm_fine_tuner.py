@@ -1,4 +1,4 @@
-# /backend/services/rlff_llm_fine_tuner.py - REPLACEMENT (Robustness)
+# backend/services/rlff_llm_fine_tuner.py
 # services/rlff_llm_fine_tuner.py
 import asyncio 
 import logging
@@ -13,7 +13,6 @@ class RLFFLLMFineTuner:
     def __init__(self, ai_service: AIService, publisher: EventPublisherService):
         self.ai = ai_service
         self.publisher = publisher
-        # CRITICAL FIX: Use a more robust queue structure for production
         self.feedback_queue: asyncio.Queue = asyncio.Queue() 
         self.is_running = False
         logger.info("✓ RLFFLLMFineTuner Initialized with AI Service.")
@@ -60,7 +59,6 @@ class RLFFLLMFineTuner:
             if self.feedback_queue.qsize() >= batch_size:
                 batch = []
                 for _ in range(batch_size):
-                    # CRITICAL FIX: Use get_nowait() to pull from the queue
                     try:
                         batch.append(self.feedback_queue.get_nowait())
                     except asyncio.QueueEmpty:
@@ -68,7 +66,6 @@ class RLFFLLMFineTuner:
                 
                 logger.info(f"Tuning initiated on batch of {len(batch)} samples...")
                 
-                # CRITICAL FIX: Simulate the actual fine-tuning process (CPU-bound)
                 await asyncio.to_thread(lambda: self._mock_tuning_process(batch)) 
                 
                 await self.publisher.publish_event(

@@ -1,4 +1,4 @@
-# /backend/services/hr_modules.py - REPLACEMENT (FINAL PRODUCTION LOGIC)
+# backend/services/hr_modules.py
 
 import logging
 import uuid
@@ -32,7 +32,6 @@ TIMESHEET_COLLECTION = "timesheets"
 class HRModulesService:
     def __init__(self, mongo_client, pub: EventPublisherService):
         self.pub = pub
-        # CRITICAL FIX: Use the proper singleton getter
         self.vault = PIIVault.get_instance()
         self.mongo_client = mongo_client
         self.db = mongo_client[settings.MONGO_DB_NAME]
@@ -195,7 +194,6 @@ class HRModulesService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"User {username} context not found.")
             
         employee_id = user_context.get("employee_id")
-        # CRITICAL FIX: Ensure casting is safe with default fallback
         try:
             total_hours = float(timesheet_data.get("total_hours", 0))
         except (ValueError, TypeError):
@@ -227,7 +225,6 @@ class HRModulesService:
             )
         except Exception as e:
             logger.error(f"Policy Enforcement Engine failed: {type(e).__name__}: {e}")
-            # CRITICAL FIX: Hard fail if policy engine is unavailable (no mock fallback allowed)
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Policy enforcement engine service unavailable. Submission blocked.")
 
         decision = enforcer_result.get("decision", "ERROR").upper()

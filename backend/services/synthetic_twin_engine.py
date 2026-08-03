@@ -3,12 +3,10 @@ import numpy as np
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 from services.postgres_client import pg_client
-# FIX: Added placeholders for missing services
 class DigitalTwinAgent:
     # NOTE: This placeholder class is only used here to prevent circular imports if necessary,
     # but the runtime uses the injected instance from server.py.
     async def execute_dtla_command(self, command: Dict):
-        # CRITICAL FIX: Simulate a more realistic response structure
         return {"risk_score": 0.5, "recommendation": "Mocked DTLA result.", "attrition_probability": 0.25}
 
 logger = logging.getLogger(__name__)
@@ -64,7 +62,6 @@ class SyntheticTwinEngine:
                 )
             except Exception as e:
                 logger.error(f"DTLA Agent failed: {e}. Using mock result.")
-                # CRITICAL FIX: Use predictable mock fallback on failure
                 simulation_result = {
                     "risk_score": synthetic_state["current_risk_score"] * 0.9,
                     "recommendation": "DTLA service failed. Results are derived from synthetic state.",

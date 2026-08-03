@@ -1,10 +1,10 @@
-# /backend/services/strategic_agents.py - FIXED
+# backend/services/strategic_agents.py
 # services/strategic_agents.py
 """Strategic Agents: Deterministic Business Logic."""
 import logging
-from typing import Dict, Any, List # CRITICAL FIX: Add missing imports
-from datetime import datetime, timezone # CRITICAL FIX: Add missing imports
-import uuid # CRITICAL FIX: Add missing imports
+from typing import Dict, Any, List
+from datetime import datetime, timezone
+import uuid
 import re
 import asyncio
 from services.ai_services import AIService
@@ -13,7 +13,6 @@ logger = logging.getLogger(__name__)
 
 # --- AGENT 8: EFRA (Synchronous Logic - must be run via to_thread) ---
 class EFRAgent:
-    # CRITICAL FIX: Make this method async as it calls potentially async functions 
     # (like pub/sub after synthesis, though not shown) and for consistency.
     async def synthesize_journal_entry(self, event_type: str, context: Dict[str, Any]) -> Dict[str, Any]:
         """Synthesizes GL entry."""
@@ -23,7 +22,6 @@ class EFRAgent:
                 if amount <= 0: 
                     return {"status": "SKIPPED", "reason": "Amount is zero or negative."}
                 
-                # CRITICAL FIX: Wrap blocking uuid generation in asyncio.to_thread
                 entry_id = await asyncio.to_thread(lambda: f"JE_{uuid.uuid4().hex[:6]}")
                 
                 return {
@@ -40,7 +38,6 @@ class EFRAgent:
 
 # --- AGENT 9: DCA (Synchronous Logic - must be run via to_thread) ---
 class DCAgent:
-    # CRITICAL FIX: Make this method async for consistency and thread-safety
     async def forecast_liquidity(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Calculates 90-day cash position."""
         try:

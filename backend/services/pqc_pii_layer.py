@@ -5,7 +5,7 @@ import hashlib
 import json
 import asyncio 
 from typing import Optional, Tuple, Dict, Any
-from datetime import datetime, timezone # CRITICAL FIX: Add timezone import for metadata
+from datetime import datetime, timezone
 
 try:
     from cryptography.fernet import Fernet
@@ -19,7 +19,7 @@ PQC_LAYER_ID = "PQCEncryptionWrapper"  # class name kept: it is an import contra
 
 class PQCEncryptionWrapper:
     _instance = None
-    _lock: Optional[asyncio.Lock] = None # CRITICAL FIX: Added Lock
+    _lock: Optional[asyncio.Lock] = None
 
     def __new__(cls):
         if cls._instance is None:
@@ -42,7 +42,6 @@ class PQCEncryptionWrapper:
         return PQCEncryptionWrapper()
 
     async def initialize_keys(self) -> bool:
-        # CRITICAL FIX: Use the lock to ensure only one coroutine generates the key
         async with self._lock:
             if self.master_key_bytes is None:
                 

@@ -1,9 +1,8 @@
-# backend/init_test_data.py - REPLACEMENT (FINAL DEFINITIVE FIXED PRODUCTION VERSION - TRUNCATE ADDED)
 #!/usr/bin/env python3
 
-"""Master data initialization and extensive bulk seeding script for Investor Demo.
-CRITICAL FIX: Added TRUNCATE command to the schema creation phase to ensure the 
-database is clean and bypasses duplicate key errors from prior failed runs.
+"""Master data initialization and extensive bulk seeding script.
+The schema creation phase truncates tables first so seeding is idempotent and
+re-runnable without tripping duplicate-key errors from prior runs.
 """
 
 import asyncio
@@ -173,7 +172,7 @@ CREATE INDEX IF NOT EXISTS idx_employee_pii_manager_id ON public.employee_pii (m
 CREATE INDEX IF NOT EXISTS idx_leave_requests_employee_status
     ON public.leave_requests (employee_uuid, status);
 
--- CRITICAL FIX: TRUNCATE ALL TABLES TO ENSURE IDEMPOTENCY AND CLEAR DUPLICATE KEYS
+-- Truncate all tables for idempotent re-seeding (clears any prior duplicate keys).
 TRUNCATE public.performance_reviews, public.leave_balance, public.hrsd_tickets, public.employee_pii RESTART IDENTITY CASCADE;
 TRUNCATE public.dao_proposals, public.policy_audit_log, public.comp_history, public.leave_requests;
 """

@@ -1,9 +1,9 @@
-# /backend/services/agent_spec_dsl.py - FIXED
+# backend/services/agent_spec_dsl.py
 # /C:/HiRo Project/backend/services/agent_spec_dsl.py
 """Agent Specification Domain-Specific Language (DSL) Parser.
 Defines the structure and provides tools to parse the intent into a machine-readable format."""
 import logging
-from enum import Enum # CRITICAL FIX: Added missing Enum import
+from enum import Enum
 from typing import Dict, Any, List, Optional
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -12,7 +12,6 @@ logger = logging.getLogger(__name__)
 # --- Configuration Constants ---
 DSL_VERSION = "1.0"
 
-# --- CRITICAL FIX: Missing Enums Required by Enforcement Engine ---
 class TriggerType(str, Enum):
     """Defines when a rule should be evaluated."""
     PRE_EXECUTION = "pre_execution"
@@ -20,7 +19,7 @@ class TriggerType(str, Enum):
     SCHEDULED = "scheduled"
     ON_EVENT = "on_event"
     TIME_CLOCK_IN = "time_clock_in"
-    LEAVE_REQUEST_SUBMIT = "leave_request_submit"  # CRITICAL FIX: Add missing trigger type for ESS
+    LEAVE_REQUEST_SUBMIT = "leave_request_submit"
 
 class ActionType(str, Enum):
     """Defines what happens when a rule matches."""

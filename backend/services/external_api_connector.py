@@ -7,7 +7,6 @@ import asyncio
 import httpx # Assuming httpx for asynchronous HTTP requests
 import time
 from config.settings import settings
-# CRITICAL FIX: Import InternalMockAPI for fallback/testing environment
 from services.internal_mock_api import InternalMockAPI 
 
 logger = logging.getLogger(__name__)
@@ -24,10 +23,9 @@ class ExternalAPIConnector:
     """
     Manages resilient and auditable interaction with all external APIs.
     """
-    def __init__(self, internal_mock_api: Optional[InternalMockAPI] = None): # CRITICAL FIX: Inject Mock API
+    def __init__(self, internal_mock_api: Optional[InternalMockAPI] = None):
         # httpx.AsyncClient should be initialized here for connection pooling
         self.client = httpx.AsyncClient(timeout=TIMEOUT_SECONDS)
-        # CRITICAL FIX: Store the injected mock API instance
         self.internal_mock_api = internal_mock_api
         logger.info(" ✓  External API Connector Initialized (Resilience and Auditing Enabled).")
 
@@ -45,7 +43,6 @@ class ExternalAPIConnector:
             logger.warning(f"Rate limit approaching for {system_id}. Delaying {delay:.2f}s.")
             await asyncio.sleep(delay)
 
-        # CRITICAL FIX: Update the timestamp after the wait/delay to prevent race conditions
         MOCK_RATE_LIMIT_BUCKET[system_id] = time.monotonic()
 
     async def _request_with_retry(self, method: str, url: str, system_id: str, **kwargs) -> httpx.Response:
@@ -83,7 +80,6 @@ class ExternalAPIConnector:
         """
         Fetches predictive legal drafts and current changes (used by PolicyScrapingAgent).
         """
-        # CRITICAL FIX: If the external API is not set, use the mock API
         if self.internal_mock_api:
             # Use the more realistic mock response which is now async-safe
             data = await self.internal_mock_api.regulatory_feed_updates(jurisdiction)
@@ -108,9 +104,7 @@ class ExternalAPIConnector:
 
     # --- Other External Operations (Simplified) ---
     async def fetch_data_from_legacy(self, system_id: str, endpoint: str, params: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        CRITICAL FIX: Uses the mock API for a more deterministic chunked fetch during dev/testing.
-        """
+        """Use the mock API for a deterministic chunked fetch during dev/testing."""
         # Simulate network delay before fetching mock data
         await asyncio.sleep(0.1)
         

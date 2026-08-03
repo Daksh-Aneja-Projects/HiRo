@@ -1,4 +1,4 @@
-# /backend/services/ethical_agents.py - REPLACEMENT (PLRAgent Fallback Logic)
+# backend/services/ethical_agents.py
 # /backend/services/ethical_agents.py
 """Ethical, Governance, and AI Cluster Agents - Deterministic Implementation
 (Synchronous Core Logic - Uses Unified AIService)"""
@@ -18,7 +18,6 @@ from services.ai_services import AIService
 
 logger = logging.getLogger(__name__)
 
-# --- Configuration Constants (CRITICAL FIX: Use configurable settings) ---
 PLR_HIGH_RISK_THRESHOLD = float(getattr(settings, 'PLR_HIGH_RISK_THRESHOLD', 0.8))
 PLR_VULNERABILITIES = getattr(settings, 'PLR_VULNERABILITIES', ["Documentation Gap", "Jurisdictional Conflict", "Termination Audit Failure"])
 SDFA_BIAS_SCORE = float(getattr(settings, 'SDFA_BIAS_SCORE', 0.01))
@@ -72,7 +71,6 @@ Return JSON: {{ "risk_score": 0.0-1.0, "vulnerability": "STRING", "advice": "STR
         if ai_text:
             result.update(ai_text)
             
-        # CRITICAL FIX: Ensure risk_score is handled as float and handle AI failure gracefully
         risk_score = result.get('risk_score')
         if not isinstance(risk_score, (int, float)):
             logger.warning("AI failed to return structured risk score. Using randomized fallback score.")
@@ -103,7 +101,6 @@ class SDFAgent:
         if target_entity not in self.data_manta:
             raise ValueError("Target entity not valid for synthetic generation.")
             
-        # CRITICAL FIX: Wrap synchronous uuid generation in async thread
         dataset_id = await asyncio.to_thread(lambda: f"SDF_{uuid.uuid4().hex[:8].upper()}")
         
         return {
@@ -124,7 +121,6 @@ class ESAgent:
 
     async def run_shadow_test(self, model_name: str) -> Dict[str, Any]:
         """Provides a deterministic Certificate of Ethical Compliance (Async-safe method)."""
-        # CRITICAL FIX: Wrap synchronous uuid generation in async thread
         test_id = await asyncio.to_thread(lambda: f"ESA_{uuid.uuid4().hex[:8].upper()}")
         
         return {

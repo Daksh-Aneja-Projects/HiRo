@@ -1,4 +1,4 @@
-# services/enforcement_engine.py - REPLACEMENT (Asynchronous Execution and Logging)
+# services/enforcement_engine.py
 """
 Async Wrapper for Enforcement Engine.
 Handles threading, error boundaries, and failsafe stubs for the policy system.
@@ -6,11 +6,10 @@ Handles threading, error boundaries, and failsafe stubs for the policy system.
 import asyncio
 import logging
 from typing import Dict, Any, Optional, Tuple
-from datetime import datetime, timezone # CRITICAL FIX: Add missing datetime/timezone
+from datetime import datetime, timezone
 from config.settings import settings 
 import json 
 
-# CRITICAL FIX: Import pg_client for the async logging function
 from services.postgres_client import pg_client
 
 # Robust import for metrics (handle missing dependency gracefully)
@@ -20,7 +19,7 @@ except ImportError:
     # No-op decorator if metrics service is missing
     def track_time(name):
         def decorator(func):
-            def wrapper(*args, **kwargs): # CRITICAL FIX: Added wrapper function to match decorator pattern
+            def wrapper(*args, **kwargs):
                 return func(*args, **kwargs)
             return wrapper
         return decorator
@@ -31,7 +30,6 @@ logger = logging.getLogger("enforcement.engine")
 try:
     # This imports the EnforcementMicroservice class instance
     from services.enforcement_microservice import enforcement_engine 
-    # CRITICAL FIX: Verify the expected method exists on the imported instance
     if not hasattr(enforcement_engine, 'execute_dsl_check'):
          raise AttributeError("Imported engine instance lacks required method 'execute_dsl_check'.")
     logger.info("✓ Real Enforcement Engine imported successfully.")
@@ -41,7 +39,6 @@ except (ImportError, AttributeError) as e:
     class EnforcementEngineStub:
         """Failsafe stub that denies all actions when the real engine is broken."""
         def execute_dsl_check(self, trigger: str, context_data: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]: 
-            # CRITICAL FIX: Returns the required Tuple (response_model, audit_data)
             response = {
                 "decision": "DENY",
                 "rule_id": "STUB_FAILSAFE",
@@ -65,7 +62,6 @@ except (ImportError, AttributeError) as e:
 async def log_policy_decision_async(audit_data: Dict[str, Any]):
     """Logs policy decision to Postgres using the async client."""
     try:
-        # CRITICAL FIX: Use the specific table name and columns required for audit logging
         query = """
             INSERT INTO policy_audit_log
               (audit_id, decision_timestamp, policy_version, trigger_type, decision, reason, execution_time_ms, context_json)
@@ -84,7 +80,6 @@ async def log_policy_decision_async(audit_data: Dict[str, Any]):
             audit_data["result"]["decision"],
             audit_data["result"]["reason"],
             audit_data["result"]["execution_time_ms"],
-            # CRITICAL FIX: Log the full result dictionary as context
             json.dumps(audit_data["result"], default=str), 
         )
     except Exception as e:
@@ -186,7 +181,6 @@ async def get_compliance_overview(policy_versioning=None) -> Dict[str, Any]:
     }
 
 
-# CRITICAL FIX: The wrapper should handle the execution time tracking
 async def execute_dsl_check(trigger: str, context_data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Async wrapper for synchronous enforcement engine.
@@ -208,7 +202,6 @@ async def execute_dsl_check(trigger: str, context_data: Dict[str, Any]) -> Dict[
         else:
             result_dict = result_response
             
-        # CRITICAL FIX: Dispatch the async logging task to the main event loop
         asyncio.create_task(log_policy_decision_async(audit_data))
             
         # Ensure all expected fields are present

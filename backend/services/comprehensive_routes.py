@@ -1,4 +1,4 @@
-# /backend/services/comprehensive_routes.py - REPLACEMENT (Final Stable Version)
+# backend/services/comprehensive_routes.py
 """Comprehensive Router: Aggregates all high-level API endpoints for management,
 policy governance, XAI, PII encryption, and agent administration."""
 import logging
@@ -19,11 +19,8 @@ from services import social_recognition
 from config.settings import settings
 from services.postgres_client import pg_client
 
-# CRITICAL FIX 1: Initialize logger immediately after import
 logger = logging.getLogger(__name__)
 
-# CRITICAL FIX: Import dependency stubs/placeholders
-# CRITICAL FIX: Importing actual JWT RBAC dependencies instead of using mocks
 from services.auth_deps import (
     policy_admin_role_required,
     hrit_admin_role_required,
@@ -143,10 +140,8 @@ innovation_router = APIRouter(prefix="/innovation", tags=["Innovation"])
 orchestrator_router = APIRouter(prefix="/orchestrator", tags=["Orchestrator"])
 command_router = APIRouter(prefix="/command", tags=["Command Execution"])
 
-# FIX START: Define the new recognition router to match the root path in api.js
 recognition_router = APIRouter(prefix="/recognition", tags=["Recognition"])
 notifications_router = APIRouter(prefix="/notifications", tags=["Notifications"])
-# FIX END
 
 
 # ======================================
@@ -3154,7 +3149,6 @@ async def mark_all_notifications_read(req: Request, payload: Dict = Depends(empl
 
 
 # ======================================
-# FINAL EXPORT (CRITICAL FIX: Ensure all routers are included)
 # ======================================
 ALL_ROUTERS = [
     # Core Routers
@@ -3167,7 +3161,6 @@ ALL_ROUTERS = [
     # Governance/Workflow Routers
     dao_router, compliance_router, social_router, innovation_router, 
     orchestrator_router, command_router,
-    # FIX ENDPOINT: Recognition Router
     recognition_router,
     notifications_router,
 ]

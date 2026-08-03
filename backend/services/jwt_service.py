@@ -1,4 +1,4 @@
-# /backend/services/jwt_service.py - REPLACEMENT (Security and Timezone Awareness)
+# backend/services/jwt_service.py
 """JWT Service: Centralized, robust service for creating, encoding, and decoding JSON Web Tokens.
 Used by the AuthService to manage user sessions and tokens."""
 import logging
@@ -11,7 +11,6 @@ logger = logging.getLogger(__name__)
 
 # --- Configuration Constants ---
 try:
-    # CRITICAL FIX: Resolve SecretStr values correctly
     SECRET_KEY = settings.JWT_SECRET_KEY.get_secret_value()
 except AttributeError:
     SECRET_KEY = getattr(settings, 'JWT_SECRET_KEY', "super_secret_signing_key_for_hiro")
@@ -37,7 +36,6 @@ class JWTService:
         standard claims (iss, exp, sub, iat)."""
         to_encode = data.copy()
         
-        # CRITICAL FIX: Ensure all datetimes are UTC-aware
         now_utc = datetime.now(timezone.utc)
         
         # Determine Expiration
@@ -73,7 +71,6 @@ class JWTService:
                 token,
                 SECRET_KEY,
                 algorithms=[ALGORITHM],
-                # CRITICAL FIX: Explicitly verify issuer for enhanced security
                 options={
                     "require": ["exp", "sub", "iat", "iss"], 
                     "verify_signature": True,

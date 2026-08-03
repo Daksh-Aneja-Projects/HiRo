@@ -1,4 +1,4 @@
-# services/digital_twin_agent.py - FINAL SYNCHRONIZED VERSION
+# services/digital_twin_agent.py
 import asyncio
 import logging
 from typing import Dict, Any, Optional, List, Tuple
@@ -23,7 +23,6 @@ class DigitalTwinAgent:
         self,
         publisher: EventPublisherService,
         ai_service: AIService,
-        # CRITICAL FIX: These dependencies must be present to match the call in server.py (line 272)
         wfm_service: WorkforcePlanningService, 
         ta_service: TalentAcquisitionService
     ):
@@ -35,7 +34,6 @@ class DigitalTwinAgent:
         self.active_twins: Dict[str, Any] = {}
         self._monitor_task: Optional[asyncio.Task] = None
         
-        # CRITICAL FIX: Ensure TOPIC_DTLA_SCENARIO exists on publisher
         if not hasattr(publisher, 'TOPIC_DTLA_SCENARIO'):
              publisher.TOPIC_DTLA_SCENARIO = "dtla.scenario.generated"
              

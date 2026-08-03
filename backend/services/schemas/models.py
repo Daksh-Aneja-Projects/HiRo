@@ -1,4 +1,4 @@
-# /backend/services/schemas/models.py - FIXED
+# backend/services/schemas/models.py
 # /backend/services/schemas/models.py
 """Pydantic models and schemas - FINAL MERGED VERSION
 Combines HRBP features with Core Agent requirements."""
@@ -46,8 +46,8 @@ class AuthPayload(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
     sub: str
     role: str
-    user_id: str # <--- CRITICAL FIX: Added for JWT consistency
-    email: str   # <--- CRITICAL FIX: Added for JWT consistency
+    user_id: str
+    email: str
     exp: Optional[int] = None
     iat: Optional[int] = None
 
@@ -63,7 +63,6 @@ class LoginRequest(BaseModel):
     username: str
     password: str
 
-# CRITICAL FIX: Use EmailStr for strong typing (but keep previous fields)
 class UserDetails(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
     id: Optional[str] = None          # frontend reads user.id (mirrors user_id)
@@ -123,7 +122,6 @@ class PayslipMetadata(BaseModel):
 class BulkUploadRequest(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
     file_type: str = Field(..., description="e.g., payslip, compensation_letter, user_csv")
-    # CRITICAL FIX: Use timezone aware datetime.now(timezone.utc)
     upload_date: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat()) 
     validation_required: bool = True
 
@@ -156,7 +154,6 @@ class HRSDTicket(BaseModel):
     status: TicketStatus = Field(TicketStatus.NEW, description="Current status.")
     priority: TicketPriority = Field(TicketPriority.MEDIUM, description="Priority level.")
     assigned_agent: Optional[str] = None
-    # CRITICAL FIX: Use timezone aware datetime.now(timezone.utc)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc)) 
     resolution_summary: Optional[str] = None
     resolved_at: Optional[datetime] = None
@@ -257,7 +254,6 @@ class RLFFFeedbackEntry(BaseModel):
     response: str
     feedback_score: float
     human_correction: Optional[str] = None
-    # CRITICAL FIX: Use timezone aware datetime.now(timezone.utc)
     captured_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class ModelVersionUpdate(BaseModel):
@@ -276,7 +272,6 @@ class IntegrationTaskModel(BaseModel):
     payload: Dict[str, Any]
     status: str = "pending"
     retry_count: int = 0
-    # CRITICAL FIX: Use timezone aware datetime.now(timezone.utc)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     completed_at: Optional[datetime] = None
 
@@ -286,7 +281,6 @@ class DigitalTwinState(BaseModel):
     entity_type: str
     current_metrics: Dict[str, float]
     active_scenarios: List[str] = []
-    # CRITICAL FIX: Use timezone aware datetime.now(timezone.utc)
     last_updated: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class SimulationRequest(BaseModel):
@@ -303,7 +297,6 @@ class SystemHealthMetric(BaseModel):
     error_rate: float
     cpu_usage: float
     memory_usage: float
-    # CRITICAL FIX: Use timezone aware datetime.now(timezone.utc)
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class UpgradeLog(BaseModel):
@@ -313,7 +306,6 @@ class UpgradeLog(BaseModel):
     change_summary: str
     diff_url: Optional[str] = None
     status: str = "applied"
-    # CRITICAL FIX: Use timezone aware datetime.now(timezone.utc)
     applied_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class BPELProcessDefinition(BaseModel):

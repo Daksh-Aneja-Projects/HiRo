@@ -1,4 +1,4 @@
-# /backend/services/self_correcting_agent.py - REPLACEMENT (Corrected Syntax)
+# backend/services/self_correcting_agent.py
 
 import asyncio
 import logging
@@ -17,7 +17,6 @@ class SelfCorrectingAgent:
     def __init__(self, ai_service: AIService):
         self.ai_service = ai_service
         self.iteration_count = 0
-        # SYNTAX FIX: Removed internal citation tags
         self.max_iterations = getattr(settings, 'SELF_CORRECTING_MAX_ITERATIONS', 5) 
         
         logger.info(" ✓ Self-Correcting Agent Initialized")
@@ -45,7 +44,6 @@ class SelfCorrectingAgent:
             initial_bpcl = await self._generate_initial_bpcl(nl_prompt)
             current_bpcl = initial_bpcl
             
-            # CRITICAL FIX: Check for the Emergency_Fallback signature and force exit via exception
             if "WORKFLOW: Emergency_Fallback" in current_bpcl:
                 raise RuntimeError(f"Initial BPCL generation failed: {current_bpcl}")
             
@@ -95,7 +93,6 @@ class SelfCorrectingAgent:
                 # Apply corrections
                 corrected_bpcl = await self._apply_corrections(current_bpcl, issues)
                 
-                # CRITICAL FIX: Check if correction was effective
                 if corrected_bpcl == current_bpcl or "ERROR: " in corrected_bpcl:
                     yield json.dumps({
                         "stage": "stagnation",

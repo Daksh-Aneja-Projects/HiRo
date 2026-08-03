@@ -1,16 +1,15 @@
-# /C:/HiRo Project/backend/gunicorn_conf.py - FIXED GUNICORN LOGGING DEADLOCK
+# Gunicorn configuration for the HiRo backend.
 import os
 import sys
 import logging
-# CRITICAL FIX: Import settings here to ensure environment variables are loaded 
-# early in the master process before any workers are forked.
+# Import settings in the master process so environment variables are loaded
+# before any workers are forked.
 from config.settings import settings
 
-# CRITICAL FIX: Ensure PYTHONUNBUFFERED is set immediately in the environment 
-# so subprocesses (workers) inherit it correctly.
+# Set in the master process so forked workers inherit unbuffered I/O.
 os.environ['PYTHONUNBUFFERED'] = '1'
 
-# CRITICAL FIX: Line-buffered I/O. Use a bare try/except in case reconfigure isn't available
+# Line-buffered I/O; reconfigure() is unavailable on some streams, hence the guard.
 try:
     if sys.stdout.isatty(): # Only attempt reconfigure if we're in an interactive-like terminal
         sys.stdout.reconfigure(line_buffering=True)
@@ -29,26 +28,23 @@ def post_fork(server, worker):
     """Worker startup - safe logging config."""
     logger = logging.getLogger('gunicorn.error') 
     
-    # Prevent logging deadlock 
     root_logger = logging.getLogger()
-    
-    # CRITICAL FIX: Set propagate to False before basicConfig to isolate gunicorn handler 
-    # This prevents the root logger from sending logs up to the system/gunicorn root handler,
-    # which can cause duplication/deadlock in a forked environment.
+
+    # Detach the root logger from gunicorn's handler while reconfiguring, so logs
+    # are not duplicated up to the gunicorn root handler in a forked worker.
     root_logger.propagate = False
-    
-    # CRITICAL FIX: Use force=True to reconfigure logging in a forked process environment
+
+    # force=True replaces any handlers inherited across the fork.
     logging.basicConfig(
-        level=logging.WARNING,  # Reduced noise
+        level=logging.WARNING,
         format='%(asctime)s [%(levelname)s] %(process)d %(name)s: %(message)s',
-        handlers=[logging.StreamHandler(sys.stdout)],  # STDOUT ONLY
+        handlers=[logging.StreamHandler(sys.stdout)],
         force=True
     )
-    
+
     logger.info(f"Worker {worker.pid} ready - safe logging.")
-    
-    # CRITICAL FIX: Set propagate back to True after configuring the root logger, 
-    # ensuring application loggers inherit properly.
+
+    # Re-enable propagation so application loggers inherit the root configuration.
     root_logger.propagate = True
     
 def worker_abort(worker):

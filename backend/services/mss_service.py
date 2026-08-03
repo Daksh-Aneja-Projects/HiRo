@@ -5,14 +5,13 @@ from services.postgres_client import pg_client
 from services.pii_vault import PIIVault
 from services.event_publisher_service import EventPublisherService
 from services import notification_service as notify_svc
-import asyncio # CRITICAL FIX: Add missing import
+import asyncio
 
 logger = logging.getLogger(__name__)
 
 class MSSService:
     def __init__(self, publisher: EventPublisherService):
         self.publisher = publisher
-        # CRITICAL FIX: Use the proper singleton getter
         self.pii_vault = PIIVault.get_instance()
         logger.info("✓ MSS Service Initialized.")
 

@@ -1,4 +1,4 @@
-# /backend/services/postgres_client.py - REPLACEMENT (Ignoring the erroneous batch_size parameter)
+# backend/services/postgres_client.py
 """Postgres Client Service: High-performance, asynchronous data access layer.
 Uses asyncpg connection pooling and robust transaction management."""
 import logging
@@ -12,14 +12,12 @@ try:
     import asyncpg
     from asyncpg import Pool 
 except ImportError:
-    # CRITICAL FIX: Ensure the import error is correctly handled
     raise RuntimeError("Critical Dependency Missing: Please run 'pip install asyncpg'")
 
 from config.settings import settings
 
 logger = logging.getLogger(__name__)
 
-# CRITICAL FIX: Use settings.postgres_url() to build the connection 
 DATABASE_URL = settings.postgres_url() 
 
 class PostgresClient:
@@ -52,7 +50,6 @@ class PostgresClient:
                 min_size=5,
                 max_size=20,
                 command_timeout=60,
-                # CRITICAL FIX: Add explicit loop for compatibility
                 loop=asyncio.get_event_loop() 
             )
             self.is_connected = True 
@@ -132,7 +129,6 @@ class PostgresClient:
                 logger.error(f"Execute Failed: {query[:50]}... | Error: {e}") 
                 raise
 
-    # CRITICAL FIX: Modify the signature to accept 'batch_size' (and any other extraneous args)
     # but ignore them, as the underlying asyncpg.executemany doesn't use them.
     async def executemany_async(self, query: str, args_list: List[Union[Tuple, Dict[str, Any]]], **kwargs) -> None:
         """Executes a command using many parameter sets for bulk insertion."""
@@ -164,7 +160,6 @@ class PostgresClient:
                 try:
                     yield conn
                 except Exception as e:
-                    # CRITICAL FIX: Log the rollback for security/audit purposes
                     logger.error(f"TRANSACTION ROLLBACK ({requesting_agent_id}/{purpose}): {type(e).__name__}: {e}")
                     raise
                 finally:

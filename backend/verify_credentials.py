@@ -3,7 +3,7 @@
 import hashlib
 import sys
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional # CRITICAL FIX: Added Optional
+from typing import Dict, Any, Optional
 
 print("=" * 70)
 print("🔐 HIRO CREDENTIALS DIAGNOSTIC TOOL")
@@ -21,7 +21,6 @@ class MockHasher:
         expected_hash = MockHasher.hash_password(password)
         return hashed_password == expected_hash
 
-# CRITICAL FIX: Updated test cases to reflect the passwords expected by auth_service.py
 # (i.e., username = password)
 test_users = [
     ("admin", "admin", "hrit_admin"),

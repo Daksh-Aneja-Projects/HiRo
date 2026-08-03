@@ -1,4 +1,4 @@
-# /backend/services/configuration_agent.py - REPLACEMENT (Final Integration)
+# backend/services/configuration_agent.py
 import logging
 import json
 from typing import Dict, Any, List, Optional

@@ -19,7 +19,6 @@ BACKEND_DIR = ROOT_DIR.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 if str(BACKEND_DIR) not in sys.path:
-    # CRITICAL FIX: Corrected the redundant 'sys.' prefix
     sys.path.insert(0, str(BACKEND_DIR)) 
 
 # Load environment variables
@@ -128,7 +127,6 @@ try:
     from services.internal_mock_api import InternalMockAPI 
     from services.configuration_agent import ConfigurationAgent 
 
-    # CRITICAL FIX: Import missing services required by DTLA
     from services.workforce_planning_service import WorkforcePlanningService 
     from services.talent_acquisition_service import TalentAcquisitionService 
 
@@ -193,12 +191,10 @@ async def generate_telemetry_background(publisher: EventPublisherService):
             logger.error(f"Telemetry generation error: {e}")
             await asyncio.sleep(5)
             
-# CRITICAL FIX 2: Background task for Policy Scraping Agent
 async def run_policy_scraping_background(policy_scraping_agent: PolicyScrapingAgent):
     """Starts the continuous global sentinel monitoring loop."""
     logger.info(" 🌐 Starting Policy Scraping Agent (Global Sentinel) monitoring...")
     try:
-        # CRITICAL FIX: Call the task-driven method (execute_full_sweep) inside an eternal loop 
         # to restore background monitoring functionality.
         if hasattr(policy_scraping_agent, 'monitor_and_generate_rules'):
             await policy_scraping_agent.monitor_and_generate_rules()
@@ -298,7 +294,6 @@ async def lifespan(app: FastAPI):
         # 7. Core Services Initialization (Dependency Injection)
         app.state.internal_mock_api = InternalMockAPI() # Initialize Mock API for fallbacks
         
-        # CRITICAL FIX 3: Conditionally set the mock API instance based on settings
         if settings.ENABLE_MOCK_REGULATORY_FEEDS:
             mock_api_instance = app.state.internal_mock_api
             logger.warning(" ⚠️  POLICY SCRAPING: Using MOCK regulatory feeds.")
@@ -314,7 +309,6 @@ async def lifespan(app: FastAPI):
         
         # 8. Agent Initialization (Full dependency wiring)
         
-        # FIX START: Initialize the missing dependency services FIRST
         app.state.wfm_service = WorkforcePlanningService(
             publisher=app.state.event_publisher, mongo_client=app.state.mongo_client)
         app.state.ta_service = TalentAcquisitionService(publisher=app.state.event_publisher)
@@ -325,16 +319,13 @@ async def lifespan(app: FastAPI):
         app.state.ess_service = ESSService(publisher=app.state.event_publisher)
         app.state.mss_service = MSSService(publisher=app.state.event_publisher)
 
-        # FIX END
         
-        # CRITICAL FIX 4: Correctly inject WFMService and TAService into DigitalTwinAgent (Fixed in previous step by class replacement)
         app.state.digital_twin_agent = DigitalTwinAgent(
             publisher=app.state.event_publisher, 
             ai_service=app.state.ai_service,
             wfm_service=app.state.wfm_service, 
             ta_service=app.state.ta_service    
         )
-        # CRITICAL FIX 5: Inject DigitalTwinAgent instance into SyntheticTwinEngine
         app.state.synthetic_twin_engine = SyntheticTwinEngine(
             dt_agent=app.state.digital_twin_agent, 
             ai_service=app.state.ai_service
@@ -446,7 +437,6 @@ async def lifespan(app: FastAPI):
             app.state.policy_scraping_agent.is_running = False 
             logger.info("Policy Scraping Agent monitoring stopped.")
     
-    # CRITICAL FIX 6: Stop Digital Twin Monitoring Gracefully
     if hasattr(app.state, 'digital_twin_agent') and hasattr(app.state.digital_twin_agent, 'stop_monitoring'):
         try:
             # This relies on the fixed DigitalTwinAgent class having a robust stop_monitoring method
@@ -764,7 +754,6 @@ except ImportError:
 app.include_router(api, prefix="/api")
 
 # =========================================================================
-# CRITICAL FIX: ROOT HEALTH CHECK FOR DOCKER
 # =========================================================================
 @app.get("/health")
 async def root_health():
@@ -847,7 +836,6 @@ from routes.ai_knowledge_routes import ALL_AI_KNOWLEDGE_ROUTERS
 for _ai_knowledge_router in ALL_AI_KNOWLEDGE_ROUTERS:
     app.include_router(_ai_knowledge_router, prefix="/api")
 
-# CRITICAL FIX: Include the standard Python execution block for local development
 if __name__ == "__main__":
     import uvicorn
     logger.info("Starting server in development mode...")

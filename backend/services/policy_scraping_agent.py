@@ -1,4 +1,4 @@
-# /backend/services/policy_scraping_agent.py - FINAL VERSION (Adding Monitor Loop)
+# backend/services/policy_scraping_agent.py
 import asyncio
 import logging
 from typing import List, Dict, Any, Tuple, Optional
@@ -11,12 +11,10 @@ from config.settings import settings
 from services.external_api_connector import ExternalAPIConnector 
 from services.vv_compiler import VVCompiler 
 
-# CRITICAL FIX: Import the REAL Chaincode service
 from services.hyperledger_chaincode import AHCMGovernanceChaincode
 
 logger = logging.getLogger(__name__)
 
-# CRITICAL FIX: Define constants for the monitor loop
 POLICY_SCRAPING_INTERVAL_SECONDS = getattr(settings, 'POLICY_SCRAPING_INTERVAL_SECONDS', 3600) # Run every hour
 
 class PolicyScrapingAgent:
@@ -74,7 +72,6 @@ class PolicyScrapingAgent:
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
 
-    # CRITICAL FIX: Add the missing method required by server.py's background task
     async def monitor_and_generate_rules(self):
         """Continuous background monitoring loop."""
         if self.is_running:
@@ -105,7 +102,6 @@ class PolicyScrapingAgent:
             self.is_running = False
             logger.info("Policy Scraping Agent monitor loop stopped.")
 
-    # CRITICAL FIX: Add a graceful stop method (good practice)
     def stop_monitoring(self):
         """Sets the running flag to false to stop the loop."""
         self.is_running = False

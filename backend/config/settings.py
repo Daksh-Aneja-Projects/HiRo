@@ -1,4 +1,4 @@
-# /backend/config/settings.py - REPLACEMENT (FINAL PRODUCTION VERSION - COMPREHENSIVE)
+# backend/config/settings.py
 
 """Configuration Settings for HiRo Enterprise Platform.
 Loads environment variables and provides structured access to all
@@ -35,7 +35,6 @@ if not hasattr(_pydantic.BaseModel, "model_dump"):
 if not hasattr(_pydantic.BaseModel, "model_validate"):
     _pydantic.BaseModel.model_validate = classmethod(lambda cls, obj: cls.parse_obj(obj))
 
-# CRITICAL FIX: Corrected the logger initialization line
 logger = logging.getLogger(__name__)
 
 # --- Environment Loading (Standard Practice) ---
@@ -139,7 +138,6 @@ class Settings:
     ADMIN_PASSWORD: SecretStr = SecretStr(get_env_variable("ADMIN_PASSWORD", "secure_admin_password"))
     PII_SALT: SecretStr = SecretStr(get_env_variable("PII_SALT", "default_pii_salt_4096_secure"))
     
-    # CRITICAL FIX: PQC Mock Key required by pii_vault_core_logic_conceptual.py
     PII_MOCK_PQC_KEY: SecretStr = SecretStr(get_env_variable("PII_MOCK_PQC_KEY", "MOCK_PQC_KEY_DEFAULT_FALLBACK"))
     
     DEFAULT_TEST_PASSWORD: SecretStr = SecretStr(get_env_variable("DEFAULT_TEST_PASSWORD", "testpass123"))
@@ -299,8 +297,8 @@ class Settings:
     
     # --- SI INTEGRATION: SECURITY CONFIGURATION (Retained from the latest user submission) ---
     ENABLE_RATE_LIMITING: bool = get_env_variable("ENABLE_RATE_LIMITING", "true").lower() == "true"
-    # CRITICAL FIX: Increased internal rate limit from 300 RPM to 3000 RPM 
-    # to prevent 'Rate limit exceeded' errors during bulk data initialization and heavy load.
+    # High default so bulk data initialization and heavy load do not trip the
+    # limiter; override per environment as needed.
     RATE_LIMIT_PER_MINUTE: int = int(get_env_variable("RATE_LIMIT_PER_MINUTE", "3000"))
     ENABLE_JWT_AUTH: bool = get_env_variable("ENABLE_JWT_AUTH", "true").lower() == "true"
     

@@ -1,4 +1,4 @@
-# /backend/services/middleware/rate_limit_middleware.py - FIXED
+# backend/services/middleware/rate_limit_middleware.py
 # /backend/services/middleware/rate_limit_middleware.py
 """ASGI Rate Limiting Middleware"""
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -6,7 +6,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Union # CRITICAL FIX: Ensure imports are correctly placed and separated
+from typing import Dict, List, Union
 import hashlib
 import logging
 import time
@@ -23,7 +23,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self.requests_per_minute = requests_per_minute
         self.max_body_size = max_body_size
-        # CRITICAL FIX: Use floats (timestamps) for better performance and consistency
         self.request_counts: Dict[str, List[float]] = defaultdict(list)
         self._last_sweep = 0.0
 
@@ -53,7 +52,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             if token:
                 return f"session:{hashlib.sha256(token.encode('utf-8')).hexdigest()[:16]}"
 
-        # FIX: Prioritize proxies (X-Forwarded-For, X-Real-IP) for accurate client identification in Docker/K8s
         forwarded_for = request.headers.get("x-forwarded-for")
         if forwarded_for:
             return f"ip:{forwarded_for.split(',')[0].strip()}"
@@ -69,13 +67,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                       request: Request, call_next):
         
         # Body size check
-        # FIX: Check only POST/PUT/PATCH requests where body 
         # size matters
         if request.method in ["POST", "PUT", "PATCH"]:
             content_length_str = request.headers.get("content-length")
             if content_length_str:
                 try:
-                    # CRITICAL FIX: Use the configured max_body_size (already converted to bytes)
                     if int(content_length_str) > self.max_body_size:
                         return JSONResponse({"detail": "Request body too large"}, status_code=413)
                 except ValueError:
@@ -85,7 +81,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # Rate limiting
         client_ip = self._get_client_identifier(request)
         
-        # CRITICAL FIX: Use monotonic time for accurate rate 
         # calculation, 
         # independent of system clock changes/timezones.
         # However, for pruning requests based on a real-world time window (60s), 
@@ -96,17 +91,14 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # Prune old requests (1 minute window)
         one_minute_ago_ts = now_ts - 60.0
         
-        # FIX: Filter list in place for efficiency (reassignment is atomic and fast)
         self.request_counts[client_ip] = [
             req_time for req_time in self.request_counts[client_ip]
             if req_time > one_minute_ago_ts
         ]
         
         if len(self.request_counts[client_ip]) >= self.requests_per_minute:
-            # CRITICAL FIX: If rate limiting is enabled, always log the warning
             logger.warning(f"Rate limit exceeded: {client_ip}")
             
-            # FIX: Ensure 
             # headers reflect the current state
             remaining = 0
             headers = {
@@ -129,7 +121,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # Add headers
         remaining = max(0, self.requests_per_minute - len(self.request_counts[client_ip]))
         response.headers['X-RateLimit-Limit'] = str(self.requests_per_minute)
-        # FIX: Corrected the invalid syntax by merging the line
         response.headers['X-RateLimit-Remaining'] = str(remaining)
         
         return response

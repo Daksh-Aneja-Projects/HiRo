@@ -1,4 +1,4 @@
-# /backend/services/auth_deps.py - FINAL PRODUCTION CODE (FIXED: RBAC Dependency Return Type)
+# backend/services/auth_deps.py
 """Authorization Dependencies: Provides reusable functions for FastAPI route security, including JWT verification, RBAC enforcement, and data sanitization."""
 import logging
 from typing import Dict, Any, Optional, List, Union
@@ -48,7 +48,6 @@ def get_auth_payload(token: Optional[str] = Header(None, alias="Authorization"))
         )
 
 # --- RBAC Helper ---
-# CRITICAL FIX: The function now returns the AuthPayload object on success (not just True)
 def _role_checker(allowed_roles: List[str], payload: AuthPayload) -> Dict[str, Any]:
     """
     Reusable function to check if the user's role is in the allowed list.
@@ -60,7 +59,6 @@ def _role_checker(allowed_roles: List[str], payload: AuthPayload) -> Dict[str, A
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Access denied. Required roles: {', '.join(allowed_roles)}"
         )
-    # FIX: Return the payload dictionary so comprehensive_routes doesn't need 100 updates
     return payload.model_dump() if hasattr(payload, "model_dump") else payload.dict()
 
 # --- RBAC Dependency Functions (Aligned with Frontend Portals) ---

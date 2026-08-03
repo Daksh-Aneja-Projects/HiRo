@@ -1,4 +1,4 @@
-# services/policy_tree_generator.py - REPLACEMENT (AST Engine Robustness)
+# services/policy_tree_generator.py
 """
 Policy Tree Generator: Uses Python's native AST parser for robust boolean logic parsing.
 """
@@ -29,7 +29,6 @@ class PolicyTreeGenerator:
         
         # Handle Comparisons (salary > 50000)
         elif isinstance(node, ast.Compare):
-            # CRITICAL FIX: Ensure only one comparison is processed (simple DSL)
             if len(node.ops) != 1 or len(node.comparators) != 1:
                 return {"type": "ERROR", "message": "Complex chained comparison not supported."}
 
@@ -75,11 +74,9 @@ class PolicyTreeGenerator:
         
         for rule in bpcl_content.get('rules', []):
             rule_id = rule.get('id', str(uuid.uuid4()))
-            # CRITICAL FIX: Ensure condition is a string, default to True for safety
             condition = str(rule.get('condition', 'True'))
             
             try:
-                # CRITICAL FIX: Wrap the expression in a check to prevent arbitrary code execution before parsing
                 if not all(c in condition for c in ['<', '>', '==', '!=', 'and', 'or', 'True', 'False']):
                     raise SyntaxError("Condition contains invalid or unsupported Python constructs.")
                     

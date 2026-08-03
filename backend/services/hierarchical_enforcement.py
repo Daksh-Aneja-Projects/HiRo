@@ -1,13 +1,13 @@
-# /backend/services/hierarchical_enforcement.py - FIXED
+# backend/services/hierarchical_enforcement.py
 # /C:/HiRo Project/backend/services/hierarchical_enforcement.py
 """Hierarchical Enforcement Engine
 Implements the Three-Dimensional Compliance Stack (Global/Industry/Local)
 Resolves policy conflicts by applying strictest rule"""
 import json
 import logging
-from typing import Dict, List, Any, Optional, Tuple, Union # CRITICAL FIX: Added missing Union import
+from typing import Dict, List, Any, Optional, Tuple, Union
 from datetime import datetime, timezone
-from enum import Enum # CRITICAL FIX: Added missing Enum import
+from enum import Enum
 from dataclasses import dataclass, asdict, field
 from copy import deepcopy
 from config.settings import settings
@@ -141,14 +141,12 @@ class HierarchicalEnforcementEngine:
             if constraint.hierarchy_level == HierarchyLevel.GLOBAL:
                 applicable.append(constraint)
             elif constraint.hierarchy_level == HierarchyLevel.INDUSTRY:
-                # CRITICAL FIX: Ensure industry check works with Enum/string comparison
                 if industry and constraint.industry == industry:
                     applicable.append(constraint)
             elif constraint.hierarchy_level == HierarchyLevel.LOCAL:
                 if jurisdiction and constraint.jurisdiction == jurisdiction:
                     applicable.append(constraint)
         
-        # CRITICAL FIX: Check if list is empty before sorting
         if not applicable:
              return []
 
@@ -170,7 +168,6 @@ class HierarchicalEnforcementEngine:
         elif strategy == ConflictResolutionStrategy.LOCAL_PRIORITY:
             local_constraints = [c for c in constraints if c.hierarchy_level == HierarchyLevel.LOCAL]
             if local_constraints:
-                # CRITICAL FIX: Select the highest priority local rule if multiple exist
                 return max(local_constraints, key=lambda c: c.priority)
             return constraints[0] # Fallback to general priority sort if no local rule exists
         else:

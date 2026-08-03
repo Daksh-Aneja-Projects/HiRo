@@ -1,4 +1,4 @@
-# /backend/reset_test_users.py - FIXED
+# backend/reset_test_users.py
 #!/usr/bin/env python3
 """Environment-aware user reset script for HiRo.
 Reads test credentials from environment variables."""
@@ -6,7 +6,7 @@ import asyncio
 import sys
 import os
 from pathlib import Path
-from typing import Dict, Any # CRITICAL FIX: Add missing Dict, Any import
+from typing import Dict, Any
 
 # Add backend directory to path
 backend_dir = Path(__file__).parent.parent / "backend"
@@ -33,7 +33,6 @@ async def reset_test_users():
         from services.auth_service import AuthService
         auth_service = AuthService(mongo_client)
         
-        # CRITICAL FIX: Add default passwords to getattr calls since they are not in `settings` class attributes by default
         # and are only retrieved from environment/fallbacks inside auth_service.initialize_test_users().
         # We need the actual passwords for the print table summary.
         
@@ -73,7 +72,6 @@ async def reset_test_users():
         print("   ┌─────────────────────────────────────────────────┐")
         print("   │ Type     │ Username  │ Password │ Role         │")
         print("   ├─────────────────────────────────────────────────┤")
-        # CRITICAL FIX: Use the resolved defaults/env vars for the table output.
         print(f"   │ Admin    │ {getattr(settings, 'TEST_ADMIN_USERNAME', 'admin'):<9} │ {admin_pass:<8} │ hrit_admin   │")
         print(f"   │ Manager  │ {getattr(settings, 'TEST_MANAGER_USERNAME', 'manager'):<9} │ {manager_pass:<8} │ manager      │")
         print(f"   │ Employee │ {getattr(settings, 'TEST_EMPLOYEE_USERNAME', 'demo'):<9} │ {employee_pass:<8} │ employee     │")

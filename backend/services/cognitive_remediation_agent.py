@@ -1,4 +1,4 @@
-# /backend/services/cognitive_remediation_agent.py - REPLACEMENT (Adding Trigger Inference for Validation)
+# backend/services/cognitive_remediation_agent.py
 """Cognitive Remediation Agent
 Analyzes failed transactions and proposes policy-compliant fixes"""
 import logging
@@ -49,7 +49,6 @@ class CognitiveRemediationAgent:
         # 3. Validate each candidate
         validated_fixes: List[Dict[str, Any]] = []
         
-        # CRITICAL FIX: Infer the trigger type to use for validation
         validation_trigger = self._infer_trigger_type(failed_transaction) 
         
         for candidate in fix_candidates:

@@ -12,7 +12,6 @@ import uuid
 import asyncio
 
 logger = logging.getLogger(__name__)
-# CRITICAL FIX: Import pg_client for transactional updates
 from services.postgres_client import pg_client as local_pg_client # Renamed for clarity in this file
 
 # --- Configuration Constants ---
@@ -185,7 +184,6 @@ class PolicyVersioningService:
         """
         current_active_version = self.get_active_version(policy_id)
         
-        # CRITICAL FIX: Use explicit version logic
         if parent_version_id and parent_version_id in self.versions:
             parent_version = self.versions[parent_version_id]
             version_number = self._increment_version(parent_version.version_number, DEFAULT_CHANGE_TYPE)

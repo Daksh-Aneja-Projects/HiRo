@@ -1,4 +1,4 @@
-# /backend/services/ess_service.py - REPLACEMENT (Adding PII Purpose to PII Vault Call)
+# backend/services/ess_service.py
 """Employee Self-Service (ESS) Agent: Handles all actions initiated by an individual employee.
 Enforces strict data access scope (only own data) and uses the PII Vault for security."""
 import asyncio 
@@ -8,7 +8,6 @@ from datetime import datetime, timezone
 import uuid
 from fastapi import HTTPException, status 
 
-# CRITICAL FIX: Import required services and models
 from config.settings import settings
 from services.event_publisher_service import EventPublisherService 
 from services.postgres_client import pg_client
@@ -31,7 +30,6 @@ def _as_date(value):
 
 # --- Configuration Constants ---
 ESS_AGENT_ID = "ESS_Service"
-# CRITICAL FIX: Import the PII Purpose constant used by the policy engine
 from services.pii_vault_core_logic_conceptual import POLICY_ESS_PURPOSE 
 
 class ESSService:
@@ -40,7 +38,6 @@ class ESSService:
     
     def __init__(self, publisher: EventPublisherService):
         self.publisher = publisher
-        # CRITICAL FIX: Initialize PII Vault access
         self.pii_vault = PIIVault.get_instance()
         logger.info(f"✓ {ESS_AGENT_ID} Initialized.")
 
@@ -168,7 +165,6 @@ class ESSService:
                             "waiting for a decision are counted."),
                 )
 
-        # CRITICAL FIX: Start a transaction for data integrity before publishing
         async with pg_client.transaction(requesting_agent_id=ESS_AGENT_ID, purpose="submit_leave"):
             
             # 2. Insert the request into the UDM (transactional)

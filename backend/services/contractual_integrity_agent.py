@@ -4,7 +4,7 @@ import logging
 import time
 from typing import Dict, Any
 from datetime import datetime, timezone
-import random # CRITICAL FIX: Ensure random is imported
+import random
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +15,6 @@ class ContractualIntegrityAgent:
     def monitor_sla_breach(self, vendor: str) -> Dict[str, Any]:
         """[SYNCHRONOUS] Simulates deterministic breach detection based on Vendor ID hash."""
         
-        # CRITICAL FIX: Use vendor name to seed the random number generator
         # This ensures the status is consistent for the same vendor in a short period, 
         # but varies across different vendors.
         vendor_seed = sum(ord(c) for c in vendor)

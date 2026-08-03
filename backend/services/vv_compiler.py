@@ -1,10 +1,10 @@
-# services/vv_compiler.py - REPLACEMENT (UDM Introspection Robustness)
+# services/vv_compiler.py
 """
 Verification & Validation Compiler: Provides syntactic and semantic checks 
 for Business Process Compliance Logic (BPCL) by introspecting real UDM models.
 """
 import logging
-import re # CRITICAL FIX: Import regex for robust tokenization
+import re
 from typing import Dict, Any, List, Type
 import json
 import asyncio
@@ -15,7 +15,6 @@ from services.udm_schemas_complete import (
 
 logger = logging.getLogger(__name__)
 
-# CRITICAL FIX: Add full set of UDM Models for robust introspection
 UDM_MODEL_MAP: Dict[str, Type[Any]] = {
     "employee_profile": EmployeePIIDataProduct,
     "leave_request": LeaveRequestDataProduct,
@@ -31,7 +30,6 @@ class VVCompiler:
     """
     def __init__(self):
         self.udm_schema = self._generate_schema_from_models()
-        # CRITICAL FIX: Add keys from mock models for validation exceptions
         self.udm_schema["input"] = {"description": "Dynamic user input fields.", "columns": {}}
         self.udm_schema["context"] = {"description": "Global execution context.", "columns": {}}
         
@@ -52,7 +50,6 @@ class VVCompiler:
             for field_name, field_def in properties.items():
                 f_type = field_def.get('type', 'string').upper()
                 
-                # CRITICAL FIX: Standardize type naming for the DSL
                 if 'enum' in field_def:
                     f_type = "ENUM"
                 elif f_type in ('NUMBER', 'INTEGER'):
@@ -80,7 +77,6 @@ class VVCompiler:
             return errors
 
         for i, rule in enumerate(content['rules']):
-            # CRITICAL FIX: Use .get() for safety during iteration
             if not all(k in rule for k in ['id', 'condition', 'action']):
                 errors.append(f"Rule {i+1} missing mandatory keys (id, condition, action).")
         return errors
@@ -94,7 +90,6 @@ class VVCompiler:
         for rule in policy_content.get('rules', []):
             condition_str = rule.get('condition', '')
             
-            # CRITICAL FIX: Use RegEx to robustly extract potential table.column references
             # Finds tokens matching 'word.word' (ignoring case, but focusing on structure)
             references = re.findall(r'(\b\w+\.\w+\b)', condition_str)
             
@@ -105,7 +100,6 @@ class VVCompiler:
                     column_ref = column_ref.strip()
                     
                     if table_ref in self.udm_schema:
-                        # CRITICAL FIX: Check columns dynamically, allowing "input." and "context." to pass column check for now
                         if table_ref not in ["input", "context"] and column_ref not in self.udm_schema[table_ref]['columns']:
                             errors.append(f"Rule '{rule.get('id')}' Invalid Column: {table_ref}.{column_ref}")
                     else:
@@ -131,5 +125,4 @@ class VVCompiler:
         """
         [ASYNCHRONOUS] Public interface to validate BPCL policy content safely.
         """
-        # CRITICAL FIX: Ensure the synchronous core logic is wrapped
         return await asyncio.to_thread(self.validate_bpcl_sync, policy_id, content)

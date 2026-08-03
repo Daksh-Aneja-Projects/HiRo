@@ -1,9 +1,8 @@
-# /backend/services/models.py - REPLACEMENT (FINAL FIX: Timezone-Aware Datetime Defaults)
 """Pydantic models and schemas - FINAL MERGED VERSION
 Combines HRBP features with Core Agent requirements."""
 from typing import Optional, List, Dict, Any, Union 
 from pydantic import BaseModel, Field, EmailStr, ConfigDict 
-from datetime import datetime, timezone # CRITICAL FIX: Import timezone and update defaults
+from datetime import datetime, timezone
 from enum import Enum
 
 # =============================================================================
@@ -42,7 +41,6 @@ class TicketPriority(str, Enum):
 # 2. AUTH & USER MODELS
 # =============================================================================
 class AuthPayload(BaseModel):
-    # CRITICAL FIX: Pydantic V2 compatibility
     model_config = ConfigDict(protected_namespaces=())
     sub: str
     role: str
@@ -50,7 +48,6 @@ class AuthPayload(BaseModel):
     iat: Optional[int] = None
 
 class SanitizedUser(BaseModel):
-    # CRITICAL FIX: Pydantic V2 compatibility
     model_config = ConfigDict(protected_namespaces=())
     username: str
     role: str
@@ -58,13 +55,11 @@ class SanitizedUser(BaseModel):
     last_login: Optional[str] = None
 
 class LoginRequest(BaseModel):
-    # CRITICAL FIX: Pydantic V2 compatibility
     model_config = ConfigDict(protected_namespaces=())
     username: str
     password: str
 
 class UserDetails(BaseModel):
-    # CRITICAL FIX: Pydantic V2 compatibility
     model_config = ConfigDict(protected_namespaces=())
     user_id: Optional[str] = None
     username: str
@@ -77,14 +72,12 @@ class UserDetails(BaseModel):
     department: Optional[str] = None
 
 class LoginResponse(BaseModel):
-    # CRITICAL FIX: Pydantic V2 compatibility
     model_config = ConfigDict(protected_namespaces=())
     access_token: str
     token_type: str = "bearer"
     user: UserDetails
 
 class UserCreateRequest(BaseModel):
-    # CRITICAL FIX: Pydantic V2 compatibility
     model_config = ConfigDict(protected_namespaces=())
     username: str
     password: str
@@ -97,7 +90,6 @@ class UserCreateRequest(BaseModel):
 # 3. HR, LEAVE & PAYROLL MODELS (Your New Additions Included)
 # =============================================================================
 class LeaveRequestSubmit(BaseModel):
-    # CRITICAL FIX: Pydantic V2 compatibility
     model_config = ConfigDict(protected_namespaces=())
     leave_type: str
     start_date: str
@@ -107,7 +99,6 @@ class LeaveRequestSubmit(BaseModel):
     requested_hours: Optional[float] = None
 
 class LeaveRequest(BaseModel):
-    # CRITICAL FIX: Pydantic V2 compatibility
     model_config = ConfigDict(protected_namespaces=())
     employee_id: str
     start_date: datetime
@@ -117,7 +108,6 @@ class LeaveRequest(BaseModel):
     status: str = "pending"
 
 class PayslipMetadata(BaseModel):
-    # CRITICAL FIX: Pydantic V2 compatibility
     model_config = ConfigDict(protected_namespaces=())
     pay_period: str
     pay_date: str
@@ -127,14 +117,12 @@ class PayslipMetadata(BaseModel):
     jurisdiction_code: Optional[str] = None
 
 class BulkUploadRequest(BaseModel):
-    # CRITICAL FIX: Pydantic V2 compatibility
     model_config = ConfigDict(protected_namespaces=())
     file_type: str = Field(..., description="e.g., payslip, compensation_letter, user_csv")
     upload_date: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat()) # FIXED
     validation_required: bool = True
 
 class CompensationPlan(BaseModel):
-    # CRITICAL FIX: Pydantic V2 compatibility
     model_config = ConfigDict(protected_namespaces=())
     plan_id: str
     employee_id: str
@@ -144,7 +132,6 @@ class CompensationPlan(BaseModel):
     status: str = "pending_hrbp_review"
 
 class TimesheetEntry(BaseModel):
-    # CRITICAL FIX: Pydantic V2 compatibility
     model_config = ConfigDict(protected_namespaces=())
     employee_id: str
     date: datetime
@@ -155,7 +142,6 @@ class TimesheetEntry(BaseModel):
 # 4. HRSD TICKET MODELS (Critical for hrsd_router)
 # =============================================================================
 class HRSDTicket(BaseModel):
-    # CRITICAL FIX: Pydantic V2 compatibility
     model_config = ConfigDict(protected_namespaces=())
     ticket_id: str = Field(..., description="Unique ID for the ticket.")
     employee_id: str = Field(..., description="ID of the affected employee.")
@@ -172,13 +158,11 @@ class HRSDTicket(BaseModel):
 # 5. COMMAND & CONTROL MODELS
 # =============================================================================
 class CommandRequest(BaseModel):
-    # CRITICAL FIX: Pydantic V2 compatibility
     model_config = ConfigDict(protected_namespaces=())
     prompt: str
     context: Optional[Dict[str, Any]] = None
 
 class CommandResponse(BaseModel):
-    # CRITICAL FIX: Pydantic V2 compatibility
     model_config = ConfigDict(protected_namespaces=())
     agent: str
     message: str
@@ -186,7 +170,6 @@ class CommandResponse(BaseModel):
     verified: bool = False
 
 class FullAgentCommand(BaseModel):
-    # CRITICAL FIX: Pydantic V2 compatibility
     model_config = ConfigDict(protected_namespaces=())
     target_agent: str
     employee_id: Optional[str] = None 
@@ -194,7 +177,6 @@ class FullAgentCommand(BaseModel):
     data_context: Optional[Dict[str, Any]] = None
 
 class ConfigurationUpdate(BaseModel):
-    # CRITICAL FIX: Pydantic V2 compatibility
     model_config = ConfigDict(protected_namespaces=())
     key: str
     value: Any
@@ -204,7 +186,6 @@ class ConfigurationUpdate(BaseModel):
 # 6. WORKFORCE, TALENT & AI MODELS (Required for Agents)
 # =============================================================================
 class WorkforceModelData(BaseModel):
-    # CRITICAL FIX: Pydantic V2 compatibility
     model_config = ConfigDict(protected_namespaces=())
     snapshot_date: str
     department: str
@@ -215,7 +196,6 @@ class WorkforceModelData(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 class PredictiveModelConfig(BaseModel):
-    # CRITICAL FIX: Pydantic V2 compatibility
     model_config = ConfigDict(protected_namespaces=())
     model_name: str = "default_attrition_model"
     target_variable: str = "attrition_risk"
@@ -224,14 +204,12 @@ class PredictiveModelConfig(BaseModel):
     threshold: float = 0.7
 
 class PredictiveModelOutput(BaseModel):
-    # CRITICAL FIX: Pydantic V2 compatibility
     model_config = ConfigDict(protected_namespaces=())
     score: float
     label: Optional[str] = None
     confidence: Optional[float] = None
 
 class XAIExplanation(BaseModel):
-    # CRITICAL FIX: Pydantic V2 compatibility
     model_config = ConfigDict(protected_namespaces=())
     model: str
     prediction_score: float
@@ -240,7 +218,6 @@ class XAIExplanation(BaseModel):
     generated_at: str
 
 class TalentPoolData(BaseModel):
-    # CRITICAL FIX: Pydantic V2 compatibility
     model_config = ConfigDict(protected_namespaces=())
     candidate_id: str
     name: str
@@ -252,7 +229,6 @@ class TalentPoolData(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 class OffboardingKnowledge(BaseModel):
-    # CRITICAL FIX: Pydantic V2 compatibility
     model_config = ConfigDict(protected_namespaces=())
     employee_id: str
     successor_id: str
@@ -260,7 +236,6 @@ class OffboardingKnowledge(BaseModel):
     completion_date: Optional[str] = None
 
 class AIEmbeddingRequest(BaseModel):
-    # CRITICAL FIX: Pydantic V2 compatibility
     model_config = ConfigDict(protected_namespaces=())
     text: str
     model: Optional[str] = "default"
@@ -269,7 +244,6 @@ class AIEmbeddingRequest(BaseModel):
 # 7. ADVANCED AGENT MODELS (Integration, BPEL, Twins, RLFF)
 # =============================================================================
 class RLFFFeedbackEntry(BaseModel):
-    # CRITICAL FIX: Pydantic V2 compatibility
     model_config = ConfigDict(protected_namespaces=())
     interaction_id: str
     prompt: str
@@ -279,7 +253,6 @@ class RLFFFeedbackEntry(BaseModel):
     captured_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc)) # FIXED
 
 class ModelVersionUpdate(BaseModel):
-    # CRITICAL FIX: Pydantic V2 compatibility
     model_config = ConfigDict(protected_namespaces=())
     base_model: str
     new_version_tag: str
@@ -288,7 +261,6 @@ class ModelVersionUpdate(BaseModel):
     artifact_path: str
 
 class IntegrationTaskModel(BaseModel):
-    # CRITICAL FIX: Pydantic V2 compatibility
     model_config = ConfigDict(protected_namespaces=())
     task_id: str
     target_system: str
@@ -300,7 +272,6 @@ class IntegrationTaskModel(BaseModel):
     completed_at: Optional[datetime] = None
 
 class DigitalTwinState(BaseModel):
-    # CRITICAL FIX: Pydantic V2 compatibility
     model_config = ConfigDict(protected_namespaces=())
     twin_id: str
     entity_type: str
@@ -309,14 +280,12 @@ class DigitalTwinState(BaseModel):
     last_updated: datetime = Field(default_factory=lambda: datetime.now(timezone.utc)) # FIXED
 
 class SimulationRequest(BaseModel):
-    # CRITICAL FIX: Pydantic V2 compatibility
     model_config = ConfigDict(protected_namespaces=())
     scenario_name: str
     parameters: Dict[str, Any]
     duration_steps: int = 100
 
 class SystemHealthMetric(BaseModel):
-    # CRITICAL FIX: Pydantic V2 compatibility
     model_config = ConfigDict(protected_namespaces=())
     service_name: str
     status: str = "healthy"
@@ -327,7 +296,6 @@ class SystemHealthMetric(BaseModel):
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc)) # FIXED
 
 class UpgradeLog(BaseModel):
-    # CRITICAL FIX: Pydantic V2 compatibility
     model_config = ConfigDict(protected_namespaces=())
     upgrade_id: str
     target_module: str
@@ -337,7 +305,6 @@ class UpgradeLog(BaseModel):
     applied_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc)) # FIXED
 
 class BPELProcessDefinition(BaseModel):
-    # CRITICAL FIX: Pydantic V2 compatibility
     model_config = ConfigDict(protected_namespaces=())
     process_id: str
     name: str
@@ -347,7 +314,6 @@ class BPELProcessDefinition(BaseModel):
     version: int = 1
 
 class DaoProposal(BaseModel):
-    # CRITICAL FIX: Pydantic V2 compatibility
     model_config = ConfigDict(protected_namespaces=())
     title: str
     description: str
@@ -356,7 +322,6 @@ class DaoProposal(BaseModel):
     vote_deadline: Optional[str] = None
 
 class DaoVote(BaseModel):
-    # CRITICAL FIX: Pydantic V2 compatibility
     model_config = ConfigDict(protected_namespaces=())
     proposal_id: str
     voter_id: str

@@ -38,7 +38,6 @@ class EventPublisherService:
     TOPIC_AGENT_TASK_ASSIGNED = "agent.task.assigned"
     TOPIC_MIGRATION_HEARTBEAT = "data.migration.heartbeat"
     TOPIC_TELEMETRY = "system.telemetry"
-    # CRITICAL FIX: Add Topic for Human Approval (used by the Creator Flow to close the loop)
     TOPIC_HUMAN_APPROVAL = "agent.approval.human" 
 
     def __init__(self, agent_id: str = "OrchestratorKernel"):

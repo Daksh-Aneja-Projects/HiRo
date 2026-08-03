@@ -1,16 +1,16 @@
-# /backend/services/multi_agent_hrsd.py - FIXED (Agent Serialization)
+# backend/services/multi_agent_hrsd.py
 """Multi-Agent HRSD System: Handles employee tickets with Postgres persistence."""
 import asyncio
 import logging
 import json
 from typing import Dict, Any, Optional
-from datetime import datetime, timezone # CRITICAL FIX: Ensure timezone is imported
+from datetime import datetime, timezone
 import uuid
 from config.settings import settings
 from services.ai_services import AIService 
 from services.event_publisher_service import EventPublisherService
 from services.hr_modules import HRModulesService 
-from services.schemas.models import HRSDTicket, TicketStatus, TicketPriority # CRITICAL FIX: Ensure models are imported
+from services.schemas.models import HRSDTicket, TicketStatus, TicketPriority
 from services.postgres_client import pg_client
 
 logger = logging.getLogger(__name__)
@@ -236,7 +236,6 @@ class MultiAgentHRSDSystem:
         )
         await self._save_ticket(new_ticket)
         
-        # CRITICAL FIX: Publish the NEW TICKET event
         await self.publisher.publish_agent_task(
             task_data=new_ticket.model_dump(mode='json'),
             topic="HRSD_NEW_TICKET",
@@ -268,14 +267,13 @@ class MultiAgentHRSDSystem:
         triage_data = await self._classify(ticket)
 
         # 2. Update ticket
-        ticket.status = TicketStatus(triage_data.get("new_status", "IN_TRIAGE")) # FIX: Use TicketStatus Enum string input
-        ticket.priority = TicketPriority(triage_data.get("new_priority", "MEDIUM")) # FIX: Use TicketPriority Enum string input
+        ticket.status = TicketStatus(triage_data.get("new_status", "IN_TRIAGE"))
+        ticket.priority = TicketPriority(triage_data.get("new_priority", "MEDIUM"))
         ticket.assigned_agent = triage_data.get("next_agent", HRSDSubAgent.TRIAGE)
         
         await self._save_ticket(ticket)
         
-        # CRITICAL FIX 1: Use Pydantic V2 .model_dump() with mode='json'
-        payload = ticket.model_dump(mode='json') # FIX: Added mode='json'
+        payload = ticket.model_dump(mode='json')
         payload["triage_summary"] = triage_data.get("summary")
         
         # 3. Publish to queue for next agent
@@ -294,18 +292,15 @@ class MultiAgentHRSDSystem:
             
         ticket.status = TicketStatus.RESOLVED_BY_AGENT
         ticket.resolution_summary = resolution_summary
-        # FIX: Ensure resolved_at is set to a proper datetime object
         ticket.resolved_at = datetime.now(timezone.utc) 
         await self._save_ticket(ticket)
         
-        # CRITICAL FIX: Publish to the ServiceNow Facade 
         await self.publisher.publish_event(
             topic="HRSD_TICKET_RESOLVED",
             payload={
                 "ticket_id": ticket_id, 
                 "status": TicketStatus.RESOLVED_BY_AGENT.value,
                 "resolution_summary": resolution_summary,
-                # FIX: Send timezone-aware ISO format string for external systems
                 "resolved_at": ticket.resolved_at.isoformat() 
             },
             key=ticket_id

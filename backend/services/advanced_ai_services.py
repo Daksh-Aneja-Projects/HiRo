@@ -1,4 +1,4 @@
-# /backend/services/advanced_ai_services.py - FIXED
+# backend/services/advanced_ai_services.py
 # /backend/services/advanced_ai_services.py
 # backend services/advanced_ai_services.py
 """Advanced AI Services - Production-ready
@@ -7,7 +7,7 @@ from typing import Dict, Any, List, Optional, Union
 from datetime import datetime, timezone
 import secrets
 import logging
-from pydantic import BaseModel, Field, ConfigDict # CRITICAL FIX: Import ConfigDict
+from pydantic import BaseModel, Field, ConfigDict
 from motor.motor_asyncio import AsyncIOMotorClient
 from config.settings import settings
 
@@ -26,7 +26,6 @@ TIMESHEET_OVERTIME_WEIGHT = settings.TIMESHEET_OVERTIME_WEIGHT if hasattr(settin
 TIMESHEET_HISTORICAL_WEIGHT = settings.TIMESHEET_HISTORICAL_WEIGHT if hasattr(settings, 'TIMESHEET_HISTORICAL_WEIGHT') else 0.30
 
 class FlexiCompSimulation(BaseModel):
-    # CRITICAL FIX: Added protected_namespaces for Pydantic V2 compatibility
     model_config = ConfigDict(protected_namespaces=()) 
     valid: bool
     total_allocated: float
@@ -35,7 +34,6 @@ class FlexiCompSimulation(BaseModel):
     proposed_plan: Dict[str, Any]
 
 class TimesheetReconResult(BaseModel):
-    # CRITICAL FIX: Added protected_namespaces for Pydantic V2 compatibility
     model_config = ConfigDict(protected_namespaces=()) 
     timesheet_id: str
     ml_confidence_score: float = Field(..., ge=0.0, le=1.0)
@@ -139,7 +137,7 @@ class AdvancedAIServices:
             score += TIMESHEET_SCHEDULE_MATCH_WEIGHT * 0.5
         else:
             # Submitted 0, Scheduled 0 (Idle week) - full match score
-            score += TIMESHEET_SCHEDULE_MATCH_WEIGHT * 1.0 # FIX: Explicitly multiply by 1.0 for clarity on max score assignment
+            score += TIMESHEET_SCHEDULE_MATCH_WEIGHT * 1.0
             
         # 2. Overtime (Max weight: 0.40)
         if submitted > TIMESHEET_MAX_HOURS_OVERTIME_RISK:
@@ -152,7 +150,6 @@ class AdvancedAIServices:
             
         # 3. Historical variance (Max weight: 0.30)
         if user_id:
-            # CRITICAL FIX: Ensure to_list() is called with await 
             hist = await self.timesheets.find({"user_id": user_id.lower()}).sort("submitted_at", -1).limit(TIMESHEET_HISTORICAL_WEEKS).to_list(length=None)
             
             hours = [float(h.get("total_hours", 0.0)) for h in hist if h.get("total_hours") is not None]
@@ -188,6 +185,5 @@ class MockAsyncIOMotorClient:
     def limit(self, *args, **kwargs): return self
     async def to_list(self, length): return []
 
-# CRITICAL FIX: Ensure this is only run if it's not being imported as a module for injection
 if __name__ == "__main__":
     advanced_ai_services = AdvancedAIServices(mongo_client=MockAsyncIOMotorClient())
