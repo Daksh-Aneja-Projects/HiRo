@@ -387,6 +387,7 @@ async def get_orchestrator_dashboard(req: Request, payload: Dict = Depends(manag
         cpu = round(psutil.cpu_percent(interval=0.1), 1)
         mem = round(psutil.virtual_memory().percent, 1)
     except Exception:
+        logger.debug("psutil read failed", exc_info=True)
         cpu, mem = 0.0, 0.0
     publisher = getattr(state, "event_publisher", None)
     nats_up = bool(getattr(getattr(publisher, "nc", None), "is_connected", False)) if publisher else False
@@ -509,7 +510,7 @@ async def execute_orchestrator_command(req: Request, prompt: str = Body(..., emb
         routed = json.loads(raw[raw.find("{"): raw.rfind("}") + 1])
         agent = routed.get("agent", "AIService")
         summary = routed.get("summary", "Command processed.")
-    except Exception:
+    except (ValueError, TypeError, AttributeError):
         agent, summary = "AIService", raw.strip()[:400]
 
     result_id = f"ORCH-{random.getrandbits(32):08x}"

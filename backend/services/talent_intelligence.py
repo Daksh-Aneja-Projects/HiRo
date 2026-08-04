@@ -154,6 +154,7 @@ async def internal_matches_for_requisition(mongo_client, requisition: Dict[str, 
         try:
             name = vault.decrypt(row["full_name_encrypted"]) if row.get("full_name_encrypted") else row["employee_uuid"]
         except Exception:
+            logger.debug("Name decrypt failed for %s", row.get("employee_uuid"), exc_info=True)
             name = row["employee_uuid"]
         scored.append({
             "employee_uuid": row["employee_uuid"],
@@ -303,6 +304,7 @@ async def nine_box(mongo_client) -> Dict[str, Any]:
             try:
                 name = vault.decrypt(r["full_name_encrypted"]) if r.get("full_name_encrypted") else r["employee_uuid"]
             except Exception:
+                logger.debug("Name decrypt failed for %s", r.get("employee_uuid"), exc_info=True)
                 name = r["employee_uuid"]
             cell["people"].append({"employee_uuid": r["employee_uuid"], "name": name,
                                     "department": dept, "job_title": r.get("job_title")})

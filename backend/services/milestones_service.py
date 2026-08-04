@@ -62,6 +62,7 @@ async def _anniversaries(manager_id: Optional[str], window_days: int) -> List[Di
         try:
             name = vault.decrypt(r["full_name_encrypted"]) if r.get("full_name_encrypted") else r["employee_uuid"]
         except Exception:
+            logger.debug("Name decrypt failed for %s", r.get("employee_uuid"), exc_info=True)
             name = r["employee_uuid"]
         out.append({
             "employee_uuid": r["employee_uuid"], "name": name, "department": r["department"],

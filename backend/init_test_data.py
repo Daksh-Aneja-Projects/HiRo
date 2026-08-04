@@ -184,7 +184,7 @@ def calculate_tenure(hire_date_str: str) -> int:
         hire_date = datetime.strptime(hire_date_str, '%Y-%m-%d')
         tenure_months = (datetime.now() - hire_date).days // 30
         return max(1, tenure_months)
-    except:
+    except (ValueError, TypeError):
         return 1
 
 async def get_core_demo_employees():

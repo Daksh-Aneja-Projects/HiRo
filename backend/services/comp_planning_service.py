@@ -90,6 +90,7 @@ async def _populate_lines(cycle_id: str, department: str, created_by: str) -> in
         try:
             salary = float(vault.decrypt(r["base_salary_encrypted"])) if r.get("base_salary_encrypted") else 0.0
         except Exception:
+            logger.debug("Salary decrypt/parse failed for %s", r.get("employee_uuid"), exc_info=True)
             salary = 0.0
         cents_by_uuid[r["employee_uuid"]] = int(round(salary * 100))
 

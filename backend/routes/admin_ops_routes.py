@@ -58,6 +58,7 @@ async def get_system_health(req: Request, payload: Dict=Depends(hrit_admin_role_
         else:
             checks["mongodb"] = "DOWN"
     except Exception:
+        logger.debug("MongoDB health check failed", exc_info=True)
         checks["mongodb"] = "DOWN"
 
     publisher = getattr(req.app.state, "event_publisher", None)
@@ -69,6 +70,7 @@ async def get_system_health(req: Request, payload: Dict=Depends(hrit_admin_role_
             await redis_client.ping()
             checks["redis"] = "UP"
         except Exception:
+            logger.debug("Redis health check failed", exc_info=True)
             checks["redis"] = "DOWN"
 
     ai_service = getattr(req.app.state, "ai_service", None)
@@ -76,6 +78,7 @@ async def get_system_health(req: Request, payload: Dict=Depends(hrit_admin_role_
         models = await ai_service.get_ai_models() if ai_service else []
         checks["ai_primary"] = "UP" if models else "DOWN"
     except Exception:
+        logger.debug("AI service health check failed", exc_info=True)
         checks["ai_primary"] = "DOWN"
 
     # A green tick beside a row reading "message bus: down" is worse than no
@@ -184,6 +187,7 @@ async def get_admin_dashboard(req: Request, payload: Dict=Depends(hrit_admin_rol
         # utilisation", which it never was.
         memory_util_pct = round(psutil.virtual_memory().percent, 1)
     except Exception:
+        logger.debug("psutil memory read failed", exc_info=True)
         memory_util_pct = None
 
     return {
@@ -424,7 +428,7 @@ async def security_scan_bpcl(req: Request, code: Dict[str, Any], payload: Dict=D
     if isinstance(raw, str):
         try:
             content = json.loads(raw)
-        except Exception:
+        except (ValueError, TypeError):
             # BPCL text used to be wrapped as {"bpcl_code": raw} and handed
             # straight to a validator that requires policy_name and rules[], so
             # every BPCL document this module exists to lint came back

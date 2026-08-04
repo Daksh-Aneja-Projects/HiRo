@@ -81,6 +81,7 @@ class PIIVault:
                         new_row[field.replace('_encrypted', '')] = val # Store decrypted value under the clear name
                         del new_row[field] # Remove the encrypted field
                     except Exception:
+                        logger.warning("PII decryption failed for field %s", field, exc_info=True)
                         new_row[field.replace('_encrypted', '')] = "[DECRYPTION_FAILED]"
                         del new_row[field]
 

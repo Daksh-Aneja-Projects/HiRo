@@ -73,5 +73,6 @@ class DMAgent:
             # Simple text generation for a single data point
             response = await self.ai.generate_text(insight_prompt, task_type="analysis")
             return {"competitor_weakness": response.strip()}
-        except:
+        except Exception:
+            logger.warning("Competitor analysis call failed; using fallback.", exc_info=True)
             return {"competitor_weakness": "Competitors offer lower sign-on bonuses."}

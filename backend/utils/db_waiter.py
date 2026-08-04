@@ -34,7 +34,7 @@ try:
     # JetStream API errors
     try:
         from nats.js.errors import APIError as JetStreamAPIError
-    except Exception:
+    except ImportError:
         JetStreamAPIError = None
 except ImportError:
     nats = None
@@ -63,7 +63,7 @@ def wait_tcp(host: str, port: int, timeout: float) -> bool:
         try:
             with socket.create_connection((host, port), timeout=2):
                 return True
-        except Exception:
+        except OSError:
             time.sleep(min(INTERVAL, 1.0))
     return False
 
@@ -228,8 +228,8 @@ def main() -> int:
                             try:
                                 await js.stream_info("HIRO_TEST")
                                 logger.info("🛠 JetStream test stream HIRO_TEST already exists")
-                            except:
-                                # Stream doesn't exist, create it
+                            except Exception:
+                                logger.debug("HIRO_TEST stream not found; creating it", exc_info=True)
                                 await js.add_stream(stream_config)
                                 logger.info("🛠 Created JetStream test stream HIRO_TEST")
                         except Exception as se:

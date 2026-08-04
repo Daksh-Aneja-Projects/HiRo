@@ -42,6 +42,7 @@ class MSSService:
                 )
                 total = int((row or {}).get("n") or 0)
             except Exception:
+                logger.debug("Team count query failed; falling back to page size", exc_info=True)
                 total = len(data)
             return {"manager": manager_id, "team": data, "total": total, "limit": limit, "offset": offset}
         except Exception as e:

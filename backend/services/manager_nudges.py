@@ -103,6 +103,7 @@ async def _one_on_one_nudge(manager_uuid: str) -> Optional[Dict[str, Any]]:
             "severity": "medium",
         }
     except Exception:
+        logger.debug("1:1 overdue nudge computation failed", exc_info=True)
         return None
 
 

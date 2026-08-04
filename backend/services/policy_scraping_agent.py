@@ -58,8 +58,9 @@ class PolicyScrapingAgent:
         if not jurisdictions:
             try:
                 # Real call to Chaincode (Postgres)
-                jurisdictions = ["US-CA", "UK", "EU"] 
+                jurisdictions = ["US-CA", "UK", "EU"]
             except Exception:
+                logger.debug("Jurisdiction lookup failed; using configured default", exc_info=True)
                 jurisdictions = settings.POLICY_SCRAPING_JURISDICTIONS
                 
         logger.info(f"Policy scraping initiated for {len(jurisdictions)} jurisdictions.")

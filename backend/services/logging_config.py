@@ -81,7 +81,7 @@ def init_logging():
     for h in list(root.handlers):
         try:
             root.removeHandler(h)
-        except Exception:
+        except ValueError:
             pass
             
     # 2. Configure the Root Logger

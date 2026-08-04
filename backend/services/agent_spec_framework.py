@@ -42,7 +42,7 @@ class AgentSpecValidator:
             
             # Mock check: assume path starting with 'services.'
             return module_path.startswith("services.")
-        except Exception:
+        except (AttributeError, TypeError):
             return False
 
     async def validate_deployability(self, agent_spec: Dict[str, Any]) -> Dict[str, Any]:

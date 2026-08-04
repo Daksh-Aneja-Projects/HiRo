@@ -93,6 +93,7 @@ class ESSService:
                       WHERE employee_uuid = $1 AND read_at IS NULL)    AS unread""",
                 employee_id)
         except Exception:
+            logger.debug("ESS dashboard counts query failed", exc_info=True)
             row = None
 
         pending = int((row or {}).get("pending_leave") or 0)

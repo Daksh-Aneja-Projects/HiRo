@@ -96,6 +96,7 @@ class Settings:
         try:
             password_value = self.MONGO_PASSWORD.get_secret_value()
         except Exception:
+            logger.critical("Failed to read MONGO_PASSWORD; using placeholder in Mongo URL.")
             password_value = "MOCK_PASS"
         return f"mongodb://{self.MONGO_USER}:{password_value}@{self.MONGO_HOST}:{self.MONGO_PORT}/{self.MONGO_DB_NAME}?authSource=admin"
         

@@ -169,6 +169,7 @@ class MultiAgentHRSDSystem:
             models = await self.ai_service.get_ai_models()
             return bool(models)
         except Exception:
+            logger.debug("Triage model availability check failed", exc_info=True)
             return False
 
     async def _classify(self, ticket: HRSDTicket) -> Dict[str, Any]:

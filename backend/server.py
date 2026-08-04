@@ -616,10 +616,11 @@ async def login_user(request: Request):
             password = form_data.get("password")
         else:
             try:
-                json_data = await request.json()        
+                json_data = await request.json()
                 username = json_data.get("username")
                 password = json_data.get("password")
-            except:
+            except (ValueError, TypeError):
+                # Body was not valid JSON; the missing-credentials check below handles it.
                 pass
                 
         if not username or not password:

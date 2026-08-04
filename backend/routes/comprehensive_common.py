@@ -421,7 +421,7 @@ async def _generate_jd(req: Request, data: Dict) -> Dict[str, Any]:
     raw = await ai_service.generate_text(prompt, "You are an expert HR copywriter. Output only JSON.")
     try:
         parsed = json.loads(raw[raw.find("{"): raw.rfind("}") + 1])
-    except Exception:
+    except (ValueError, TypeError, AttributeError):
         parsed = {"title": role, "summary": raw.strip()[:800], "responsibilities": [], "requirements": [], "nice_to_have": []}
     parsed["draft_id"] = f"JD-{random.getrandbits(24):06x}"
     return parsed

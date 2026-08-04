@@ -79,7 +79,7 @@ class AdvancedAIServices:
             if k in proposed_plan:
                 try:
                     proposed_plan[k] = float(v)
-                except Exception:
+                except (ValueError, TypeError):
                     proposed_plan[k] = v
         
         total_budget = float(proposed_plan.get("total_budget", 0))
