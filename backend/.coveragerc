@@ -1,0 +1,12 @@
+[run]
+# Coverage reflects shipped application code, not the tests that exercise it.
+omit =
+    tests/*
+    */__pycache__/*
+    */site-packages/*
+
+[report]
+exclude_lines =
+    pragma: no cover
+    if __name__ == .__main__.:
+    raise NotImplementedError
