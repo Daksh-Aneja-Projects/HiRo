@@ -144,11 +144,12 @@ All configuration is environment-driven — see [.env.example](.env.example) for
 ```
 HiRo/
 ├── backend/            FastAPI app — routers, services, agents, config
-│   ├── server.py       app entry (lifespan, middleware, router mounting)
+│   ├── server.py       app assembly (middleware, router mounting, exception handlers)
+│   ├── app_lifespan.py startup/shutdown wiring + background tasks
 │   ├── config/         settings (env-driven)
-│   ├── routes/         streaming · simulation · remediation
+│   ├── routes/         API endpoints, grouped by domain (governance, hr_core, ...)
 │   ├── services/       business logic, agents, AI, DB clients
-│   └── tests/          pytest suite
+│   └── tests/          pytest suite (391 tests)
 ├── frontend/           React 18 SPA (CRACO)
 │   └── src/            components · pages · contexts · config · hooks
 ├── dgraph_init/        Dgraph org-graph schema initializer
