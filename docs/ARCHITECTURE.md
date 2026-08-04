@@ -32,12 +32,12 @@ Browser → Nginx (:80) → FastAPI (:8001) → { PostgreSQL, MongoDB, Redis, Dg
 
 **Framework:** FastAPI (async), served by Gunicorn + Uvicorn workers in production.
 
-**Entry point:** `backend/server.py` builds the app with a lifespan context, CORS, GZip, and a custom rate-limit middleware, then mounts every router under `/api`.
+**Entry point:** `backend/server.py` builds the app (CORS, GZip, a custom rate-limit middleware) and mounts every router under `/api`. Startup/shutdown wiring and the background loops live in `backend/app_lifespan.py`, whose lifespan constructs the services and attaches them to `app.state`.
 
 ### Layering
 - **`config/settings.py`** — a single env-driven `Settings` object. All tunables (DB URLs, JWT, NATS, LLM model, enforcement thresholds, feature flags) resolve from environment variables with sane defaults.
-- **`routes/`** — three standalone routers: `streaming` (SSE agent-thought + WebSocket telemetry), `simulation` (what-if analysis), `remediation` (self-healing).
-- **`services/`** — the bulk of the system: business services, ~40 agents, the AI layer, DB clients, and `comprehensive_routes.py`, which aggregates ~27 domain routers into `ALL_ROUTERS`.
+- **`routes/`** — the API surface, one module per domain (`governance`, `hrsd`, `admin_ops`, `ai_data`, `hr_core`, `workforce`, `talent_ext`, `engagement`, plus `people_lifecycle`, `talent`, `ai_knowledge`, and `streaming`). Shared request models, the router instances, and helpers live in `routes/comprehensive_common.py`, which exposes `ALL_ROUTERS`.
+- **`services/`** — the bulk of the system: business services, ~40 agents, the AI layer, and DB clients. `services/comprehensive_routes.py` is a thin aggregator that imports the domain route modules (registering their handlers) and re-exports `ALL_ROUTERS`, so existing imports keep working.
 - **`utils/`** — async helpers, DB readiness waiter, custom exception hierarchy.
 
 ### Service wiring

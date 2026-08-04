@@ -82,7 +82,7 @@ The blockchain/PQC/"conceptual" modules are **load-bearing** (imported by 6–10
 
 ## Phase 5 — Architecture & maintainability ⬜
 
-- ⬜ Split `comprehensive_routes.py` (~27 routers, 100+ endpoints) into domain route modules.
+- ✅ Split `comprehensive_routes.py` (~27 routers, 160+ endpoints) into domain route modules under `routes/`, every URL path preserved (route table verified identical before/after).
 - ⬜ Introduce explicit **dependency injection**, replacing `app.state` service-locator lookups.
 - ⬜ Add **Alembic migrations** for PostgreSQL; formalize the UDM schema.
 - ⬜ Remove the import-time **try/except stub fallbacks** so missing services fail loudly.
@@ -90,11 +90,11 @@ The blockchain/PQC/"conceptual" modules are **load-bearing** (imported by 6–10
 
 ---
 
-## Phase 6 — Testing & CI ⬜
+## Phase 6 — Testing & CI 🟡
 
-- ⬜ Backend: pytest coverage on auth, routes, `AIService`, and enforcement — target 70%+.
+- 🟡 Backend: suite grown 107 → 391 tests with a CI coverage gate (`--cov-fail-under=38`); measured app coverage is 41%. The 70%+ target and deeper `AIService`/enforcement coverage remain open.
 - ⬜ Frontend: component tests + Playwright E2E for login → timesheet → leave → approvals.
-- ⬜ Harden the GitHub Actions pipeline: lint → test → build → (deploy), with the model/Ollama mocked in CI.
+- ✅ GitHub Actions pipeline is green end to end (test-backend → test-frontend → security-scan → docker-build); tests run without a database or Ollama. Lint and a deploy stage remain open.
 - ⬜ Pre-commit hooks (ruff/black, eslint/prettier).
 
 ---

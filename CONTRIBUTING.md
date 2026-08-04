@@ -14,7 +14,7 @@ docker compose up -d --build
 ```bash
 cd backend
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.in -r requirements-dev.in
+pip install -r requirements.txt -r requirements-dev.in
 uvicorn server:app --reload --port 8001
 ```
 
@@ -49,11 +49,28 @@ ollama pull qwen2.5:7b
 - Small, focused commits. Conventional-commit style messages (`feat:`, `fix:`, `chore:`, `docs:`).
 - Never commit `.env`, secrets, build artifacts, or internal planning docs.
 
+### Dependencies
+
+`backend/requirements.txt` is compiled from `backend/requirements.in` with
+[pip-tools](https://github.com/jazzband/pip-tools). To change a backend dependency,
+edit `requirements.in`, then regenerate the lock:
+
+```bash
+cd backend && pip-compile requirements.in
+```
+
+The frontend `package-lock.json` is generated with **npm 10** (the version CI's
+Node 20 ships); use `npx npm@10 install` when changing frontend dependencies so
+`npm ci` stays in sync.
+
 ## Testing
 
 ```bash
-# Backend
+# Backend (pytest.ini puts backend/ on sys.path, so `import server` resolves)
 cd backend && pytest
+
+# Backend with the coverage gate CI enforces (fails under 38%)
+cd backend && pytest --cov=. --cov-report=term-missing --cov-fail-under=38
 
 # Frontend
 cd frontend && npm test
